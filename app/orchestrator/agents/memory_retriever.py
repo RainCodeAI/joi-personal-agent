@@ -38,35 +38,75 @@ class MemoryRetrieverAgent:
         memory_store: MemoryStore,
     ) -> ContextBundle:
         """Build a ContextBundle by querying the memory store."""
+        from datetime import datetime
+        from app.config import JOI_CORE_PROMPT
 
         bundle = ContextBundle()
 
-        # 1. User profile + personality formatting
-        bundle.profile_info = self._build_profile_info(session_id, memory_store)
-
-        # 2. Sentiment analysis
+        # 1. Sentiment analysis
         bundle.sentiment = self._analyze_sentiment(user_msg)
+
+        # 2. Recent mood average
+        # This updates bundle.profile_info with mood warnings, but we'll reset profile_info soon.
+        # We should calculate avg_mood purely here.
+        bundle.avg_mood = self._compute_avg_mood_score(session_id, memory_store)
+
+        # 3. User Profile & Idle Time
+        profile = memory_store.get_user_profile(session_id)
+        profile_summary = "Unknown"
+        relationship_level = "Acquaintance"
+        if profile:
+            parts = [f"Name: {profile.name}", f"Hobbies: {profile.hobbies}"]
+            if profile.relationships:
+                parts.append(f"Relationships: {profile.relationships}")
+            if profile.personality:
+                parts.append(f"Persona: {profile.personality}")
+            profile_summary = ", ".join(parts)
+            # Rough proxy for relationship level based on contact/milestones (future improvement)
+            relationship_level = "Access Level 5 (Companion)"
+
+        # Calculate idle time
+        idle_hours = 0.0
+        try:
+            history = memory_store.get_chat_history(session_id)
+            if history and len(history) >= 2:
+                # history[-1] is *this* user message (just added), history[-2] is previous.
+                last_ts = history[-2].timestamp
+                if last_ts:
+                    diff = datetime.utcnow() - last_ts
+                    idle_hours = round(diff.total_seconds() / 3600, 1)
+        except Exception:
+            pass
+
+        # 4. Assemble Core Prompt
+        # Inject variables
+        core_prompt = JOI_CORE_PROMPT.format(
+            profile_summary=profile_summary,
+            avg_mood=f"{bundle.avg_mood:.1f}",
+            relationship_level=relationship_level,
+            idle_hours=idle_hours
+        )
+        bundle.profile_info = core_prompt
+
+        # 5. Append dynamic situational context
         if bundle.sentiment == "negative":
-            bundle.profile_info += (
-                " User seems stressed or negative—respond empathetically, offer support."
-            )
+            bundle.profile_info += "\n[System Note]: User input is negative. Be empathetic."
         elif bundle.sentiment == "positive":
-            bundle.profile_info += " User seems happy—share in the positivity."
+            bundle.profile_info += "\n[System Note]: User input is positive. Match enthusiasm."
+        
+        # Add mood warning if significant
+        if bundle.avg_mood < 4.0:
+            bundle.profile_info += "\n[System Note]: User has been consistently low mood. Prioritize comfort."
 
-        # 3. Recent mood average
-        bundle.avg_mood = self._compute_avg_mood(session_id, memory_store, bundle)
-
-        # 4. News / weather on request
+        # 6. News / weather on request
         bundle.profile_info += self._maybe_fetch_news_weather(user_msg)
 
-        # 5. Knowledge graph on trigger
+        # 7. Knowledge graph on trigger
         if "graph" in user_msg.lower() or "connections" in user_msg.lower():
             memory_store.populate_knowledge_graph(session_id)
-            bundle.profile_info += (
-                " Knowledge graph updated with your goals, habits, and decisions."
-            )
+            bundle.profile_info += "\n[System Note]: Knowledge graph updated."
 
-        # 6. Graph RAG search for relevant memories
+        # 8. Graph RAG search
         bundle.relevant_memories = memory_store.graph_rag_search(user_msg, k=3)
         if bundle.relevant_memories:
             bundle.memory_context = (
@@ -77,59 +117,6 @@ class MemoryRetrieverAgent:
         return bundle
 
     # ── private helpers ───────────────────────────────────────────────────
-
-    @staticmethod
-    def _build_profile_info(session_id: str, memory_store: MemoryStore) -> str:
-        profile = memory_store.get_user_profile(session_id)
-        if not profile:
-            return ""
-
-        parts: List[str] = [
-            f"User Profile: Name: {profile.name}, "
-            f"Hobbies: {profile.hobbies}, "
-            f"Relationships: {profile.relationships}."
-        ]
-
-        if profile.therapeutic_mode:
-            parts.append(
-                "Therapeutic Mode Enabled: Use CBT-inspired prompts like "
-                "'What's one positive thing today?' or 'What triggered this feeling?'."
-            )
-
-        personality_map = {
-            "Witty": (
-                "Personality: Witty - Be humorous, use puns, light sarcasm. "
-                "Start with 'As your witty AI friend...'."
-            ),
-            "Supportive": (
-                "Personality: Supportive - Be encouraging, empathetic, "
-                "positive reinforcement."
-            ),
-            "Sarcastic": (
-                "Personality: Sarcastic - Use irony, teasing humor, "
-                "but keep it friendly."
-            ),
-            "Professional": (
-                "Personality: Professional - Formal, concise, business-like tone."
-            ),
-        }
-        if profile.personality and profile.personality in personality_map:
-            parts.append(personality_map[profile.personality])
-
-        if hasattr(profile, "humor_level"):
-            humor_desc = (
-                "low"
-                if profile.humor_level < 4
-                else "medium"
-                if profile.humor_level < 7
-                else "high"
-            )
-            parts.append(
-                f"Humor level: {humor_desc} (scale 1-10: {profile.humor_level}). "
-                "Adjust wit accordingly."
-            )
-
-        return " ".join(parts)
 
     @staticmethod
     def _analyze_sentiment(user_msg: str) -> str:
@@ -146,25 +133,14 @@ class MemoryRetrieverAgent:
         return "neutral"
 
     @staticmethod
-    def _compute_avg_mood(
+    def _compute_avg_mood_score(
         session_id: str,
         memory_store: MemoryStore,
-        bundle: ContextBundle,
     ) -> float:
         recent_moods = memory_store.get_recent_moods(session_id, 3)
         avg_mood = 5.0
         if recent_moods:
             avg_mood = sum(m.mood for m in recent_moods) / len(recent_moods)
-            if avg_mood < 5:
-                bundle.profile_info += (
-                    f" User's recent mood average is low "
-                    f"({avg_mood:.1f}/10)—be extra supportive."
-                )
-            elif avg_mood > 7:
-                bundle.profile_info += (
-                    f" User's recent mood average is high "
-                    f"({avg_mood:.1f}/10)—celebrate with them."
-                )
         return avg_mood
 
     @staticmethod
