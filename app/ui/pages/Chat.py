@@ -13,8 +13,11 @@ from PIL import Image
 from pathlib import Path
 from datetime import datetime, timedelta
 
+from app.ui import styles
+
 def main():
     st.title("👁️ Chat with Joi")
+    styles.inject_global_styles()
     
     if "session_id" not in st.session_state:
         st.session_state.session_id = "default"  # Or generate unique
