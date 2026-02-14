@@ -1,0 +1,52 @@
+version: '3.8'
+
+services:
+  joi-app:
+    build: .
+    container_name: joi_agent
+    ports:
+      - "8501:8501"
+    environment:
+      - DATABASE_URL=postgresql://joi:password@postgres:5432/joi_db
+      - CHROMA_HOST=chromadb
+      - CHROMA_PORT=8000
+    volumes:
+      - .:/app
+    depends_on:
+      - postgres
+      - chromadb
+    networks:
+      - joi_network
+
+  postgres:
+    image: ankane/pgvector:latest
+    container_name: joi_postgres
+    environment:
+      - POSTGRES_USER=joi
+      - POSTGRES_PASSWORD=password
+      - POSTGRES_DB=joi_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - joi_network
+
+  chromadb:
+    image: chromadb/chroma:latest
+    container_name: joi_chroma
+    ports:
+      - "8000:8000"
+    volumes:
+      - chroma_data:/chroma/chroma
+    networks:
+      - joi_network
+
+volumes:
+  postgres_data:
+  chroma_data:
+
+
+networks:
+  joi_network:
+    driver: bridge

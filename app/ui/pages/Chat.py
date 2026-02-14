@@ -138,6 +138,9 @@ def main():
 
     # Now the form (button-free)
     with st.form(key="chat_form"):
+        # Image Upload for Vision
+        uploaded_file = st.file_uploader("Upload an image (Joi can see it)", type=["png", "jpg", "jpeg"])
+        
         if st.session_state.get('voice_mode', False):
             # Use pending transcript if available, else fallback input
             default_input = st.session_state.get("pending_transcript", "")
@@ -152,12 +155,32 @@ def main():
 
         submitted = st.form_submit_button("Send")
         
-        if submitted and user_input.strip():
-            # Add to history
-            user_msg = ChatMessage(role="user", content=user_input)
-            st.session_state.chat_history.append(user_msg)
-            
-            response = agent.reply(st.session_state.chat_history, user_input, st.session_state.session_id)
+        if submitted:
+            # Handle Vision
+            image_context = ""
+            if uploaded_file:
+                from app.tools import vision_clip
+                # Save temp to process (or pass bytes if vision_clip supported it, but it takes path currently? 
+                # Wait, vision_clip.describe_image takes image_path str. I should update it to take PIL Image or bytes, 
+                # or save temp. Saving temp is safer for lazy loading pipeline reading from file.)
+                # Actually pipeline can take PIL Image. Let's check vision_clip.py...
+                # It takes image_path string. I'll save to temp.
+                with open("temp_image.png", "wb") as f:
+                    f.write(uploaded_file.getbuffer())
+                
+                with st.spinner("Analyzing image..."):
+                    desc = vision_clip.describe_image("temp_image.png")
+                    image_context = f" [User uploaded an image. Description: {desc}]"
+                    st.image(uploaded_file, caption=f"Joi sees: {desc}", width=200)
+
+            if user_input.strip() or image_context: # Allow sending just image
+                full_msg = (user_input + image_context).strip()
+                
+                # Add to history
+                user_msg = ChatMessage(role="user", content=full_msg)
+                st.session_state.chat_history.append(user_msg)
+                
+                response = agent.reply(st.session_state.chat_history, full_msg, st.session_state.session_id)
             
             assistant_msg = ChatMessage(role="assistant", content=response.text)
             st.session_state.chat_history.append(assistant_msg)

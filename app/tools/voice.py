@@ -61,9 +61,21 @@ class VoiceTools:
             return None
     
     def text_to_speech(self, text):
-        """Speak text via pyttsx3."""
+        """Speak text via ElevenLabs (if avail) or pyttsx3."""
         if not self.enabled or not text:
             return
+        
+        # Try ElevenLabs first
+        try:
+            from app.tools import voice_elevenlabs
+            if voice_elevenlabs.is_available():
+                audio = voice_elevenlabs.text_to_speech(text)
+                voice_elevenlabs.play(audio)
+                return
+        except Exception as e:
+            print(f"ElevenLabs error (falling back to local): {e}")
+
+        # Fallback to local
         try:
             self.tts_engine.say(text)
             self.tts_engine.runAndWait()
