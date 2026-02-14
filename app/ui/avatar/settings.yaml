@@ -1,0 +1,46 @@
+avatar:
+  assets_dir: "assets"
+  base_face: "Joi_Base.png"
+  mouth_shapes:
+    rest: "Joi_Neutral.png"
+    A: "Joi_ah.png"
+    E: "Joi_ee.png"
+    O: "Joi_O.png"
+    U: "Joi_W.png"
+    MB: "Joi_M.png"
+    FV: "Joi_F.png"
+    # Extended shapes (available in assets)
+    B: "Joi_B.png"
+    K: "Joi_K.png"
+    L: "Joi_L.png"
+    R: "Joi_R.png"
+    S: "Joi_S.png"
+    TH: "Joi_TH.png"
+    Oh: "Joi_Oh.png"
+  eyes:
+    open: "Joi_Neutral.png"
+    blink: "Joi_Neutral.png"   # No separate blink asset yet
+  eyebrows:
+    neutral: "Joi_Neutral.png"
+    focus: "Joi_Neutral.png"   # No separate eyebrow asset yet
+  expressions:
+    neutral: "Joi_Neutral.png"
+    smile: "Joi_Smile.png"
+    concern: "Joi_Frown.png"
+    focus: "Joi_Neutral.png"
+    shock: "Joi_Shock.png"
+    smirk: "Joi_Smirk.png"
+  timing:
+    blink_interval: [3.0, 6.0]  # seconds
+    crossfade_duration: 0.08  # 80ms
+    lip_sync_offset: 0.0  # adjustable
+    parallax_amplitude: 5  # pixels
+    parallax_speed: 2.0  # seconds per cycle
+  sentiment_mapping:
+    positive: "smile"
+    stress: "concern"
+    neutral: "neutral"
+    focus: "focus"
+    shock: "shock"
+    smirk: "smirk"
+  expression_intensity: 1.0  # 0-1 scale
