@@ -61,6 +61,37 @@ class PlannerAgent:
 
         return ctx
 
+    def check_mood_trends(self, session_id: str, memory_store: MemoryStore) -> str | None:
+        """Proactive check: returns a message if mood trend is negative, else None."""
+        # Reuse private helper logic but for external scheduler reference
+        msg = self._proactive_checkin(session_id, [], memory_store)  # History check skipped in helper if empty
+        
+        # Helper expects history to trigger mod-10 check.
+        # For scheduler, we want to force the check regardless of chat history length.
+        # So we'll bypass the helper's gate logic here.
+        trend = memory_store.mood_trend_analysis(session_id)
+        if trend["trend"] < -0.5:
+            return (
+                f"I noticed your mood trend has been dipping lately (avg {trend['avg_mood']:.1f}). "
+                "How are you feeling today?"
+            )
+        if trend["avg_mood"] < 4:
+            return f"Your recent mood seems a bit low (avg {trend['avg_mood']:.1f}). I'm here if you want to talk."
+        return None
+
+    def check_habits(self, session_id: str, memory_store: MemoryStore) -> str | None:
+        """Proactive check: returns a message if habits are neglected, else None."""
+        habits = memory_store.get_habits(session_id)
+        parts: List[str] = []
+        now = datetime.utcnow()
+        for h in habits:
+            # If not done in 2 days (48h), nudge
+            if h.last_done and (now - h.last_done).days >= 2:
+                parts.append(
+                    f"Reminder: Keep your streak alive! You haven't done '{h.name}' in a couple of days."
+                )
+        return " ".join(parts) if parts else None
+
     # ── private helpers ───────────────────────────────────────────────────
 
     @staticmethod

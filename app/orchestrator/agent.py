@@ -130,7 +130,15 @@ class Agent:
             latency_ms=_elapsed_ms,
         )
 
-        return ChatResponse(text=reply, session_id=session_id, tool_calls=tool_calls)
+        return ChatResponse(text=reply, session_id=session_id, tool_calls=[tc.dict() for tc in tool_calls])
+
+    # ── persona filter (delegated) ────────────────────────────────────────
+
+    def run_tool(self, tool_name: str, args: Dict[str, Any]) -> Dict[str, Any]:
+        """Execute a tool directly (e.g. after approval)."""
+        tc = self._executor.run_tool(tool_name, args)
+        self.log_action("tool_execution", tc.dict())
+        return tc.dict()
 
     # ── persona filter (delegated) ────────────────────────────────────────
 

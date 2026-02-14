@@ -64,6 +64,7 @@ class ToolCall(BaseModel):
     tool_name: str
     args: Dict[str, Any]
     result: Optional[Dict[str, Any]] = None
+    status: str = "success"  # success, pending, error
 
 class UserProfile(Base):
     __tablename__ = "userprofile"

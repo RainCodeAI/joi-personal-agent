@@ -9,7 +9,16 @@ import httpx
 from typing import List, Dict, Any
 from app.tools.types import ToolResult
 
-SCOPES = ['https://www.googleapis.com/auth/gmail.readonly']
+MAX_RESULTS = 20
+
+def is_authenticated() -> bool:
+    """Check if valid credentials exist."""
+    try:
+        get_secret("gmail_token")
+        return True
+    except KeyError:
+        return False
+
 
 def get_credentials() -> Credentials:
     try:
@@ -52,6 +61,24 @@ def summarize_threads(threads: List[Dict[str, Any]]) -> str:
         summaries.append(f"Thread: {subject}")
     
     return "\n".join(summaries)
+
+def send_message(to: str, subject: str, body: str) -> Dict[str, Any]:
+    """Send an email using Gmail API."""
+    from email.mime.text import MIMEText
+    import base64
+
+    creds = get_credentials()
+    service = build('gmail', 'v1', credentials=creds)
+
+    message = MIMEText(body)
+    message['to'] = to
+    message['subject'] = subject
+    
+    raw = base64.urlsafe_b64encode(message.as_bytes()).decode()
+    body = {'raw': raw}
+    
+    sent_msg = service.users().messages().send(userId='me', body=body).execute()
+    return sent_msg
 
 def initiate_oauth() -> str:
     flow = Flow.from_client_config(

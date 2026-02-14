@@ -126,7 +126,9 @@ def main():
             with acol2:
                 if st.button("✅ Approve", key=f"approve_{pa.id}"):
                     approval_mgr.approve(pa.id)
-                    st.toast(f"Approved: {pa.tool_name}")
+                    # Execute tool immediately
+                    res = agent.run_tool(pa.tool_name, pa.args)
+                    st.toast(f"Executed: {pa.tool_name} → {res.get('result')}")
                     st.rerun()
             with acol3:
                 if st.button("❌ Deny", key=f"deny_{pa.id}"):
@@ -162,7 +164,15 @@ def main():
             
             if response.tool_calls:
                 st.write("Tool calls:", response.tool_calls)
-                st.toast("Tool executed successfully!")
+                # Check for pending approvals
+                pending_tools = [tc for tc in response.tool_calls if tc.get("status") == "pending"]
+                if pending_tools:
+                    for pt in pending_tools:
+                        approval_mgr.request_approval(pt["tool_name"], pt["args"])
+                    st.toast(f"⚠️ {len(pending_tools)} action(s) require approval correctly.")
+                    st.rerun()
+                else:
+                    st.toast("Tool executed successfully!")
             
             # TTS if voice mode (voice_tools accessed via lazy import)
             if st.session_state.get('voice_mode', False):

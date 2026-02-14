@@ -8,7 +8,16 @@ import json
 from typing import List, Dict, Any
 from datetime import datetime, timedelta
 
-SCOPES = ['https://www.googleapis.com/auth/calendar.readonly']
+SCOPES = ['https://www.googleapis.com/auth/calendar']
+
+def is_authenticated() -> bool:
+    """Check if valid credentials exist."""
+    try:
+        get_secret("calendar_token")
+        return True
+    except KeyError:
+        return False
+
 
 def get_credentials() -> Credentials:
     try:
@@ -34,4 +43,35 @@ def upcoming_events(days: int = 7) -> List[Dict[str, Any]]:
         singleEvents=True, orderBy='startTime'
     ).execute()
     events = events_result.get('items', [])
+    events = events_result.get('items', [])
     return events
+
+def create_event(summary: str, start_time: str, duration_minutes: int = 60) -> Dict[str, Any]:
+    """Create a calendar event. start_time must be ISO format."""
+    creds = get_credentials()
+    service = build('calendar', 'v3', credentials=creds)
+    
+    # Simple ISO parsing/handling
+    try:
+        dt_start = datetime.fromisoformat(start_time.replace("Z", "+00:00"))
+    except ValueError:
+        # Fallback: try parsing or just fail (Agent should handle parsing)
+        # For now, simplistic
+        dt_start = datetime.utcnow() + timedelta(days=1) # Fallback demo
+    
+    dt_end = dt_start + timedelta(minutes=duration_minutes)
+    
+    event = {
+        'summary': summary,
+        'start': {
+            'dateTime': dt_start.isoformat(),
+            'timeZone': 'UTC',
+        },
+        'end': {
+            'dateTime': dt_end.isoformat(),
+            'timeZone': 'UTC',
+        },
+    }
+
+    event = service.events().insert(calendarId='primary', body=event).execute()
+    return event

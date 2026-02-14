@@ -218,6 +218,29 @@ def main():
     except Exception as e:
         st.warning(f"Provider check: {e} – Fallback active")
 
+    # ── Scheduler & Jobs Debug ────────────────────────────────────────
+    st.subheader("⏰ Scheduler & Jobs")
+    st.caption("Manually trigger proactive checks to test the logic.")
+    
+    jcol1, jcol2 = st.columns(2)
+    with jcol1:
+        if st.button("Run Mood Check Now"):
+            from app.scheduler.jobs import check_mood_trends
+            msg = check_mood_trends()
+            if msg:
+                st.success(f"Triggered! Message: {msg}")
+            else:
+                st.info("No mood nudge needed (trends look ok).")
+    
+    with jcol2:
+        if st.button("Run Habit Check Now"):
+            from app.scheduler.jobs import check_habits
+            msg = check_habits()
+            if msg:
+                st.success(f"Triggered! Message: {msg}")
+            else:
+                st.info("No habit nudge needed.")
+
     # Real-Time Log Streaming
     st.subheader("📜 Real-Time Logs")
 

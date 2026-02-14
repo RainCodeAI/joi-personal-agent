@@ -1,8 +1,15 @@
 from app.tools import calendar_gcal, email_gmail
 from app.orchestrator.agent import Agent
+from app.orchestrator.agents.planner import PlannerAgent
+from app.memory.store import MemoryStore
+from app.api.models import ChatMessage
 from pathlib import Path
 import json
 from datetime import datetime
+
+# Shared instances to avoid overhead if possible, though jobs run in threadpool
+_planner = PlannerAgent()
+_memory = MemoryStore()
 
 def morning_brief():
     # Mock weather
@@ -15,6 +22,9 @@ def morning_brief():
     # Inbox waiting
     threads = email_gmail.list_threads(max_results=10)
     inbox_summary = email_gmail.summarize_threads(threads)
+    
+    # Habits status (Planner integration)
+    habit_status = _planner.check_habits("default", _memory) or "Habits are on track!"
     
     # Reminders: mock
     reminders = ["Buy groceries", "Call mom"]
@@ -30,6 +40,9 @@ def morning_brief():
     Inbox Waiting:
     {inbox_summary}
     
+    Habit Check:
+    {habit_status}
+    
     Reminders:
     {"\n".join(reminders)}
     """
@@ -37,12 +50,49 @@ def morning_brief():
     # Add to memory
     agent = Agent()
     agent.memory_store.add_memory("brief", brief, ["morning_brief"])
+    # Also add to chat history so user sees it
+    agent.memory_store.add_chat_message("default", "assistant", f"🌅 **Morning Brief**\n{brief}")
     
     # Log to ledger
-    ledger_path = Path("./data/action_ledger.jsonl")
-    ledger_path.parent.mkdir(parents=True, exist_ok=True)
-    with open(ledger_path, 'a') as f:
-        json.dump({"ts": datetime.utcnow().isoformat(), "user": "system", "tool": "morning_brief", "args": {}, "result": {"ok": True}}, f)
-        f.write('\n')
+    _log_action("morning_brief", {}, {"ok": True})
     
     return brief
+
+def check_mood_trends():
+    """Projective job: Check mood trends and nudge if needed."""
+    session_id = "default"
+    msg = _planner.check_mood_trends(session_id, _memory)
+    if msg:
+        # Post to chat
+        _memory.add_chat_message(session_id, "assistant", f"🩺 **Health Check**: {msg}")
+        _log_action("check_mood_trends", {}, {"triggered": True, "msg": msg})
+        return msg
+    _log_action("check_mood_trends", {}, {"triggered": False})
+    return None
+
+def check_habits():
+    """Proactive job: Check for neglected habits."""
+    session_id = "default"
+    msg = _planner.check_habits(session_id, _memory)
+    if msg:
+        _memory.add_chat_message(session_id, "assistant", f"🔔 **Habit Nudge**: {msg}")
+        _log_action("check_habits", {}, {"triggered": True, "msg": msg})
+        return msg
+    _log_action("check_habits", {}, {"triggered": False})
+    return None
+
+def _log_action(tool_name, args, result):
+    ledger_path = Path("./data/action_ledger.jsonl")
+    ledger_path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        with open(ledger_path, 'a') as f:
+            json.dump({
+                "ts": datetime.utcnow().isoformat(),
+                "user": "system",
+                "tool": tool_name,
+                "args": args,
+                "result": result
+            }, f)
+            f.write('\n')
+    except Exception:
+        pass

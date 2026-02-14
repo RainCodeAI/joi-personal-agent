@@ -104,6 +104,17 @@ rain_html += "</div>"
 
 st.markdown(rain_html, unsafe_allow_html=True)
 
+st.markdown(rain_html, unsafe_allow_html=True)
+
+# ── Scheduler Startup ─────────────────────────────────────────────────
+@st.cache_resource
+def init_scheduler():
+    from app.scheduler.scheduler import start_scheduler
+    start_scheduler()
+    return True
+
+init_scheduler()
+
 sidebar_airgap_toggle()
 sidebar_connectors_status()
 sidebar_voice_controls()
