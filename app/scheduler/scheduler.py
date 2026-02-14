@@ -54,3 +54,34 @@ def start_scheduler():
 
 def get_scheduler():
     return _scheduler
+
+def toggle_scheduler(enabled: bool):
+    """Pause or resume the scheduler."""
+    global _scheduler
+    if _scheduler:
+        if enabled:
+            if _scheduler.state == 2: # PAUSED
+                _scheduler.resume()
+                log.info("Scheduler resumed.")
+        else:
+            if _scheduler.running:
+                _scheduler.pause()
+                log.info("Scheduler paused.")
+
+def run_job_now(job_id: str):
+    """Trigger a job immediately."""
+    global _scheduler
+    if _scheduler and _scheduler.get_job(job_id):
+        _scheduler.modify_job(job_id, next_run_time=None) # Run now
+        # OR:
+        # _scheduler.get_job(job_id).func()
+        # But correctly:
+        job = _scheduler.get_job(job_id)
+        if job:
+            job.modify(next_run_time=None) # Scheduled for now
+            # But BackgroundScheduler needs to wake up.
+            # Simpler: just call the function directly?
+            # No, user wants the job logic.
+            # Force run:
+            job.func()
+

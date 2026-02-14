@@ -12,7 +12,12 @@ from pathlib import Path
 from typing import Any, Dict, List, TYPE_CHECKING
 
 import torch
-from transformers import pipeline as hf_pipeline, AutoTokenizer, AutoModelForCausalLM
+try:
+    from transformers import pipeline as hf_pipeline, AutoTokenizer, AutoModelForCausalLM
+except ImportError:
+    import logging
+    logging.warning("Could not import transformers. Chat will be disabled.")
+    hf_pipeline, AutoTokenizer, AutoModelForCausalLM = None, None, None
 
 from app.config import settings
 

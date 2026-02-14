@@ -12,7 +12,17 @@ from sqlalchemy import select, create_engine, text as sa_text
 from sqlalchemy.orm import Session as SQLSession
 import numpy as np
 import torch
-from sentence_transformers import SentenceTransformer
+try:
+    from sentence_transformers import SentenceTransformer
+except ImportError:
+    import logging
+    logging.warning("Could not import sentence_transformers. Using MockSentenceTransformer.")
+    class SentenceTransformer:
+        def __init__(self, model_name):
+            self.get_sentence_embedding_dimension = lambda: 768
+        def encode(self, text, *args, **kwargs):
+            # Return zero vector of dimension 768
+            return np.zeros(768, dtype=np.float32)
 
 # Database setup
 engine = create_engine(settings.database_url or f"sqlite:///{settings.db_path}")

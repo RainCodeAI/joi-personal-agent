@@ -28,6 +28,7 @@ def morning_brief():
     
     # Reminders: mock
     reminders = ["Buy groceries", "Call mom"]
+    reminders_text = "\n".join(reminders)
     
     brief = f"""
     Good morning!
@@ -44,7 +45,7 @@ def morning_brief():
     {habit_status}
     
     Reminders:
-    {"\n".join(reminders)}
+    {reminders_text}
     """
     
     # Add to memory
