@@ -351,6 +351,19 @@ JSON:
             session.add(feedback)
             session.commit()
 
+    def get_positive_examples(self, user_id: str = "default", limit: int = 3) -> List[Feedback]:
+        """Retrieve recent positively-rated interactions for few-shot learning."""
+        with SQLSession(engine) as session:
+            from sqlalchemy import select
+            stmt = (
+                select(Feedback)
+                .where(Feedback.user_id == user_id, Feedback.rating > 0)
+                .where(Feedback.user_message.isnot(None))
+                .order_by(Feedback.created_at.desc())
+                .limit(limit)
+            )
+            return session.execute(stmt).scalars().all()
+
     def get_milestones(self, user_id: str) -> List[Milestone]:
         with SQLSession(engine) as session:
             statement = select(Milestone).where(Milestone.user_id == user_id)

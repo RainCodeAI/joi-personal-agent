@@ -210,16 +210,32 @@ def main():
     
     # Feedback for last response
     if st.session_state.chat_history and any(msg.role == "assistant" for msg in st.session_state.chat_history):
+        # Find last user-assistant pair
+        last_assistant = None
+        last_user = None
+        for msg in reversed(st.session_state.chat_history):
+            if msg.role == "assistant" and last_assistant is None:
+                last_assistant = msg.content
+            elif msg.role == "user" and last_user is None:
+                last_user = msg.content
+            if last_assistant and last_user:
+                break
+        
         col1, col2 = st.columns(2)
         with col1:
             if st.button("👍", key="thumbs_up"):
-                # Add positive feedback
-                memory_store.add_feedback(Feedback(user_id="default", message_id="last", rating=1))
-                st.success("Thanks for the feedback!")
+                memory_store.add_feedback(Feedback(
+                    user_id="default", message_id="last", rating=1,
+                    user_message=last_user, assistant_message=last_assistant
+                ))
+                st.success("Thanks! I'll learn from this. 💡")
         with col2:
             if st.button("👎", key="thumbs_down"):
-                memory_store.add_feedback(Feedback(user_id="default", message_id="last", rating=-1))
-                st.success("Thanks for the feedback!")
+                memory_store.add_feedback(Feedback(
+                    user_id="default", message_id="last", rating=-1,
+                    user_message=last_user, assistant_message=last_assistant
+                ))
+                st.success("Noted — I'll improve. 🔧")
     
     # Decision Helper
     st.subheader("Decision Logger")

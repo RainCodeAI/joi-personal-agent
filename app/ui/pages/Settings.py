@@ -43,6 +43,31 @@ def main():
             store.save_user_profile(profile)
             st.success(f"Persona: {selected}—restart chat!")
         
+        # ── Autonomy Level ────────────────────────────────────────────────
+        st.subheader("🛡️ Autonomy Level")
+        from app.config import settings as app_settings
+        
+        autonomy_options = {
+            "low": "🔒 Low — Reactive only (Joi responds, never initiates)",
+            "medium": "⚖️ Medium — Proactive suggestions (always asks first)",
+            "high": "🚀 High — Proactive actions (post-hoc notifications)",
+        }
+        current_level = app_settings.autonomy_level
+        autonomy_keys = list(autonomy_options.keys())
+        current_idx = autonomy_keys.index(current_level) if current_level in autonomy_keys else 1
+        
+        selected_autonomy = st.selectbox(
+            "How autonomous should Joi be?",
+            options=autonomy_keys,
+            format_func=lambda x: autonomy_options[x],
+            index=current_idx,
+            key="autonomy_level_select"
+        )
+        
+        if st.button("Save Autonomy Level", key="save_autonomy"):
+            app_settings.autonomy_level = selected_autonomy
+            st.success(f"Autonomy set to **{selected_autonomy.upper()}**. Joi will adapt immediately.")
+        
         # Voice controls moved to global sidebar (components.py)
         st.info("Pro Tip: Low mood? Enable Therapeutic Mode in Profile.")
     except Exception as e:

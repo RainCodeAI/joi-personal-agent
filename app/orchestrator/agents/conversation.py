@@ -48,8 +48,24 @@ class ConversationAgent:
             f"{msg.role}: {msg.content}" for msg in recent_history
         )
 
+        # ── few-shot from positive feedback ───────────────────────────────
+        few_shot_block = ""
+        try:
+            positive_examples = memory_store.get_positive_examples(user_id="default", limit=3)
+            if positive_examples:
+                examples = "\n".join(
+                    f"User: {ex.user_message}\nAssistant: {ex.assistant_message}"
+                    for ex in positive_examples
+                    if ex.user_message and ex.assistant_message
+                )
+                if examples:
+                    few_shot_block = f"\nExchanges the user liked (learn from these):\n{examples}\n"
+        except Exception:
+            pass  # Gracefully degrade if feedback table doesn't exist yet
+
         prompt = (
             f"{profile_info}\n{memory_context}\n"
+            f"{few_shot_block}"
             f"Chat history (recent):\n{history_text}\n"
             f"User: {user_msg}\nAssistant:"
         )

@@ -39,25 +39,38 @@ class PlannerAgent:
         - flow_nudge
         - mental_checklist
         - decision_helper
+
+        Proactive keys are gated by autonomy level.
         """
+        from app.orchestrator.policies import allow_proactive_suggestions
+
         ctx: Dict[str, str] = {}
 
-        ctx["habit_reminders"] = self._habit_reminders(session_id, memory_store)
+        # Always available (reactive to user input)
         ctx["health_nudge"] = self._health_nudge(chat_history)
-        ctx["causal_insights"] = self._causal_insights(
-            session_id, user_msg, chat_history, memory_store
-        )
-        ctx["proactive_checkin"] = self._proactive_checkin(
-            session_id, chat_history, memory_store
-        )
-        ctx["cbt_suggestion"] = self._cbt_suggestion(
-            session_id, user_msg, sentiment, memory_store
-        )
-        ctx["flow_nudge"] = self._flow_nudge(session_id, memory_store)
         ctx["mental_checklist"] = self._mental_checklist(user_msg)
         ctx["decision_helper"] = self._decision_helper(
             session_id, user_msg, memory_store
         )
+        ctx["causal_insights"] = self._causal_insights(
+            session_id, user_msg, chat_history, memory_store
+        )
+
+        # Proactive features — only if autonomy >= MEDIUM
+        if allow_proactive_suggestions():
+            ctx["habit_reminders"] = self._habit_reminders(session_id, memory_store)
+            ctx["proactive_checkin"] = self._proactive_checkin(
+                session_id, chat_history, memory_store
+            )
+            ctx["cbt_suggestion"] = self._cbt_suggestion(
+                session_id, user_msg, sentiment, memory_store
+            )
+            ctx["flow_nudge"] = self._flow_nudge(session_id, memory_store)
+        else:
+            ctx["habit_reminders"] = ""
+            ctx["proactive_checkin"] = ""
+            ctx["cbt_suggestion"] = ""
+            ctx["flow_nudge"] = ""
 
         return ctx
 

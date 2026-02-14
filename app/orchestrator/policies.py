@@ -1,6 +1,28 @@
 """Orchestrator policies — tool allow-lists, destructive-tool gates, rate limits."""
 
+from enum import Enum
 from app.config import settings
+
+# ── Autonomy Levels ──────────────────────────────────────────────────────
+class AutonomyLevel(str, Enum):
+    LOW = "low"        # Reactive only — Joi responds, never initiates
+    MEDIUM = "medium"  # Proactive suggestions, but always asks first
+    HIGH = "high"      # Proactive actions with post-hoc notifications
+
+def get_autonomy_level() -> AutonomyLevel:
+    """Get current autonomy level from config."""
+    try:
+        return AutonomyLevel(settings.autonomy_level.lower())
+    except ValueError:
+        return AutonomyLevel.MEDIUM
+
+def allow_proactive_suggestions() -> bool:
+    """Return True if autonomy level permits proactive suggestions."""
+    return get_autonomy_level() in (AutonomyLevel.MEDIUM, AutonomyLevel.HIGH)
+
+def allow_proactive_actions() -> bool:
+    """Return True if autonomy level permits proactive actions without pre-approval."""
+    return get_autonomy_level() == AutonomyLevel.HIGH
 
 # Tools that require explicit user confirmation before execution.
 DESTRUCTIVE_TOOLS = [
@@ -35,6 +57,8 @@ RATE_LIMITS = {
 
 def require_user_approval(tool_name: str) -> bool:
     """Return True if *tool_name* requires explicit user confirmation."""
+    # In HIGH autonomy, still require approval for destructive tools
+    # (safety net — only proactive *suggestions* bypass the ask)
     return tool_name in DESTRUCTIVE_TOOLS
 
 

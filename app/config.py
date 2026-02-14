@@ -21,6 +21,7 @@ class Settings(BaseSettings):
     xai_api_key: str = Field(default="")
     gemini_api_key: str = Field(default="")
     router_timeout: int = Field(default=30)
+    autonomy_level: str = Field(default="medium")  # low, medium, high
 
     class Config:
         env_file = ".env"

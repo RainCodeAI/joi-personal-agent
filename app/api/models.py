@@ -86,6 +86,9 @@ class Feedback(Base):
     user_id: Mapped[str] = mapped_column(String, default="default")
     message_id: Mapped[str] = mapped_column(String)
     rating: Mapped[int] = mapped_column(Integer)  # 1 thumbs up, -1 thumbs down
+    user_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    assistant_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 class Milestone(Base):
     __tablename__ = "milestone"
