@@ -60,6 +60,36 @@ class VoiceTools:
             st.error(f"Mic error (check perms?): {e}")
             return None
     
+    def transcribe_audio_file(self, file_path: str) -> str:
+        """Transcribe a WAV file using Google STT or Local Whisper."""
+        if not self.enabled:
+            return None
+            
+        import os
+        stt_engine = os.getenv("STT_ENGINE", "google").lower()
+        
+        if stt_engine == "whisper":
+            try:
+                from app.tools.whisper_local import transcriber
+                text = transcriber.transcribe(file_path)
+                return text
+            except Exception as e:
+                print(f"Whisper error (falling back to Google): {e}")
+                # Fallback to Google below
+        
+        # Google STT (Default)
+        try:
+            with sr.AudioFile(file_path) as source:
+                # Read entire file
+                audio = self.recognizer.record(source)
+            text = self.recognizer.recognize_google(audio)
+            return text
+        except sr.UnknownValueError:
+            return None
+        except Exception as e:
+            print(f"Transcription error: {e}")
+            return None
+
     def text_to_speech(self, text):
         """Speak text via ElevenLabs (if avail) or pyttsx3."""
         if not self.enabled or not text:

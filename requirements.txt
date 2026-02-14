@@ -29,4 +29,7 @@ transformers
 torch>=2.6
 Pillow
 sentence-transformers
-elevenlabs
+pydub
+streamlit-webrtc
+av
+openai-whisper

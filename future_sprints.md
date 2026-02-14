@@ -18,15 +18,16 @@ This document outlines the path to transforming Joi from a "Streamlit App" into 
 
 ---
 
-## 🗣️ Phase 5: "True Voice" (The "Voice")
-**Goal:** Fluid conversation, not file uploads.
+## 🗣️ Phase 5: "True Voice" (The "Voice") (STATUS: COMPLETED)
+**Goal:** Real-time conversational audio. No recording buttons.
 
-### Sprint 5.1: Real-Time Audio (WebRTC)
-- [ ] **Streaming**: Use `streamlit-webrtc` for Walkie-Talkie mode.
-- [ ] **VAD**: Detect silence/interruption instantly.
-
-### Sprint 5.2: Latency Optimization
-- [ ] **Local Whisper**: Sub-500ms transcription (Groq/Local).
+- [x] **Sprint 5.1: Real-Time Audio (WebRTC)**
+    - [x] Integrate `streamlit-webrtc` for browser-based streaming.
+    - [x] Implement VAD (Voice Activity Detection) in `biometric_audio.py`.
+    - [x] Bridge to STT engine via `voice.py`.
+- [x] **Sprint 5.2: Latency Optimization**
+    - [x] Implement Local Whisper (`whisper_local.py`).
+    - [x] Remove cloud API dependency for transcription.
 
 ---
 

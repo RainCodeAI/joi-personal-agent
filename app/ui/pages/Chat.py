@@ -82,37 +82,65 @@ def main():
                             openness = min(1.0, time * 2)  # Fake animation
                             st.progress(openness, text=f"{ph} (Open: {openness:.0%})")
     
-    # Voice components (commented JS for future browser-based fallback if needed)
-    # voice_js = """
-    # <script>
-    # function startRecognition() {
-    #     if (!('webkitSpeechRecognition' in window)) {
-    #         alert('Speech recognition not supported');
-    #         return;
-    #     }
-    #     const recognition = new webkitSpeechRecognition();
-    #     recognition.continuous = false;
-    #     recognition.interimResults = false;
-    #     recognition.lang = 'en-US';
-    #     recognition.onresult = function(event) {
-    #         const transcript = event.results[0][0].transcript;
-    #         // Send to Streamlit
-    #         window.parent.postMessage({type: 'speech', text: transcript}, '*');
-    #     };
-    #     recognition.start();
-    # }
-    # 
-    # function speakText(text) {
-    #     if ('speechSynthesis' in window) {
-    #         const utterance = new SpeechSynthesisUtterance(text);
-    #         window.speechSynthesis.speak(utterance);
-    #     } else {
-    #         alert('Text-to-speech not supported');
-    #     }
-    # }
-    # </script>
-    # """
-    # st.components.v1.html(voice_js, height=0)
+    # WebRTC Voice Interaction
+    from streamlit_webrtc import webrtc_streamer, WebRtcMode, RTCConfiguration
+    from app.ui.components import biometric_audio
+    import tempfile
+    import queue
+    import time
+    
+    if st.session_state.get('voice_mode', False):
+        st.subheader("🎙️ Live Voice Channel")
+        # STUN Server (Google Public)
+        RTC_CONFIGURATION = RTCConfiguration({"iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]})
+        
+        ctx = webrtc_streamer(
+            key="joi-voice",
+            mode=WebRtcMode.SENDONLY,
+            audio_processor_factory=biometric_audio.AudioProcessor,
+            rtc_configuration=RTC_CONFIGURATION,
+            media_stream_constraints={"video": False, "audio": True},
+        )
+        
+        # Audio Processing Loop (Polling)
+        if ctx.state.playing and ctx.audio_processor:
+            status_placeholder = st.empty()
+            while ctx.state.playing:
+                try:
+                    # Non-blocking pull with short timeout to allow Streamlit to handle UI events
+                    audio_chunk = ctx.audio_processor.audio_queue.get(timeout=0.1)
+                    status_placeholder.info("🗣️ Processing speech...")
+                    
+                    # Save to temp WAV
+                    with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp_audio:
+                        biometric_audio.save_frame_to_wav(audio_chunk, tmp_audio.name)
+                        tmp_path = tmp_audio.name
+                    
+                    # Transcribe
+                    from app.tools.voice import voice_tools
+                    text = voice_tools.transcribe_audio_file(tmp_path)
+                    
+                    # Cleanup
+                    try:
+                        os.remove(tmp_path)
+                    except:
+                        pass
+                        
+                    if text:
+                        status_placeholder.success(f"Heard: '{text}'")
+                        # Inject into session state and rerun to handle as message
+                        st.session_state.pending_transcript = text
+                        st.rerun() # Break loop and re-run script to process message
+                    else:
+                        status_placeholder.warning("Couldn't understand audio.")
+                        
+                except queue.Empty:
+                    status_placeholder.markdown("*Listening...*")
+                    time.sleep(0.1)
+                    continue
+                except Exception as e:
+                    status_placeholder.error(f"Voice error: {e}")
+                    break
     
     # Input section
     # STT "Speak" button moved to global sidebar — pending_transcript flows via session_state
