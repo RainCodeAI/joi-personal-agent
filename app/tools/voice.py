@@ -112,5 +112,38 @@ class VoiceTools:
         except Exception as e:
             st.error(f"TTS error: {e}")
 
+    def synthesize_speech(self, text: str) -> bytes:
+        """Generate audio bytes for text (for avatar sync)."""
+        if not self.enabled or not text:
+            return None
+            
+        import tempfile
+        import os
+        
+        # Try ElevenLabs first
+        try:
+            from app.tools import voice_elevenlabs
+            if voice_elevenlabs.is_available():
+                return voice_elevenlabs.text_to_speech(text)
+        except Exception:
+            pass
+            
+        # Fallback to pyttsx3 (save to temp file)
+        try:
+            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp_wav:
+                tmp_path = tmp_wav.name
+            
+            self.tts_engine.save_to_file(text, tmp_path)
+            self.tts_engine.runAndWait()
+            
+            with open(tmp_path, "rb") as f:
+                audio_bytes = f.read()
+            
+            os.remove(tmp_path)
+            return audio_bytes
+        except Exception as e:
+            print(f"Synthesis error: {e}")
+            return None
+
 # Export as module-level
 voice_tools = VoiceTools()

@@ -148,19 +148,24 @@ class Agent:
     # ── TTS + lip-sync (self-contained, kept here) ────────────────────────
 
     def say_and_sync(self, text: str, session_id: str) -> Dict[str, Any]:
-        """Generate dummy audio (silence WAV) + phoneme timeline for lip-sync."""
-        sample_rate = 22050
-        duration = len(text.split()) * 0.3
-        frames = int(sample_rate * max(duration, 0.5))
-        audio_data = b"".join(struct.pack("<h", 0) for _ in range(frames))
-
-        wav_buffer = io.BytesIO()
-        with wave.open(wav_buffer, "wb") as wav_file:
-            wav_file.setnchannels(1)
-            wav_file.setsampwidth(2)
-            wav_file.setframerate(sample_rate)
-            wav_file.writeframes(audio_data)
-        audio_bytes = wav_buffer.getvalue()
+        """Generate audio and phonemes for lip-sync."""
+        # Synthesize real audio via voice_tools
+        from app.tools.voice import voice_tools
+        audio_bytes = voice_tools.synthesize_speech(text)
+        
+        if not audio_bytes:
+            # Fallback to dummy silence if synth fails
+            sample_rate = 22050
+            duration = len(text.split()) * 0.3
+            frames = int(sample_rate * max(duration, 0.5))
+            audio_data = b"".join(struct.pack("<h", 0) for _ in range(frames))
+            wav_buffer = io.BytesIO()
+            with wave.open(wav_buffer, "wb") as wav_file:
+                wav_file.setnchannels(1)
+                wav_file.setsampwidth(2)
+                wav_file.setframerate(sample_rate)
+                wav_file.writeframes(audio_data)
+            audio_bytes = wav_buffer.getvalue()
 
         phoneme_timeline = self._text_to_phonemes(text)
 
@@ -184,7 +189,7 @@ class Agent:
         }
 
     def _text_to_phonemes(self, text: str):
-        """Map text → viseme timeline using English pronunciation heuristics."""
+        """Map text -> viseme timeline using English pronunciation heuristics."""
         CHAR_TO_VISEME = {
             "a": "A", "à": "A", "á": "A",
             "e": "E", "è": "E", "é": "E", "i": "E", "î": "E", "y": "E",
@@ -192,9 +197,13 @@ class Agent:
             "u": "U", "ù": "U", "ú": "U", "w": "U",
             "m": "MB", "b": "MB", "p": "MB",
             "f": "FV", "v": "FV",
+            "l": "L", "r": "R",
+            "s": "S", "z": "S",
+            "k": "K", "c": "K", "g": "K", "q": "K",
+            "t": "rest", "d": "rest", "n": "rest" # Consonants often closed/neutral
         }
         VOWEL_DURATION = 0.12
-        CONSONANT_DURATION = 0.06
+        CONSONANT_DURATION = 0.08
         WORD_GAP = 0.08
 
         timeline = []
@@ -215,30 +224,40 @@ class Agent:
                 char = clean[i]
                 viseme = CHAR_TO_VISEME.get(char)
 
+                if i + 1 < len(clean):
+                    digraph = clean[i : i + 2]
+                    if digraph in ("th"):
+                        timeline.append((round(t, 3), "TH"))
+                        t += CONSONANT_DURATION
+                        i += 2
+                        continue
+                    elif digraph in ("sh", "ch"):
+                        timeline.append((round(t, 3), "S"))
+                        t += CONSONANT_DURATION
+                        i += 2
+                        continue
+                    elif digraph in ("mb", "mp"):
+                         timeline.append((round(t, 3), "MB"))
+                         t += CONSONANT_DURATION
+                         i += 2
+                         continue
+                    elif digraph in ("ou", "oo"):
+                        timeline.append((round(t, 3), "O"))
+                        t += VOWEL_DURATION
+                        i += 2
+                        continue
+                    elif digraph in ("ee", "ea", "ie"):
+                        timeline.append((round(t, 3), "E"))
+                        t += VOWEL_DURATION
+                        i += 2
+                        continue
+                    elif digraph in ("ai", "ay"):
+                        timeline.append((round(t, 3), "A"))
+                        t += VOWEL_DURATION
+                        i += 2
+                        continue
+                
                 if viseme:
-                    if i + 1 < len(clean):
-                        digraph = clean[i : i + 2]
-                        if digraph in ("th", "sh", "ch", "ng", "ck"):
-                            timeline.append((round(t, 3), "rest"))
-                            t += CONSONANT_DURATION
-                            i += 2
-                            continue
-                        elif digraph in ("ou", "oo"):
-                            timeline.append((round(t, 3), "O"))
-                            t += VOWEL_DURATION
-                            i += 2
-                            continue
-                        elif digraph in ("ee", "ea", "ie"):
-                            timeline.append((round(t, 3), "E"))
-                            t += VOWEL_DURATION
-                            i += 2
-                            continue
-                        elif digraph in ("ai", "ay"):
-                            timeline.append((round(t, 3), "A"))
-                            t += VOWEL_DURATION
-                            i += 2
-                            continue
-
                     duration = (
                         VOWEL_DURATION
                         if viseme in ("A", "E", "O", "U")

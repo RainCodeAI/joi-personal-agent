@@ -1,5 +1,5 @@
 avatar:
-  assets_dir: "assets"
+  assets_dir: "static/assets"
   base_face: "Joi_Base.png"
   mouth_shapes:
     rest: "Joi_Neutral.png"

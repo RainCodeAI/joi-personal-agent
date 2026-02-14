@@ -31,13 +31,13 @@ This document outlines the path to transforming Joi from a "Streamlit App" into 
 
 ---
 
-## 👽 Phase 6: Avatar Resurrection (The "Face")
-**Goal:** A presence that looks at you.
+## 👽 Phase 6: Avatar Resurrection (The "Face") (STATUS: COMPLETED)
+**Goal:** Reactive avatar that syncs with speech.
 
-### Sprint 6.1: Reactive 3D/2D Avatar
-- [ ] **Live2D / Three.js**: Integrate via `st.components.v1.html`.
-- [ ] **Lip Sync**: Map phonemes to mouth shapes.
-- [ ] **Eye Contact**: Mouse tracking.
+- [x] **Sprint 6.1: Reactive 3D/2D Avatar**
+    - [x] JS-based `avatar_js` renderer (no flickering).
+    - [x] Lip Sync & Eye Contact via `Agent` phoneme mapping.
+    - [x] Static asset serving integration.
 
 ---
 

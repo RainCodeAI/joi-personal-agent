@@ -40,47 +40,26 @@ def main():
         with st.chat_message(msg.role):
             st.write(msg.content)
     
-    # Avatar Display (Phase 5 Buffer - Mood + Lip-Sync)
-    if st.session_state.chat_history:
-        last_msg = st.session_state.chat_history[-1]
-        if last_msg.role == "assistant":
-            # Mood-based expression (fresh data only)
-            recent_moods = memory_store.get_recent_moods(st.session_state.session_id, 3)  # Last 3
-            expression = "Neutral"  # Default
-            cutoff = datetime.now().date() - timedelta(days=3)
-            fresh_moods = [m for m in recent_moods if m.date.date() >= cutoff]  # Fixed: .date() for comparison
-            if fresh_moods:
-                avg_mood = sum(m.mood for m in fresh_moods) / len(fresh_moods)
-                if avg_mood >= 7:
-                    expression = "Smile"
-                elif avg_mood <= 4:
-                    expression = "Frown"
-                elif avg_mood < 3:
-                    expression = "Shock"
-            
-            # Base face PNG
-            base_path = f"./assets/Joi_{expression}.png"
-            if Path(base_path).exists():
-                base_img = Image.open(base_path)
-                st.image(base_img, caption="Joi", use_column_width=True, width=200)
-            else:
-                st.warning(f"Add {base_path} to ./assets/ for expression")
-            
-            # Lip-Sync Mouth (TTS trigger)
-            if st.session_state.get('voice_mode', False):
-                sync_data = agent.say_and_sync(last_msg.content, st.session_state.session_id)
-                phonemes = sync_data.get("phoneme_timeline", [])
-                if phonemes:
-                    st.subheader("Lip-Sync")
-                    cols = st.columns(min(5, len(phonemes)))
-                    for i, (time, ph) in enumerate(phonemes[:5]):  # Limit to 5 for UI
-                        with cols[i]:
-                            mouth_path = f"./assets/Joi_{ph}.png"  # e.g., Joi_A.png
-                            if Path(mouth_path).exists():
-                                mouth_img = Image.open(mouth_path)
-                                st.image(mouth_img, width=50, caption=ph)
-                            openness = min(1.0, time * 2)  # Fake animation
-                            st.progress(openness, text=f"{ph} (Open: {openness:.0%})")
+    # Avatar Display (Phase 6 - JS Renderer)
+    from app.ui.components import avatar_js
+    
+    avatar_update = st.session_state.get("last_avatar_update")
+    # Only render active avatar if it matches the LAST message (to prevent replaying old stuff if we scrolled? No, session state holds ONE update)
+    # And only if Voice Mode is on (or we want avatar always?)
+    # Let's show avatar always idle, but animate if we have data.
+    
+    if avatar_update and st.session_state.get('voice_mode', False):
+        data = avatar_update["data"]
+        expr = data.get("sentiment", "neutral")
+        avatar_js.render_avatar(
+            phoneme_timeline=data["phoneme_timeline"],
+            audio_url=data.get("audio_url"),
+            expression=expr,
+            key=f"avatar_{avatar_update['id']}"
+        )
+    else:
+        # Idle Avatar
+        avatar_js.render_avatar([], expression="neutral", key="avatar_idle")
     
     # WebRTC Voice Interaction
     from streamlit_webrtc import webrtc_streamer, WebRtcMode, RTCConfiguration
@@ -228,13 +207,17 @@ def main():
                 else:
                     st.toast("Tool executed successfully!")
             
-            # TTS if voice mode (voice_tools accessed via lazy import)
+            # Generate Avatar Animation (if Voice Mode)
             if st.session_state.get('voice_mode', False):
                 try:
-                    from app.tools.voice import voice_tools
-                    voice_tools.text_to_speech(response.text)
-                except Exception:
-                    pass
+                    with st.spinner("Synthesizing voice..."):
+                        sync_data = agent.say_and_sync(response.text, st.session_state.session_id)
+                        st.session_state.last_avatar_update = {
+                            "id": len(st.session_state.chat_history), # Unique ID based on history length
+                            "data": sync_data
+                        }
+                except Exception as e:
+                    st.error(f"Avatar sync error: {e}")
             
             st.toast("Joi responded!")
             st.rerun()
