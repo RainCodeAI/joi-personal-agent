@@ -7,8 +7,9 @@ class Settings(BaseSettings):
     app_env: str = Field(default="dev")
     ollama_host: str = Field(default="http://127.0.0.1:11434")
     db_path: str = Field(default="./data/agent.db")
-    chroma_path: str = Field(default="./data/index")
-    chroma_collection: str = Field(default="memories")
+    db_path: str = Field(default="./data/agent.db")
+    chroma_path: str = Field(default="./data/index", validation_alias="AGENT_CHROMA_PATH")
+    chroma_collection: str = Field(default="memories", validation_alias="AGENT_CHROMA_COLLECTION")
     airgap: bool = Field(default=False)
     google_client_id: str = Field(default="")
     google_client_secret: str = Field(default="")
@@ -22,6 +23,7 @@ class Settings(BaseSettings):
     gemini_api_key: str = Field(default="")
     router_timeout: int = Field(default=30)
     autonomy_level: str = Field(default="medium")  # low, medium, high
+    enable_proactive_messaging: bool = Field(default=True)
 
     class Config:
         env_file = ".env"

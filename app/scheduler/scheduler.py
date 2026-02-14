@@ -1,7 +1,7 @@
 import logging
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.interval import IntervalTrigger
-from app.scheduler.jobs import check_mood_trends, check_habits, morning_brief
+from app.scheduler.jobs import check_mood_trends, check_habits, morning_brief, scan_patterns
 import atexit
 
 log = logging.getLogger(__name__)
@@ -43,6 +43,15 @@ def start_scheduler():
         minute=0,
         id="morning_brief",
         name="Morning Brief",
+        replace_existing=True
+    )
+
+    # Scan patterns every 1 hour
+    _scheduler.add_job(
+        scan_patterns,
+        trigger=IntervalTrigger(hours=1),
+        id="scan_patterns",
+        name="Scan Data Patterns",
         replace_existing=True
     )
 

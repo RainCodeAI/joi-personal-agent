@@ -82,6 +82,36 @@ def check_habits():
     _log_action("check_habits", {}, {"triggered": False})
     return None
 
+def scan_patterns():
+    """Run data pattern engine to detect anomalies."""
+    from app.orchestrator.pattern_engine import PatternEngine
+    # Initialize engine (lazy load if needed, or global)
+    engine = PatternEngine()
+    session_id = "default"
+    
+    insights = engine.scan(session_id)
+    if insights:
+        # Log insights
+        _log_action("scan_patterns", {}, {"insights": insights})
+        
+        # Sprint 7.2: Action Flows
+        from app.orchestrator.action_engine import ActionEngine
+        # Lazy load ActionEngine (MemoryStore + HuggingFace pipelne)
+        # Verify overhead? It's fine for an hourly job.
+        try:
+            actor = ActionEngine()
+            for insight in insights:
+                did_act = actor.dispatch(session_id, insight)
+                if did_act:
+                     _log_action("scan_patterns_acted", {}, {"insight": insight})
+        except Exception as e:
+            _log_action("scan_patterns_error", {}, {"error": str(e)})
+
+        return insights
+    
+    _log_action("scan_patterns", {}, {"insights": []})
+    return []
+
 def _log_action(tool_name, args, result):
     ledger_path = Path("./data/action_ledger.jsonl")
     ledger_path.parent.mkdir(parents=True, exist_ok=True)

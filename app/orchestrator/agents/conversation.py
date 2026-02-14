@@ -120,6 +120,35 @@ class ConversationAgent:
 
         return reply
 
+    # ── proactive generation ──────────────────────────────────────────────
+
+    def generate_proactive_message(self, prompt: str) -> str:
+        """Generate a one-off message for proactive actions."""
+        # Simple wrapper around the generator
+        try:
+            gen = self._ensure_generator()
+            with torch.no_grad():
+                outputs = gen(
+                    prompt,
+                    max_new_tokens=128, # Shorter for nudges
+                    temperature=0.8,    # Higher creativity
+                    do_sample=True,
+                    pad_token_id=gen.tokenizer.eos_token_id,
+                )
+                # If prompt ends with "Assistant:", split. Else take full.
+                # Usually we provide the prompt.
+                full_text = outputs[0]["generated_text"]
+                # Heuristic: if prompt is in text, remove it.
+                if full_text.startswith(prompt):
+                    return full_text[len(prompt):].strip()
+                return full_text.strip()
+        except Exception as e:
+            msg = f"Error generating proactive message: {e}"
+            print(msg)
+            return ""
+
+    # ── persona filter (delegated) ────────────────────────────────────────
+
     def apply_persona_filter(self, response: str, mood: str) -> str:
         """Append persona-tuning note (will be replaced by real LoRA in Phase 2)."""
         persona_note = (
@@ -151,7 +180,7 @@ class ConversationAgent:
                     else torch.float32
                 )
             },
-            device_map="auto",
+            # device_map="auto", # Removed to avoid accelerate errors on CPU/Win
             trust_remote_code=True,
             max_new_tokens=256,
             do_sample=True,
