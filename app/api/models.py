@@ -70,7 +70,7 @@ class ToolCall(BaseModel):
 
 class UserProfile(Base):
     __tablename__ = "userprofile"
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     user_id: Mapped[str] = mapped_column(String, default="default")
     name: Mapped[Optional[str]] = mapped_column(String)
     email: Mapped[Optional[str]] = mapped_column(String)
@@ -84,7 +84,7 @@ class UserProfile(Base):
 
 class Feedback(Base):
     __tablename__ = "feedback"
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     user_id: Mapped[str] = mapped_column(String, default="default")
     message_id: Mapped[str] = mapped_column(String)
     rating: Mapped[int] = mapped_column(Integer)  # 1 thumbs up, -1 thumbs down
@@ -94,21 +94,21 @@ class Feedback(Base):
 
 class Milestone(Base):
     __tablename__ = "milestone"
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     user_id: Mapped[str] = mapped_column(String, default="default")
     event: Mapped[str] = mapped_column(Text)
     description: Mapped[Optional[str]] = mapped_column(Text)
 
 class MoodEntry(Base):
     __tablename__ = "moodentry"
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     user_id: Mapped[str] = mapped_column(String, default="default")
     date: Mapped[datetime] = mapped_column(DateTime)
     mood: Mapped[int] = mapped_column(Integer)  # 1-10
 
 class ChatMessage(Base):
     __tablename__ = "chatmessage"
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     session_id: Mapped[str] = mapped_column(String)
     role: Mapped[str] = mapped_column(String)
     content: Mapped[str] = mapped_column(Text)
@@ -116,7 +116,7 @@ class ChatMessage(Base):
 
 class Habit(Base):
     __tablename__ = "habit"
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     user_id: Mapped[str] = mapped_column(String, default="default")
     name: Mapped[str] = mapped_column(String)
     streak: Mapped[int] = mapped_column(Integer, default=0)
@@ -124,7 +124,7 @@ class Habit(Base):
 
 class Decision(Base):
     __tablename__ = "decision"
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     user_id: Mapped[str] = mapped_column(String, default="default")
     question: Mapped[str] = mapped_column(String)
     pros: Mapped[Optional[str]] = mapped_column(Text)
@@ -133,7 +133,7 @@ class Decision(Base):
 
 class PersonalGoal(Base):
     __tablename__ = "personalgoal"
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     user_id: Mapped[str] = mapped_column(String, default="default")
     name: Mapped[str] = mapped_column(String)
     description: Mapped[Optional[str]] = mapped_column(Text)
@@ -143,7 +143,7 @@ class PersonalGoal(Base):
 
 class ActivityLog(Base):
     __tablename__ = "activitylog"
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     user_id: Mapped[str] = mapped_column(String, default="default")
     app: Mapped[str] = mapped_column(String)
     duration: Mapped[int] = mapped_column(Integer)  # seconds
@@ -151,7 +151,7 @@ class ActivityLog(Base):
 
 class CbtExercise(Base):
     __tablename__ = "cbtexercise"
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     user_id: Mapped[str] = mapped_column(String, default="default")
     name: Mapped[str] = mapped_column(String)
     description: Mapped[str] = mapped_column(Text)
@@ -159,7 +159,7 @@ class CbtExercise(Base):
 
 class Memory(Base):
     __tablename__ = "memory"
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     type: Mapped[str] = mapped_column(String)
     text: Mapped[str] = mapped_column(Text)
     tags: Mapped[str] = mapped_column(String)  # JSON string
@@ -169,7 +169,7 @@ class Memory(Base):
 
 class Entity(Base):
     __tablename__ = "entity"
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     name: Mapped[str] = mapped_column(String)
     type: Mapped[str] = mapped_column(String)  # person, place, concept, etc.
     description: Mapped[Optional[str]] = mapped_column(Text)
@@ -178,7 +178,7 @@ class Entity(Base):
 
 class Relationship(Base):
     __tablename__ = "relationship"
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     from_entity_id: Mapped[int] = mapped_column(BigInteger)
     to_entity_id: Mapped[int] = mapped_column(BigInteger)
     relation_type: Mapped[str] = mapped_column(String)  # e.g., "knows", "visited"

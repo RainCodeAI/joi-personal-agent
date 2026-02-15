@@ -118,13 +118,14 @@ class MemoryStore:
             session.commit()
             session.refresh(memory)
             # Offload the heavy embedding to thread pool
-            embedding = await self.embed_text_async(text)
-            self.collection.add(
-                documents=[text],
-                embeddings=[embedding],
-                metadatas=[{"type": mem_type, "tags": tags_str, "memory_type": memory_type}],
-                ids=[str(memory.id)]
-            )
+            if self.collection:
+                embedding = await self.embed_text_async(text)
+                self.collection.add(
+                    documents=[text],
+                    embeddings=[embedding],
+                    metadatas=[{"type": mem_type, "tags": tags_str, "memory_type": memory_type}],
+                    ids=[str(memory.id)]
+                )
 
         # Entity extraction (also heavy — offload)
         if mem_type == "user_input":
@@ -309,13 +310,14 @@ JSON:
             session.commit()
             session.refresh(memory)
             # Embed and add to Chroma
-            embedding = self.embed_text(text)  # synchronous for simplicity, but should be async
-            self.collection.add(
-                documents=[text],
-                embeddings=[embedding],  # PASS THE EMBEDDING HERE!
-                metadatas=[{"type": mem_type, "tags": tags_str, "memory_type": memory_type}],
-                ids=[str(memory.id)]
-            )
+            if self.collection:
+                embedding = self.embed_text(text)  # synchronous for simplicity, but should be async
+                self.collection.add(
+                    documents=[text],
+                    embeddings=[embedding],  # PASS THE EMBEDDING HERE!
+                    metadatas=[{"type": mem_type, "tags": tags_str, "memory_type": memory_type}],
+                    ids=[str(memory.id)]
+                )
 
         # Extract entities for user inputs
         if mem_type == "user_input":
@@ -340,6 +342,9 @@ JSON:
             where_clause["type"] = filter_type
         if memory_type:
             where_clause["memory_type"] = memory_type
+        if not self.collection:
+            return []
+            
         results = self.collection.query(
             query_embeddings=[query_embedding],
             n_results=k,

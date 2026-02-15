@@ -3,7 +3,7 @@ import os
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../')))
 
 import streamlit as st
-from app.ui.components import sidebar_airgap_toggle, sidebar_connectors_status, sidebar_voice_controls
+from app.ui.components import sidebar_airgap_toggle, sidebar_connectors_status, sidebar_voice_controls, neon
 from app.ui import styles
 
 st.set_page_config(page_title="Joi - Personal Journal Agent", layout="wide")
