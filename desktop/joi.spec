@@ -35,6 +35,8 @@ a = Analysis(
     hiddenimports=[
         "streamlit",
         "streamlit.web.cli",
+        "app.ui.components",
+        "app.ui.components.neon",
         "pystray",
         "keyboard",
         "win10toast",

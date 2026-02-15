@@ -19,7 +19,11 @@ log = logging.getLogger("joi.tray")
 logging.basicConfig(level=logging.INFO)
 
 # Resolve paths relative to this file
-BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+if getattr(sys, 'frozen', False):
+    BASE_DIR = sys._MEIPASS
+else:
+    BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+
 APP_ENTRY = os.path.join(BASE_DIR, "app", "ui", "App.py")
 STREAMLIT_PORT = int(os.environ.get("JOI_PORT", "8501"))
 STREAMLIT_URL = f"http://localhost:{STREAMLIT_PORT}"
@@ -45,12 +49,25 @@ class JoiTrayApp:
             log.info("Server already running.")
             return
 
-        cmd = [
-            sys.executable, "-m", "streamlit", "run", APP_ENTRY,
-            "--server.port", str(STREAMLIT_PORT),
-            "--server.headless", "true",
-            "--browser.gatherUsageStats", "false",
-        ]
+        if getattr(sys, 'frozen', False):
+            # Frozen mode: Call ourselves with a flag to act as the streamlit runner
+            cmd = [
+                sys.executable,
+                "--run-streamlit",
+                APP_ENTRY,
+                "--server.port", str(STREAMLIT_PORT),
+                "--server.headless", "true",
+                "--browser.gatherUsageStats", "false",
+            ]
+        else:
+            # Dev mode: Standard python -m streamlit
+            cmd = [
+                sys.executable, "-m", "streamlit", "run", APP_ENTRY,
+                "--server.port", str(STREAMLIT_PORT),
+                "--server.headless", "true",
+                "--browser.gatherUsageStats", "false",
+            ]
+
         log.info(f"Starting Streamlit: {' '.join(cmd)}")
         self._server_proc = subprocess.Popen(
             cmd,
@@ -177,10 +194,48 @@ def send_notification(title: str, message: str):
         log.warning("No notification backend available. Install win10toast or plyer.")
 
 
+def run_streamlit_subprocess():
+    """Entry point for the frozen subprocess."""
+    from streamlit.web import cli as stcli
+    # Remove the --run-streamlit flag
+    if "--run-streamlit" in sys.argv:
+        sys.argv.remove("--run-streamlit")
+    
+    # sys.argv is now ['Joi.exe', 'app/ui/App.py', '--server.port', ...]
+    # Streamlit expects ['streamlit', 'run', 'app/ui/App.py', ...]
+    # We construct the equivalent argument list for stcli.main()
+    
+    # Actually stcli.main uses sys.argv directly or can take args.
+    # It parses "streamlit run script.py".
+    # We need to simulate: "streamlit run app/ui/App.py ..."
+    
+    # Argument 0 is the script name (or exe).
+    # We want: ["streamlit", "run", APP_ENTRY, ...]
+    
+    # Let's clean up sys.argv to match `streamlit run ...`
+    # Our cmd in start_server was: [exe, "--run-streamlit", APP_ENTRY, args...]
+    # So sys.argv here is [exe, APP_ENTRY, args...]
+    
+    # We need to insert "run" at index 1?
+    # No, stcli.main() typically expects arguments as if called from command line.
+    # if we call `stcli.main()`, it looks at `sys.argv`.
+    # Standard call: `streamlit run app.py` -> sys.argv=['streamlit', 'run', 'app.py']
+    
+    new_argv = ["streamlit", "run"] + sys.argv[1:]
+    sys.argv = new_argv
+    sys.exit(stcli.main())
+
+
 def main():
+    if getattr(sys, 'frozen', False) and "--run-streamlit" in sys.argv:
+        run_streamlit_subprocess()
+        return
+
     app = JoiTrayApp()
     app.run_tray()
 
 
 if __name__ == "__main__":
+    from multiprocessing import freeze_support
+    freeze_support()
     main()
