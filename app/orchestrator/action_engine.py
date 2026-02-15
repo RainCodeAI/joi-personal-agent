@@ -95,7 +95,12 @@ class ActionEngine:
         return False
 
     def _deliver_message(self, session_id: str, text: str):
-        """Write to chat history."""
-        # Add with specific metadata so UI knows it's proactive?
-        # Standard chat message for now.
-        self.store.add_chat_message(session_id, "assistant", f"⚡ {text}") 
+        """Write to chat history and send native notification (Phase 10)."""
+        self.store.add_chat_message(session_id, "assistant", f"⚡ {text}")
+
+        # Desktop notification
+        try:
+            from desktop.tray_app import send_notification
+            send_notification("Joi", text[:200])
+        except Exception:
+            pass  # Notification is best-effort

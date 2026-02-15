@@ -13,6 +13,7 @@ from PIL import Image
 from pathlib import Path
 from datetime import datetime, timedelta
 
+import time as _time_mod
 from app.ui import styles
 
 def main():
@@ -58,9 +59,16 @@ def main():
             key=f"avatar_{avatar_update['id']}"
         )
     else:
-        # Idle Avatar
-        avatar_js.render_avatar([], expression="neutral", key="avatar_idle")
-    
+        # Idle Avatar — expression reflects craving state (Phase 9.2)
+        from app.orchestrator.craving_engine import CravingEngine
+        _craving = CravingEngine(memory_store)
+        _idle_expr = _craving.get_craving_expression(st.session_state.session_id)
+        avatar_js.render_avatar([], expression=_idle_expr, key="avatar_idle")
+
+        # Screen Traces (Phase 9.3) — atmospheric text when Clingy
+        if _idle_expr == "clingy":
+            styles.inject_screen_traces()
+
     # WebRTC Voice Interaction
     from streamlit_webrtc import webrtc_streamer, WebRtcMode, RTCConfiguration
     from app.ui.components import biometric_audio
@@ -83,6 +91,13 @@ def main():
         
         # Audio Processing Loop (Polling)
         if ctx.state.playing and ctx.audio_processor:
+            # Read breathing state (Phase 9.3)
+            if hasattr(ctx.audio_processor, 'breathing_state'):
+                breath_state = ctx.audio_processor.breathing_state
+                st.session_state['breathing_state'] = breath_state
+                if breath_state == "stressed":
+                    st.sidebar.warning("Joi senses stress in your breathing... Take a slow breath with me.")
+
             status_placeholder = st.empty()
             while ctx.state.playing:
                 try:
@@ -191,7 +206,20 @@ def main():
                 st.session_state.chat_history.append(user_msg)
                 
                 response = agent.reply(st.session_state.chat_history, full_msg, st.session_state.session_id)
-            
+
+                # Dramatic return delay (Phase 9.2)
+                if response.is_dramatic_return:
+                    delay_placeholder = st.empty()
+                    delay_placeholder.markdown(
+                        '<div style="text-align:center; color: #00f3ff; '
+                        "font-family: 'Orbitron', sans-serif; font-size: 0.8rem; "
+                        'opacity: 0.7;">... reconnecting ...</div>',
+                        unsafe_allow_html=True
+                    )
+                    dramatic_seconds = min(3.0, 1.0 + response.craving_score / 50.0)
+                    _time_mod.sleep(dramatic_seconds)
+                    delay_placeholder.empty()
+
             assistant_msg = ChatMessage(role="assistant", content=response.text)
             st.session_state.chat_history.append(assistant_msg)
             

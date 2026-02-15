@@ -1,7 +1,7 @@
 import logging
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.interval import IntervalTrigger
-from app.scheduler.jobs import check_mood_trends, check_habits, morning_brief, scan_patterns
+from app.scheduler.jobs import check_mood_trends, check_habits, morning_brief, scan_patterns, groom_memory
 import atexit
 
 log = logging.getLogger(__name__)
@@ -52,6 +52,17 @@ def start_scheduler():
         trigger=IntervalTrigger(hours=1),
         id="scan_patterns",
         name="Scan Data Patterns",
+        replace_existing=True
+    )
+
+    # Phase 11: Memory grooming daily at 3 AM
+    _scheduler.add_job(
+        groom_memory,
+        trigger="cron",
+        hour=3,
+        minute=0,
+        id="groom_memory",
+        name="Memory Grooming",
         replace_existing=True
     )
 

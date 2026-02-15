@@ -33,3 +33,10 @@ pydub
 streamlit-webrtc
 av
 openai-whisper
+# Phase 10: Desktop Experience
+pystray
+keyboard
+win10toast
+pyinstaller
+# Phase 11: GGUF Optimization
+llama-cpp-python

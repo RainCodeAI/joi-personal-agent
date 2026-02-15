@@ -67,6 +67,12 @@ class Agent:
         user_msg = guard_result.text
         threats_detected = guard_result.threats_detected
 
+        # Compute craving state for UI feedback (Phase 9.2)
+        from app.orchestrator.craving_engine import CravingEngine
+        _craving = CravingEngine(self.memory_store)
+        craving_score = _craving.calculate_craving(session_id)
+        is_return, _ = _craving.get_return_bonus(session_id)
+
         # Persist the incoming user message
         self.memory_store.add_chat_message(session_id, "user", user_msg)
         self.memory_store.add_memory("user_input", user_msg, ["chat", session_id])
@@ -130,7 +136,13 @@ class Agent:
             latency_ms=_elapsed_ms,
         )
 
-        return ChatResponse(text=reply, session_id=session_id, tool_calls=[tc.dict() for tc in tool_calls])
+        return ChatResponse(
+            text=reply,
+            session_id=session_id,
+            tool_calls=[tc.dict() for tc in tool_calls],
+            craving_score=craving_score,
+            is_dramatic_return=is_return,
+        )
 
     # ── persona filter (delegated) ────────────────────────────────────────
 
@@ -149,9 +161,14 @@ class Agent:
 
     def say_and_sync(self, text: str, session_id: str) -> Dict[str, Any]:
         """Generate audio and phonemes for lip-sync."""
+        # Determine whisper mode from craving state (Phase 9.3)
+        from app.orchestrator.craving_engine import CravingEngine
+        _craving = CravingEngine(self.memory_store)
+        whisper_mode = _craving.calculate_craving(session_id) >= 60
+
         # Synthesize real audio via voice_tools
         from app.tools.voice import voice_tools
-        audio_bytes = voice_tools.synthesize_speech(text)
+        audio_bytes = voice_tools.synthesize_speech(text, whisper_mode=whisper_mode)
         
         if not audio_bytes:
             # Fallback to dummy silence if synth fails

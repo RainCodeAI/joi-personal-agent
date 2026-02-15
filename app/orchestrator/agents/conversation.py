@@ -26,6 +26,8 @@ if TYPE_CHECKING:
     from app.api.models import ChatMessage, ToolCall
 
 
+from app.orchestrator.craving_engine import CravingEngine
+
 class ConversationAgent:
     """Builds the LLM prompt, generates a reply, and appends post-response nudges."""
 
@@ -46,6 +48,17 @@ class ConversationAgent:
         avg_mood: float = 5.0,
     ) -> str:
         """Assemble the prompt, call the LLM, and enrich the response."""
+
+        # ── Emotional State (Craving) ─────────────────────────────────────
+        # Calculate how "needy" she is based on time-since-last-chat
+        craving_engine = CravingEngine(memory_store)
+        craving_score = craving_engine.calculate_craving(session_id)
+        _, mood_injection = craving_engine.get_craving_state(craving_score)
+
+        # Return bonus — first message after significant silence (Phase 9.2)
+        is_return, return_injection = craving_engine.get_return_bonus(session_id)
+        if is_return:
+            mood_injection = return_injection + "\n" + mood_injection
 
         # ── build prompt ──────────────────────────────────────────────────
         recent_history = chat_history[-10:]
@@ -69,6 +82,7 @@ class ConversationAgent:
             pass  # Gracefully degrade if feedback table doesn't exist yet
 
         prompt = (
+            f"{mood_injection}\n"
             f"{profile_info}\n{memory_context}\n"
             f"{few_shot_block}"
             f"Chat history (recent):\n{history_text}\n"

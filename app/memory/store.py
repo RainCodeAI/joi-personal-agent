@@ -698,6 +698,71 @@ JSON:
             )
             return session.execute(stmt).scalar_one_or_none()
 
+    # ── Memory Grooming (Phase 11) ──────────────────────────────────────
+
+    def groom_memory_graph(self, min_weight: float = 1.0, max_age_days: int = 90) -> Dict[str, int]:
+        """Auto-prune weak graph connections and stale memories.
+
+        - Removes Relationship edges with weight <= min_weight
+        - Removes orphaned Entity nodes (no remaining relationships)
+        - Removes episodic Memory entries older than max_age_days
+          (semantic memories like entities/summaries are kept)
+
+        Returns stats: {"relationships_pruned", "entities_pruned", "memories_pruned"}
+        """
+        from datetime import datetime, timedelta as td
+        cutoff = datetime.utcnow() - td(days=max_age_days)
+        stats = {"relationships_pruned": 0, "entities_pruned": 0, "memories_pruned": 0}
+
+        with SQLSession(engine) as session:
+            # 1. Prune weak relationships
+            weak_rels = session.execute(
+                select(Relationship).where(Relationship.weight <= min_weight)
+            ).scalars().all()
+            for rel in weak_rels:
+                session.delete(rel)
+            stats["relationships_pruned"] = len(weak_rels)
+
+            # 2. Find orphaned entities (no relationships left)
+            all_entities = session.execute(select(Entity)).scalars().all()
+            for entity in all_entities:
+                has_rels = session.execute(
+                    select(Relationship).where(
+                        (Relationship.from_entity_id == entity.id) |
+                        (Relationship.to_entity_id == entity.id)
+                    ).limit(1)
+                ).scalar_one_or_none()
+                if not has_rels:
+                    session.delete(entity)
+                    stats["entities_pruned"] += 1
+
+            # 3. Prune old episodic memories (keep semantic)
+            old_memories = session.execute(
+                select(Memory).where(
+                    Memory.memory_type == "episodic",
+                    Memory.created_at < cutoff,
+                )
+            ).scalars().all()
+            for mem in old_memories:
+                session.delete(mem)
+            stats["memories_pruned"] = len(old_memories)
+
+            session.commit()
+
+        return stats
+
+    def decay_relationships(self, decay_factor: float = 0.95):
+        """Apply time-based decay to all relationship weights.
+
+        Call periodically (e.g. daily via scheduler) to naturally weaken
+        connections that aren't reinforced by new co-occurrences.
+        """
+        with SQLSession(engine) as session:
+            all_rels = session.execute(select(Relationship)).scalars().all()
+            for rel in all_rels:
+                rel.weight *= decay_factor
+            session.commit()
+
     def analyze_activity_patterns(self, session_id: str, days: int = 30) -> Dict[str, Any]:
         """Analyze usual interaction times."""
         cutoff = datetime.now() - timedelta(days=days)

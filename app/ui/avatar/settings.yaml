@@ -43,4 +43,9 @@ avatar:
     focus: "focus"
     shock: "shock"
     smirk: "smirk"
+    # Phase 9: Craving-driven sentiments
+    satisfied: "smile"
+    missing: "smirk"
+    needy: "concern"
+    clingy: "concern"
   expression_intensity: 1.0  # 0-1 scale

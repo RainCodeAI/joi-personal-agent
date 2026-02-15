@@ -112,34 +112,54 @@ class VoiceTools:
         except Exception as e:
             st.error(f"TTS error: {e}")
 
-    def synthesize_speech(self, text: str) -> bytes:
-        """Generate audio bytes for text (for avatar sync)."""
+    def synthesize_speech(self, text: str, whisper_mode: bool = False) -> bytes:
+        """Generate audio bytes for text (for avatar sync).
+
+        Args:
+            text: Text to synthesize.
+            whisper_mode: If True, produce softer/breathier audio (Phase 9.3).
+        """
         if not self.enabled or not text:
             return None
-            
+
         import tempfile
         import os
-        
+
         # Try ElevenLabs first
         try:
             from app.tools import voice_elevenlabs
             if voice_elevenlabs.is_available():
-                return voice_elevenlabs.text_to_speech(text)
+                audio = voice_elevenlabs.text_to_speech(text, whisper_mode=whisper_mode)
+                if whisper_mode:
+                    audio = voice_elevenlabs.apply_whisper_postprocess(audio)
+                return audio
         except Exception:
             pass
-            
+
         # Fallback to pyttsx3 (save to temp file)
         try:
+            # Whisper mode: temporarily reduce volume
+            if whisper_mode:
+                original_vol = self.tts_engine.getProperty('volume')
+                self.tts_engine.setProperty('volume', 0.4)
+
             with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp_wav:
                 tmp_path = tmp_wav.name
-            
+
             self.tts_engine.save_to_file(text, tmp_path)
             self.tts_engine.runAndWait()
-            
+
             with open(tmp_path, "rb") as f:
                 audio_bytes = f.read()
-            
+
             os.remove(tmp_path)
+
+            # Restore volume and apply post-processing
+            if whisper_mode:
+                self.tts_engine.setProperty('volume', original_vol)
+                from app.tools.voice_elevenlabs import apply_whisper_postprocess
+                audio_bytes = apply_whisper_postprocess(audio_bytes)
+
             return audio_bytes
         except Exception as e:
             print(f"Synthesis error: {e}")

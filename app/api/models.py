@@ -34,6 +34,8 @@ class ChatResponse(BaseModel):
     text: str
     session_id: str
     tool_calls: Optional[List[Dict[str, Any]]] = []
+    craving_score: float = 0.0
+    is_dramatic_return: bool = False
 
 class MemoryItem(BaseModel):
     id: int

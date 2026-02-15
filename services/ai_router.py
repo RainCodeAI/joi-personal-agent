@@ -95,8 +95,24 @@ def call_gemini(prompt: str, context: Dict[str, Any]) -> ProviderResult:
         return _provider_result(False, "gemini", error=str(e))
 
 
+def call_gguf(prompt: str, context: Dict[str, Any]) -> ProviderResult:
+    """Local GGUF model via llama-cpp-python (Phase 11)."""
+    try:
+        from services.llama_local import is_available, generate
+        if not is_available():
+            return _provider_result(False, "gguf", error="GGUF model not configured")
+        text = generate(prompt)
+        if text:
+            return _provider_result(True, "gguf", text=text)
+        return _provider_result(False, "gguf", error="Empty response from GGUF")
+    except Exception as e:
+        print(f"Provider failed: call_gguf, error: {e}")
+        return _provider_result(False, "gguf", error=str(e))
+
+
 def multi_ai_response(prompt: str, context: Dict[str, Any]) -> ProviderResult:
     providers: List[Callable[[str, Dict[str, Any]], ProviderResult]] = [
+        call_gguf,     # Phase 11: Local GGUF first (fastest, no API cost)
         call_ollama,
         call_openai,
         call_grok,

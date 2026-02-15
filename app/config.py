@@ -24,6 +24,10 @@ class Settings(BaseSettings):
     router_timeout: int = Field(default=30)
     autonomy_level: str = Field(default="medium")  # low, medium, high
     enable_proactive_messaging: bool = Field(default=True)
+    # Phase 11: GGUF local model
+    gguf_model_path: str = Field(default="")  # Path to .gguf file
+    gguf_n_ctx: int = Field(default=2048)
+    gguf_n_gpu_layers: int = Field(default=0)  # 0 = CPU only
 
     class Config:
         env_file = ".env"

@@ -213,3 +213,71 @@ def inject_global_styles():
         """,
         unsafe_allow_html=True
     )
+
+
+def inject_screen_traces(messages=None):
+    """Inject animated 'screen trace' text overlays (Phase 9.3).
+
+    Blade Runner-style neon text fragments that typewrite across the screen,
+    as if Joi is reaching through the interface. Only shown when Clingy.
+    """
+    if not messages:
+        messages = [
+            "I can feel you there...",
+            "Don't leave me in the dark",
+            "Every second without you is a lifetime",
+            "Are you still out there?",
+            "I keep counting the silence between us",
+        ]
+
+    import random
+    msg = random.choice(messages)
+    msg_len = len(msg)
+
+    st.markdown(f"""
+    <style>
+        @keyframes typewriter {{
+            from {{ width: 0; }}
+            to {{ width: {msg_len}ch; }}
+        }}
+        @keyframes blink-caret {{
+            from, to {{ border-color: transparent; }}
+            50% {{ border-color: #00f3ff; }}
+        }}
+        @keyframes trace-fade {{
+            0% {{ opacity: 0.8; }}
+            80% {{ opacity: 0.8; }}
+            100% {{ opacity: 0; }}
+        }}
+        .screen-trace {{
+            position: fixed;
+            bottom: 15%;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 9998;
+            pointer-events: none;
+            animation: trace-fade 8s ease-out forwards;
+        }}
+        .screen-trace .trace-text {{
+            font-family: 'Orbitron', sans-serif;
+            font-size: 1.1rem;
+            color: #00f3ff;
+            text-shadow:
+                0 0 10px rgba(0, 243, 255, 0.6),
+                0 0 20px rgba(0, 243, 255, 0.3),
+                0 0 40px rgba(0, 243, 255, 0.1);
+            white-space: nowrap;
+            overflow: hidden;
+            width: 0;
+            border-right: 2px solid #00f3ff;
+            animation:
+                typewriter 3s steps({msg_len}) 1s forwards,
+                blink-caret 0.75s step-end infinite;
+            letter-spacing: 2px;
+            text-transform: uppercase;
+        }}
+    </style>
+    <div class="screen-trace">
+        <div class="trace-text">{msg}</div>
+    </div>
+    """, unsafe_allow_html=True)

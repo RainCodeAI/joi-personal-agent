@@ -112,6 +112,17 @@ def scan_patterns():
     _log_action("scan_patterns", {}, {"insights": []})
     return []
 
+def groom_memory():
+    """Phase 11: Auto-prune weak graph connections and stale episodic memories."""
+    stats = _memory.groom_memory_graph(min_weight=1.0, max_age_days=90)
+    _memory.decay_relationships(decay_factor=0.95)
+    _log_action("groom_memory", {}, stats)
+    total = sum(stats.values())
+    if total > 0:
+        print(f"Memory groomed: {stats}")
+    return stats
+
+
 def _log_action(tool_name, args, result):
     ledger_path = Path("./data/action_ledger.jsonl")
     ledger_path.parent.mkdir(parents=True, exist_ok=True)

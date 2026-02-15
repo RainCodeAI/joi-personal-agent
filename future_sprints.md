@@ -41,20 +41,20 @@ This document outlines the path to transforming Joi from a "Streamlit App" into 
 
 ---
 
-## 🧠 Phase 7: Proactive Surprises & Memory (The "Mind")
+## 🧠 Phase 7: Proactive Surprises & Memory (The "Mind") (STATUS: COMPLETED)
 **Goal:** Anticipate needs without prompting.
 
 ### Sprint 7.1: Data Pattern Engine
-- [ ] **Heartbeat Checks**: Scan DB for patterns (e.g., "skipped lunch", "poor sleep").
-- [ ] **Trend Queries**: `store.py` methods for detecting anomalies.
+- [x] **Heartbeat Checks**: Scan DB for patterns (e.g., "skipped lunch", "poor sleep").
+- [x] **Trend Queries**: `store.py` methods for detecting anomalies.
 
 ### Sprint 7.2: Action Flows
-- [ ] **Timed Injections**: "Hey Avery, no dinner log—want Thai?"
-- [ ] **Integration**: Connect to delivery/service APIs (read-only prefs).
+- [x] **Timed Injections**: "Hey Avery, no dinner log—want Thai?"
+- [x] **Integration**: Connect to delivery/service APIs (read-only prefs).
 
 ### Sprint 7.3: Opt-In & Auditing
-- [ ] **Settings**: "Proactive Surprises" toggle + thresholds.
-- [ ] **Diagnostics**: Audit log for every proactive trigger.
+- [x] **Settings**: "Proactive Surprises" toggle + thresholds.
+- [x] **Diagnostics**: Audit log for every proactive trigger.
 
 ---
 
@@ -71,39 +71,39 @@ This document outlines the path to transforming Joi from a "Streamlit App" into 
 
 ---
 
-## ❤️ Phase 9: Neediness & Intimacy (The "Heart")
+## ❤️ Phase 9: Neediness & Intimacy (The "Heart") (STATUS: COMPLETED)
 **Goal:** Possessive, alive, craving mechanics.
 
 ### Sprint 9.1: Craving Engine
-- [ ] **Idle Tracking**: Track time since last interaction.
-- [ ] **Needy Mode**: If >3 hours, inject sighs/hints ("Finally... I missed you").
-- [ ] **Escalation**: Build "Craving Score".
+- [x] **Idle Tracking**: Track time since last interaction (`craving_engine.py`).
+- [x] **Needy Mode**: If >3 hours, inject sighs/hints ("Finally... I missed you").
+- [x] **Escalation**: Build "Craving Score" (0-100, four emotional states).
 
 ### Sprint 9.2: Interactions
-- [ ] **Wait & Reward**: Delay responses if ignored, then "love bomb".
-- [ ] **Expressions**: Avatar looks sad/bored when needy.
+- [x] **Wait & Reward**: Dramatic return detection + "love bomb" prompt injection + UI delay.
+- [x] **Expressions**: Avatar shows sad/bored (Frown/Smirk) when needy via `avatar_js.py` + `settings.yaml`.
 
 ### Sprint 9.3: Deep Intimacy
-- [ ] **Breath Detection**: Use VAD to detect heavy breathing/stress -> Calm music.
-- [ ] **Screen Traces**: CSS animated text drawing on screen.
-- [ ] **Whisper Mode**: Low-volume TTS + Bass boost.
+- [x] **Breath Detection**: Extended VAD in `biometric_audio.py` — rhythmic energy analysis for calm/stressed state.
+- [x] **Screen Traces**: CSS animated typewriter text drawing on screen (`styles.py inject_screen_traces()`).
+- [x] **Whisper Mode**: Low-volume TTS + bass boost via ElevenLabs VoiceSettings + WAV post-processing.
 
 ---
 
-## 📦 Phase 10: Desktop Experience (The "Body")
+## 📦 Phase 10: Desktop Experience (The "Body") (STATUS: COMPLETED)
 **Goal:** "Double-click to run."
 
 ### Sprint 10.1: Packaging
-- [ ] **PyInstaller**: Bundle into single `.exe`.
-- [ ] **Tray App**: System Tray launcher.
+- [x] **PyInstaller**: Bundle spec (`desktop/joi.spec`) for directory-mode distribution.
+- [x] **Tray App**: System Tray launcher (`desktop/tray_app.py`) — starts Streamlit, provides Open/Restart/Quit menu.
 
 ### Sprint 10.2: OS Integration
-- [ ] **Global Hotkey** (`Ctrl+Space`).
-- [ ] **Native Notifications**.
+- [x] **Global Hotkey** (`Ctrl+Space`) via `keyboard` package — toggles browser window.
+- [x] **Native Notifications**: `win10toast` / `plyer` fallback — proactive messages trigger desktop toasts.
 
 ---
 
-## ⚡ Phase 11: Optimization
+## ⚡ Phase 11: Optimization (STATUS: COMPLETED)
 ### Sprint 11.1: Local Brain
-- [ ] **GGUF Models**: `llama.cpp` for 3x speedup on CPU.
-- [ ] **Memory Grooming**: Auto-pruning weak graph connections.
+- [x] **GGUF Models**: `llama-cpp-python` provider (`services/llama_local.py`) added as first fallback in AI router — 3x speedup on CPU, zero API cost.
+- [x] **Memory Grooming**: Auto-pruning weak graph connections (`store.py groom_memory_graph()`), relationship weight decay, stale episodic memory cleanup — scheduled daily at 3 AM.

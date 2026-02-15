@@ -83,12 +83,12 @@ def render_avatar(phoneme_timeline, audio_data=None, expression="neutral", audio
         // Phoneme Mapping
         const phonemeMap = {{
             "rest": "Joi_Neutral.png",
-            "A": "Joi_ah.png", 
+            "A": "Joi_ah.png",
             "E": "Joi_ee.png",
             "O": "Joi_O.png",
             "U": "Joi_W.png",
             "MB": "Joi_M.png",
-            "FV": "Joi_F.png", 
+            "FV": "Joi_F.png",
             "L": "Joi_L.png",
             "R": "Joi_R.png",
             "S": "Joi_S.png",
@@ -98,7 +98,24 @@ def render_avatar(phoneme_timeline, audio_data=None, expression="neutral", audio
             "AI": "Joi_ah.png",
             "etc": "Joi_Neutral.png"
         }};
-        
+
+        // Expression overlay mapping (Phase 9.2)
+        const exprMap = {{
+            "neutral":   "Joi_Neutral.png",
+            "satisfied": "Joi_Smile.png",
+            "missing":   "Joi_Smirk.png",
+            "needy":     "Joi_Frown.png",
+            "clingy":    "Joi_Frown.png",
+            "positive":  "Joi_Smile.png",
+            "stress":    "Joi_Frown.png",
+            "smirk":     "Joi_Smirk.png",
+            "shock":     "Joi_Shock.png"
+        }};
+
+        // Apply expression to eyes layer on load
+        const exprFile = exprMap["{expression}"] || "Joi_Neutral.png";
+        eyesLayer.src = assetBase + "/" + exprFile;
+
         // --- Playback Logic ---
         const audioSrc = "{audio_src}";
         if (audioSrc) {{
@@ -137,9 +154,12 @@ def render_avatar(phoneme_timeline, audio_data=None, expression="neutral", audio
                     // debug.innerText = currentPh;
                 }}
             }} else {{
-                // Idle state
+                // Idle state — mouth rests, eyes keep expression
                 if (mouthLayer.src.indexOf("Joi_Neutral.png") === -1) {{
                      mouthLayer.src = assetBase + "/Joi_Neutral.png";
+                }}
+                if (eyesLayer.src.indexOf(exprFile) === -1) {{
+                     eyesLayer.src = assetBase + "/" + exprFile;
                 }}
             }}
             
