@@ -108,7 +108,7 @@ class MoodEntry(Base):
 
 class ChatMessage(Base):
     __tablename__ = "chatmessage"
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     session_id: Mapped[str] = mapped_column(String)
     role: Mapped[str] = mapped_column(String)
     content: Mapped[str] = mapped_column(Text)
@@ -188,7 +188,7 @@ class Relationship(Base):
 class Contact(Base):
     __tablename__ = 'contacts'
     
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     user_id: Mapped[str] = mapped_column(String(50), default="default", nullable=False)
     name: Mapped[str] = mapped_column(String(100), nullable=False)
     last_contact: Mapped[date] = mapped_column(Date, default=date.today)
