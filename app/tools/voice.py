@@ -115,17 +115,48 @@ class VoiceTools:
     def synthesize_speech(self, text: str, whisper_mode: bool = False) -> bytes:
         """Generate audio bytes for text (for avatar sync).
 
+        Priority: OpenAI TTS -> ElevenLabs -> pyttsx3 (local).
+
         Args:
             text: Text to synthesize.
             whisper_mode: If True, produce softer/breathier audio (Phase 9.3).
         """
-        if not self.enabled or not text:
+        if not text:
             return None
 
         import tempfile
         import os
 
-        # Try ElevenLabs first
+        # ── Option 1: OpenAI TTS (primary) ────────────────────────────────
+        try:
+            from openai import OpenAI
+            from app.config import settings
+            if settings.openai_api_key:
+                client = OpenAI(api_key=settings.openai_api_key)
+                # Use 'shimmer' for whisper mode (softer), 'nova' for normal (warm, expressive)
+                voice = "shimmer" if whisper_mode else "nova"
+                speed = 0.9 if whisper_mode else 1.0
+
+                response = client.audio.speech.create(
+                    model="tts-1",
+                    voice=voice,
+                    input=text,
+                    response_format="wav",
+                    speed=speed,
+                )
+                audio_bytes = response.content
+
+                if whisper_mode and audio_bytes:
+                    from app.tools.voice_elevenlabs import apply_whisper_postprocess
+                    audio_bytes = apply_whisper_postprocess(audio_bytes)
+
+                if audio_bytes:
+                    print(f"OpenAI TTS: generated {len(audio_bytes)} bytes ({voice})")
+                    return audio_bytes
+        except Exception as e:
+            print(f"OpenAI TTS error (trying fallbacks): {e}")
+
+        # ── Option 2: ElevenLabs ──────────────────────────────────────────
         try:
             from app.tools import voice_elevenlabs
             if voice_elevenlabs.is_available():
@@ -136,9 +167,11 @@ class VoiceTools:
         except Exception:
             pass
 
-        # Fallback to pyttsx3 (save to temp file)
+        # ── Option 3: pyttsx3 (local fallback) ────────────────────────────
+        if not self.enabled:
+            return None
+
         try:
-            # Whisper mode: temporarily reduce volume
             if whisper_mode:
                 original_vol = self.tts_engine.getProperty('volume')
                 self.tts_engine.setProperty('volume', 0.4)
@@ -154,7 +187,6 @@ class VoiceTools:
 
             os.remove(tmp_path)
 
-            # Restore volume and apply post-processing
             if whisper_mode:
                 self.tts_engine.setProperty('volume', original_vol)
                 from app.tools.voice_elevenlabs import apply_whisper_postprocess
