@@ -321,10 +321,8 @@ class Agent:
             f"Generate a journaling prompt for someone feeling {mood} in {location}. "
             "Make it empathetic and insightful."
         )
-        result = route_request(prompt, {"mood": mood})
-        return result["response"]
+        return self.conversation_agent.generate_proactive_message(prompt)
 
     def analyze_journal_entry(self, entry: str, session_id: str) -> str:
         prompt = f"Analyze this journal entry for emotions and insights: {entry}"
-        result = route_request(prompt, {"mood": "neutral"})
-        return result["response"]
+        return self.conversation_agent.generate_proactive_message(prompt)

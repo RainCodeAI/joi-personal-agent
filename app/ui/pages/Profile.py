@@ -52,7 +52,7 @@ def main():
     therapeutic = st.checkbox("Enable Therapeutic Mode", value=profile.therapeutic_mode, key="therapeutic_mode")
     
     # Personality
-    personality_options = ["Default", "Witty", "Supportive", "Sarcastic", "Professional"]
+    personality_options = ["Playful", "Devoted", "Tender", "Curious", "Melancholic", "Defiant"]
     personality = st.selectbox("Personality Mode", personality_options, index=personality_options.index(profile.personality) if profile.personality in personality_options else 0)
     
     # Humor Level

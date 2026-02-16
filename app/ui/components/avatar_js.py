@@ -5,7 +5,7 @@ import os
 
 def render_avatar(phoneme_timeline, audio_data=None, expression="neutral", audio_url=None, key=None):
     """
-    Renders a JS-driven avatar that syncs with audio.
+    Renders a JS-driven avatar that syncs with audio using the full viseme asset set.
     
     Args:
         phoneme_timeline (list): List of [time, phoneme] pairs.
@@ -24,44 +24,69 @@ def render_avatar(phoneme_timeline, audio_data=None, expression="neutral", audio
     # Prepare timeline for JS
     timeline_json = json.dumps(phoneme_timeline)
     
-    # Asset paths (assumes static serving enabled)
-    # Base URL: /app/static/assets/
-    # If standard Streamlit serving via config.toml [server] enableStaticServing=true,
-    # files in 'static' dir are served at root /app/static/
-    # EXCEPT: Streamlit's static serving is historically quirky.
-    # If run with `streamlit run app.py`, `static` folder is served at `/app/static/`.
-    # Let's assume standard path.
-    # If standard Streamlit serving via config.toml [server] enableStaticServing=true,
-    # files in 'static' dir are served at root path relative to app.
-    # Usually: static/assets/{file} -> /app/static/assets/{file}
-    # FALLBACK: Embed image directly to avoid static serving path issues on Windows
+    # ── Load all assets as base64 ─────────────────────────────────────────
     def load_base64_asset(filename):
         try:
-            # Look in CWD/static/assets
             path = os.path.join(os.getcwd(), "static", "assets", filename)
             if os.path.exists(path):
                 with open(path, "rb") as f:
-                    return base64.b64encode(f.read()).decode()
+                    return f"data:image/png;base64,{base64.b64encode(f.read()).decode()}"
             return None
-        except:
+        except Exception:
             return None
 
-    # Load 'Joi_Neutral.png' (user's chosen image)
-    img_b64 = load_base64_asset("Joi_Neutral.png")
-    
-    if img_b64:
-        ASSET_SRC = f"data:image/png;base64,{img_b64}"
-    else:
-        # Last resort fallback if file missing
-        ASSET_SRC = "/app/static/assets/Joi_Neutral.png"
+    # Viseme (mouth shape) assets
+    asset_map = {
+        "Neutral":  load_base64_asset("Joi_Neutral.png"),
+        "Base":     load_base64_asset("Joi_Base.png"),
+        # Mouth visemes
+        "ah":       load_base64_asset("Joi_ah.png"),
+        "ee":       load_base64_asset("Joi_ee.png"),
+        "O":        load_base64_asset("Joi_O.png"),
+        "Oh":       load_base64_asset("Joi_Oh.png"),
+        "M":        load_base64_asset("Joi_M.png"),
+        "B":        load_base64_asset("Joi_B.png"),
+        "F":        load_base64_asset("Joi_F.png"),
+        "K":        load_base64_asset("Joi_K.png"),
+        "L":        load_base64_asset("Joi_L.png"),
+        "R":        load_base64_asset("Joi_R.png"),
+        "S":        load_base64_asset("Joi_S.png"),
+        "TH":       load_base64_asset("Joi_TH.png"),
+        "W":        load_base64_asset("Joi_W.png"),
+        # Expression assets
+        "Smile":    load_base64_asset("Joi_Smile.png"),
+        "Frown":    load_base64_asset("Joi_Frown.png"),
+        "Shock":    load_base64_asset("Joi_Shock.png"),
+        "Smirk":    load_base64_asset("Joi_Smirk.png"),
+    }
+
+    # Fallback: use Neutral for any missing assets
+    default_src = asset_map["Neutral"] or "/app/static/assets/Joi_Neutral.png"
+    for k in asset_map:
+        if asset_map[k] is None:
+            asset_map[k] = default_src
+
+    # Serialize the asset map for JS
+    asset_map_json = json.dumps(asset_map)
 
     html_code = f"""
     <style>
+        .avatar-wrapper {{
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 12px;
+        }}
         .avatar-container {{
             position: relative;
-            width: 300px;
-            height: 300px;
+            width: 400px;
+            height: 400px;
             margin: 0 auto;
+            border-radius: 20px;
+            overflow: hidden;
+            background: radial-gradient(ellipse at center, rgba(120, 80, 200, 0.15), transparent 70%);
+            box-shadow: 0 0 40px rgba(180, 120, 255, 0.2),
+                        0 0 80px rgba(100, 160, 255, 0.1);
         }}
         .avatar-layer {{
             position: absolute;
@@ -70,60 +95,107 @@ def render_avatar(phoneme_timeline, audio_data=None, expression="neutral", audio
             width: 100%;
             height: 100%;
             object-fit: contain;
-            transition: opacity 0.1s;
+            transition: opacity 0.08s ease-in-out;
         }}
-        #debug {{ color: #ccc; font-size: 10px; margin-top: 5px; text-align: center; }}
+        .avatar-layer.hidden {{
+            opacity: 0;
+        }}
+        #avatar-debug {{
+            color: #8a8aaa;
+            font-size: 11px;
+            font-family: 'Segoe UI', sans-serif;
+            text-align: center;
+            letter-spacing: 1px;
+        }}
+        #avatar-status {{
+            color: #b478ff;
+            font-size: 13px;
+            font-family: 'Segoe UI', sans-serif;
+            text-align: center;
+            font-weight: 500;
+        }}
     </style>
     
-    <div class="avatar-container">
-        <!-- Layers using embedded source -->
-        <img id="layer-base" class="avatar-layer" src="{ASSET_SRC}">
-        <img id="layer-eyes" class="avatar-layer" src="{ASSET_SRC}">
-        <img id="layer-mouth" class="avatar-layer" src="{ASSET_SRC}">
+    <div class="avatar-wrapper">
+        <div class="avatar-container">
+            <!-- Base expression layer (always visible) -->
+            <img id="layer-expression" class="avatar-layer" src="{default_src}">
+            <!-- Mouth layer (swapped during speech) -->
+            <img id="layer-mouth" class="avatar-layer hidden" src="{default_src}">
+        </div>
+        
+        <div id="avatar-status">Idle</div>
+        <div id="avatar-debug"></div>
     </div>
     
     <!-- Audio Element -->
     <audio id="joi-audio" style="display:none"></audio>
-    
-    <div id="debug">Idle</div>
 
     <script>
         const audio = document.getElementById('joi-audio');
+        const exprLayer = document.getElementById('layer-expression');
         const mouthLayer = document.getElementById('layer-mouth');
-        const eyesLayer = document.getElementById('layer-eyes');
-        const debug = document.getElementById('debug');
+        const statusEl = document.getElementById('avatar-status');
+        const debugEl = document.getElementById('avatar-debug');
         
         const timeline = {timeline_json};
-        const defaultSrc = "{ASSET_SRC}";
+        const assets = {asset_map_json};
         
-        // Universal Mapping for V1 (Single Image)
+        // ── Phoneme to asset mapping ──────────────────────
         const phonemeMap = {{
-            "rest": defaultSrc,
-            "A": defaultSrc, "E": defaultSrc, "O": defaultSrc, "U": defaultSrc,
-            "MB": defaultSrc, "FV": defaultSrc, "L": defaultSrc, "R": defaultSrc,
-            "S": defaultSrc, "K": defaultSrc, "TH": defaultSrc, "B": defaultSrc,
-            "AI": defaultSrc, "etc": defaultSrc
+            "rest": null,
+            "A":    assets["ah"],
+            "E":    assets["ee"],
+            "O":    assets["O"],
+            "U":    assets["W"],
+            "MB":   assets["M"],
+            "FV":   assets["F"],
+            "L":    assets["L"],
+            "R":    assets["R"],
+            "S":    assets["S"],
+            "K":    assets["K"],
+            "TH":   assets["TH"],
+            "B":    assets["B"],
+            "Oh":   assets["Oh"],
+            "W":    assets["W"],
+            "AI":   assets["ah"],
+            "etc":  null
         }};
 
+        // ── Expression to asset mapping ───────────────────
         const exprMap = {{
-            "neutral": defaultSrc,
-            "satisfied": defaultSrc, "missing": defaultSrc, "needy": defaultSrc,
-            "clingy": defaultSrc, "positive": defaultSrc, "stress": defaultSrc,
-            "smirk": defaultSrc, "shock": defaultSrc
+            "neutral":   assets["Neutral"],
+            "positive":  assets["Smile"],
+            "smile":     assets["Smile"],
+            "satisfied": assets["Smile"],
+            "stress":    assets["Frown"],
+            "concern":   assets["Frown"],
+            "negative":  assets["Frown"],
+            "missing":   assets["Smirk"],
+            "needy":     assets["Smirk"],
+            "clingy":    assets["Frown"],
+            "shock":     assets["Shock"],
+            "smirk":     assets["Smirk"],
         }};
 
-        // Apply expression to eyes layer on load
-        eyesLayer.src = defaultSrc;
+        // Set expression based on sentiment
+        const expression = "{expression}";
+        exprLayer.src = exprMap[expression] || assets["Neutral"];
 
-        // --- Playback Logic ---
+        // ── Audio Playback ────────────────────────────────
         const audioSrc = "{audio_src}";
         if (audioSrc) {{
             audio.src = audioSrc;
-            debug.innerText = "Playing...";
-            audio.play().catch(e => debug.innerText = "Autoplay blocked: " + e);
+            statusEl.innerText = "Speaking...";
+            audio.play().catch(e => {{
+                statusEl.innerText = "Click to play";
+                debugEl.innerText = "Autoplay blocked: " + e.message;
+            }});
         }}
+
+        // ── Lip-sync Animation Loop ──────────────────────
+        let lastPh = null;
         
-        // --- Animation Loop ---
         function updateFrame() {{
             requestAnimationFrame(updateFrame);
             
@@ -139,21 +211,44 @@ def render_avatar(phoneme_timeline, audio_data=None, expression="neutral", audio
                     }}
                 }}
                 
-                let newSrc = phonemeMap[currentPh] || defaultSrc;
-                
-                if (mouthLayer.src !== newSrc) {{
-                    mouthLayer.src = newSrc;
+                if (currentPh !== lastPh) {{
+                    lastPh = currentPh;
+                    const mouthSrc = phonemeMap[currentPh];
+                    
+                    if (mouthSrc) {{
+                        mouthLayer.src = mouthSrc;
+                        mouthLayer.classList.remove('hidden');
+                    }} else {{
+                        mouthLayer.classList.add('hidden');
+                    }}
+                    
+                    debugEl.innerText = "Viseme: " + currentPh;
                 }}
-            }} else {{
-                // Idle
-                if (mouthLayer.src !== defaultSrc) {{
-                     mouthLayer.src = defaultSrc;
-                }}
+            }} else if (audio.ended) {{
+                mouthLayer.classList.add('hidden');
+                statusEl.innerText = "Finished";
+                debugEl.innerText = "";
             }}
         }}
         
         updateFrame();
+        
+        // ── Idle Blink Animation ─────────────────────────
+        let blinkTimer = null;
+        function scheduleBlink() {{
+            const delay = 3000 + Math.random() * 4000;
+            blinkTimer = setTimeout(() => {{
+                if (audio.paused || audio.ended) {{
+                    exprLayer.style.opacity = '0.3';
+                    setTimeout(() => {{
+                        exprLayer.style.opacity = '1';
+                    }}, 120);
+                }}
+                scheduleBlink();
+            }}, delay);
+        }}
+        scheduleBlink();
     </script>
     """
     
-    st.components.v1.html(html_code, height=320)
+    st.components.v1.html(html_code, height=480)

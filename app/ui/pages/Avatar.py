@@ -1,51 +1,58 @@
 import streamlit as st
 from app.orchestrator.agent import Agent
-from app.ui.avatar.avatar_controller import AvatarController
-import time
-import base64
+from app.ui.components.avatar_js import render_avatar
 
 def main():
-    st.title("🤖 Joi Avatar Demo")
-    st.markdown("Experience Joi with lip-sync and expressions!")
+    st.title("Joi Avatar Demo")
+    st.markdown("*Experience Joi with lip-sync and expressions*")
 
     # Initialize
     agent = Agent()
-    controller = AvatarController()
 
     # Input
-    text_input = st.text_input("Enter text for Joi to say:", "Hello! I'm Joi, your empathetic AI companion.")
-    lip_sync_offset = st.slider("Lip-sync Offset (ms)", -200, 200, 0) / 1000.0
-    expression_intensity = st.slider("Expression Intensity", 0.0, 1.0, 1.0)
-    idle_toggle = st.checkbox("Enable Idle Animations", True)
+    text_input = st.text_input(
+        "Enter text for Joi to say:",
+        "Hello! I'm Joi, your empathetic AI companion."
+    )
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        expression = st.selectbox(
+            "Expression",
+            ["neutral", "positive", "stress", "smirk", "shock"],
+            index=0
+        )
+    with col2:
+        lip_sync_offset = st.slider("Lip-sync Offset (ms)", -200, 200, 0)
 
-    if st.button("Say & Animate"):
+    if st.button("Say & Animate", type="primary"):
         with st.spinner("Generating speech and lip-sync..."):
-            result = agent.say_and_sync(text_input, st.session_state.get("session_id", "demo"))
+            result = agent.say_and_sync(
+                text_input,
+                st.session_state.get("session_id", "demo")
+            )
             if "error" in result:
                 st.error(result["error"])
+                # Still show the avatar in neutral pose
+                render_avatar(
+                    phoneme_timeline=[],
+                    expression=expression,
+                )
                 return
 
-            audio_b64 = result["audio_url"]
-            phoneme_timeline = result["phoneme_timeline"]
-            sentiment = result["sentiment"]
+            audio_url = result.get("audio_url")
+            phoneme_timeline = result.get("phoneme_timeline", [])
+            sentiment = result.get("sentiment", expression)
 
-        # Display avatar placeholder (since no images, use text)
-        avatar_placeholder = st.empty()
-
-        # Play audio
-        st.audio(audio_b64, format="audio/wav")
-
-        # Animate
-        start_time = time.time()
-        for layers in controller.animate_speech(phoneme_timeline, sentiment, b"", lip_sync_offset):
-            # For now, display layer names
-            avatar_placeholder.text(f"Layers: {', '.join([l.split('/')[-1] for l in layers])}")
-            time.sleep(0.08)  # Crossfade
-
-        # Idle loop if enabled
-        if idle_toggle:
-            st.write("Idle animations starting...")
-            for _ in range(5):  # Demo 5 blinks
-                layers = next(controller.idle_animation())
-                avatar_placeholder.text(f"Idle Layers: {', '.join([l.split('/')[-1] for l in layers])}")
-                time.sleep(1)
+        # Render the avatar with lip-sync
+        render_avatar(
+            phoneme_timeline=phoneme_timeline,
+            audio_url=audio_url,
+            expression=sentiment,
+        )
+    else:
+        # Show idle avatar
+        render_avatar(
+            phoneme_timeline=[],
+            expression="neutral",
+        )

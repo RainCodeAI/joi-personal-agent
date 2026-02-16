@@ -36,7 +36,7 @@ def main():
         st.subheader("Persona Toggle")
         store = MemoryStore()
         profile = store.get_user_profile("default") or UserProfile()
-        personas = ["Default", "Witty", "Supportive", "Sarcastic", "Professional"]
+        personas = ["Playful", "Devoted", "Tender", "Curious", "Melancholic", "Defiant"]
         selected = st.selectbox("Active Persona:", personas, index=personas.index(profile.personality) if profile.personality in personas else 0)
         if st.button("Apply"):
             profile.personality = selected
