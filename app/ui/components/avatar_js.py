@@ -6,13 +6,7 @@ import os
 def render_avatar(phoneme_timeline, audio_data=None, expression="neutral", audio_url=None, key=None):
     """
     Renders a JS-driven avatar that syncs with audio using the full viseme asset set.
-    
-    Args:
-        phoneme_timeline (list): List of [time, phoneme] pairs.
-        audio_data (bytes, optional): Wav audio data to play.
-        expression (str): Current mood expression.
-        audio_url (str, optional): Pre-encoded data URL.
-        key (str, optional): Streamlit component key.
+    Uses dual-layer crossfade for smooth lip-sync transitions.
     """
     
     # Encode audio for embedding
@@ -35,11 +29,10 @@ def render_avatar(phoneme_timeline, audio_data=None, expression="neutral", audio
         except Exception:
             return None
 
-    # Viseme (mouth shape) assets
+    # Viseme (mouth shape) and expression assets
     asset_map = {
         "Neutral":  load_base64_asset("Joi_Neutral.png"),
         "Base":     load_base64_asset("Joi_Base.png"),
-        # Mouth visemes
         "ah":       load_base64_asset("Joi_ah.png"),
         "ee":       load_base64_asset("Joi_ee.png"),
         "O":        load_base64_asset("Joi_O.png"),
@@ -53,7 +46,6 @@ def render_avatar(phoneme_timeline, audio_data=None, expression="neutral", audio
         "S":        load_base64_asset("Joi_S.png"),
         "TH":       load_base64_asset("Joi_TH.png"),
         "W":        load_base64_asset("Joi_W.png"),
-        # Expression assets
         "Smile":    load_base64_asset("Joi_Smile.png"),
         "Frown":    load_base64_asset("Joi_Frown.png"),
         "Shock":    load_base64_asset("Joi_Shock.png"),
@@ -66,7 +58,6 @@ def render_avatar(phoneme_timeline, audio_data=None, expression="neutral", audio
         if asset_map[k] is None:
             asset_map[k] = default_src
 
-    # Serialize the asset map for JS
     asset_map_json = json.dumps(asset_map)
 
     html_code = f"""
@@ -95,10 +86,24 @@ def render_avatar(phoneme_timeline, audio_data=None, expression="neutral", audio
             width: 100%;
             height: 100%;
             object-fit: contain;
-            transition: opacity 0.08s ease-in-out;
         }}
-        .avatar-layer.hidden {{
+        /* Dual mouth layers for crossfade */
+        .mouth-layer {{
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
             opacity: 0;
+            transition: opacity 0.14s ease-in-out;
+        }}
+        .mouth-layer.active {{
+            opacity: 1;
+        }}
+        /* Expression layer with smooth blend */
+        #layer-expression {{
+            transition: opacity 0.3s ease-in-out;
         }}
         #avatar-debug {{
             color: #8a8aaa;
@@ -118,10 +123,11 @@ def render_avatar(phoneme_timeline, audio_data=None, expression="neutral", audio
     
     <div class="avatar-wrapper">
         <div class="avatar-container">
-            <!-- Base expression layer (always visible) -->
+            <!-- Expression layer (base face) -->
             <img id="layer-expression" class="avatar-layer" src="{default_src}">
-            <!-- Mouth layer (swapped during speech) -->
-            <img id="layer-mouth" class="avatar-layer hidden" src="{default_src}">
+            <!-- Dual mouth layers for crossfade blending -->
+            <img id="mouth-a" class="mouth-layer" src="{default_src}">
+            <img id="mouth-b" class="mouth-layer" src="{default_src}">
         </div>
         
         <div id="avatar-status">Idle</div>
@@ -134,13 +140,39 @@ def render_avatar(phoneme_timeline, audio_data=None, expression="neutral", audio
     <script>
         const audio = document.getElementById('joi-audio');
         const exprLayer = document.getElementById('layer-expression');
-        const mouthLayer = document.getElementById('layer-mouth');
+        const mouthA = document.getElementById('mouth-a');
+        const mouthB = document.getElementById('mouth-b');
         const statusEl = document.getElementById('avatar-status');
         const debugEl = document.getElementById('avatar-debug');
         
         const timeline = {timeline_json};
         const assets = {asset_map_json};
         
+        // ── Crossfade state ───────────────────────────────
+        let activeMouth = 'a';  // which layer is currently visible
+        let lastPh = null;
+        
+        function crossfadeTo(src) {{
+            // Swap: fade out current layer, fade in the other with new image
+            if (activeMouth === 'a') {{
+                // Preload on B, then swap
+                mouthB.src = src;
+                mouthB.classList.add('active');
+                mouthA.classList.remove('active');
+                activeMouth = 'b';
+            }} else {{
+                mouthA.src = src;
+                mouthA.classList.add('active');
+                mouthB.classList.remove('active');
+                activeMouth = 'a';
+            }}
+        }}
+        
+        function hideAllMouths() {{
+            mouthA.classList.remove('active');
+            mouthB.classList.remove('active');
+        }}
+
         // ── Phoneme to asset mapping ──────────────────────
         const phonemeMap = {{
             "rest": null,
@@ -194,8 +226,6 @@ def render_avatar(phoneme_timeline, audio_data=None, expression="neutral", audio
         }}
 
         // ── Lip-sync Animation Loop ──────────────────────
-        let lastPh = null;
-        
         function updateFrame() {{
             requestAnimationFrame(updateFrame);
             
@@ -216,33 +246,34 @@ def render_avatar(phoneme_timeline, audio_data=None, expression="neutral", audio
                     const mouthSrc = phonemeMap[currentPh];
                     
                     if (mouthSrc) {{
-                        mouthLayer.src = mouthSrc;
-                        mouthLayer.classList.remove('hidden');
+                        crossfadeTo(mouthSrc);
                     }} else {{
-                        mouthLayer.classList.add('hidden');
+                        // "rest" — crossfade back to neutral expression
+                        hideAllMouths();
                     }}
                     
                     debugEl.innerText = "Viseme: " + currentPh;
                 }}
             }} else if (audio.ended) {{
-                mouthLayer.classList.add('hidden');
+                hideAllMouths();
                 statusEl.innerText = "Finished";
                 debugEl.innerText = "";
+                lastPh = null;
             }}
         }}
         
         updateFrame();
         
         // ── Idle Blink Animation ─────────────────────────
-        let blinkTimer = null;
         function scheduleBlink() {{
             const delay = 3000 + Math.random() * 4000;
-            blinkTimer = setTimeout(() => {{
+            setTimeout(() => {{
                 if (audio.paused || audio.ended) {{
+                    // Subtle blink: quick opacity dip
                     exprLayer.style.opacity = '0.3';
                     setTimeout(() => {{
                         exprLayer.style.opacity = '1';
-                    }}, 120);
+                    }}, 130);
                 }}
                 scheduleBlink();
             }}, delay);
