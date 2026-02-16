@@ -1,7 +1,7 @@
 """ConversationAgent — Chat prompt building, LLM generation, post-response enrichment.
 
-Handles prompt assembly from context bundles, lazy-loading the HuggingFace
-pipeline, generating responses, and appending CRM / health-copilot nudges.
+Handles prompt assembly from context bundles, generating responses via OpenAI
+Chat Completions API, and appending CRM / health-copilot nudges.
 """
 
 from __future__ import annotations
@@ -10,14 +10,6 @@ import json
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, TYPE_CHECKING
-
-import torch
-try:
-    from transformers import pipeline as hf_pipeline, AutoTokenizer, AutoModelForCausalLM
-except ImportError:
-    import logging
-    logging.warning("Could not import transformers. Chat will be disabled.")
-    hf_pipeline, AutoTokenizer, AutoModelForCausalLM = None, None, None
 
 from app.config import settings
 
@@ -32,7 +24,7 @@ class ConversationAgent:
     """Builds the LLM prompt, generates a reply, and appends post-response nudges."""
 
     def __init__(self) -> None:
-        self._generator = None  # Lazy-loaded HuggingFace pipeline
+        self._client = None  # Lazy-loaded OpenAI client
 
     # ── public API ────────────────────────────────────────────────────────
 
@@ -50,7 +42,6 @@ class ConversationAgent:
         """Assemble the prompt, call the LLM, and enrich the response."""
 
         # ── Emotional State (Craving) ─────────────────────────────────────
-        # Calculate how "needy" she is based on time-since-last-chat
         craving_engine = CravingEngine(memory_store)
         craving_score = craving_engine.calculate_craving(session_id)
         _, mood_injection = craving_engine.get_craving_state(craving_score)
@@ -59,12 +50,6 @@ class ConversationAgent:
         is_return, return_injection = craving_engine.get_return_bonus(session_id)
         if is_return:
             mood_injection = return_injection + "\n" + mood_injection
-
-        # ── build prompt ──────────────────────────────────────────────────
-        recent_history = chat_history[-10:]
-        history_text = "\n".join(
-            f"{msg.role}: {msg.content}" for msg in recent_history
-        )
 
         # ── few-shot from positive feedback ───────────────────────────────
         few_shot_block = ""
@@ -79,45 +64,60 @@ class ConversationAgent:
                 if examples:
                     few_shot_block = f"\nExchanges the user liked (learn from these):\n{examples}\n"
         except Exception:
-            pass  # Gracefully degrade if feedback table doesn't exist yet
+            pass
 
-        prompt = (
-            f"{mood_injection}\n"
-            f"{profile_info}\n{memory_context}\n"
+        # ── build system message ──────────────────────────────────────────
+        system_msg = (
+            f"{profile_info}\n\n"
+            f"{mood_injection}\n\n"
+            f"{memory_context}\n"
             f"{few_shot_block}"
-            f"Chat history (recent):\n{history_text}\n"
-            f"User: {user_msg}\nAssistant:"
-        )
+        ).strip()
+
+        # Tool results context
+        tool_context = ""
         if tool_calls:
-            prompt += (
+            tool_context = (
                 "\nTool results: "
                 + json.dumps([tc.dict() for tc in tool_calls], indent=2)
             )
+        if tool_context:
+            system_msg += "\n" + tool_context
 
-        # ── LLM inference ─────────────────────────────────────────────────
+        # ── build chat messages ───────────────────────────────────────────
+        recent_history = chat_history[-10:]
+        messages = [{"role": "system", "content": system_msg}]
+        for msg in recent_history:
+            role = "user" if msg.role == "user" else "assistant"
+            messages.append({"role": role, "content": msg.content})
+        # Add current user message
+        messages.append({"role": "user", "content": user_msg})
+
+        # ── LLM inference via OpenAI ──────────────────────────────────────
         log_entry: Dict[str, Any] = {
             "ts": datetime.utcnow().isoformat(),
-            "prompt_len": len(prompt),
+            "model": settings.model_chat,
             "error": None,
         }
 
         try:
-            gen = self._ensure_generator()
-            with torch.no_grad():
-                outputs = gen(
-                    prompt,
-                    max_new_tokens=256,
-                    temperature=0.7,
-                    do_sample=True,
-                    pad_token_id=gen.tokenizer.eos_token_id,
-                )
-                full_text = outputs[0]["generated_text"]
-                reply = full_text.split("Assistant:")[-1].strip()
-            log_entry["provider"] = "HuggingFace"
+            client = self._ensure_client()
+            completion = client.chat.completions.create(
+                model=settings.model_chat,
+                messages=messages,
+                max_tokens=512,
+                temperature=0.8,
+            )
+            reply = completion.choices[0].message.content.strip()
+            log_entry["provider"] = "OpenAI"
+            log_entry["usage"] = {
+                "prompt_tokens": completion.usage.prompt_tokens,
+                "completion_tokens": completion.usage.completion_tokens,
+            }
         except Exception as e:
             reply = (
-                f"Error generating response: {e}. "
-                "Check model download or hardware."
+                f"I'm having trouble connecting right now... ({e}). "
+                "Check your API key or network connection."
             )
             log_entry["provider"] = "Fallback"
             log_entry["error"] = str(e)
@@ -138,24 +138,18 @@ class ConversationAgent:
 
     def generate_proactive_message(self, prompt: str) -> str:
         """Generate a one-off message for proactive actions."""
-        # Simple wrapper around the generator
         try:
-            gen = self._ensure_generator()
-            with torch.no_grad():
-                outputs = gen(
-                    prompt,
-                    max_new_tokens=128, # Shorter for nudges
-                    temperature=0.8,    # Higher creativity
-                    do_sample=True,
-                    pad_token_id=gen.tokenizer.eos_token_id,
-                )
-                # If prompt ends with "Assistant:", split. Else take full.
-                # Usually we provide the prompt.
-                full_text = outputs[0]["generated_text"]
-                # Heuristic: if prompt is in text, remove it.
-                if full_text.startswith(prompt):
-                    return full_text[len(prompt):].strip()
-                return full_text.strip()
+            client = self._ensure_client()
+            completion = client.chat.completions.create(
+                model=settings.model_chat,
+                messages=[
+                    {"role": "system", "content": "You are Joi, an emotionally intelligent AI companion. Keep responses short and warm."},
+                    {"role": "user", "content": prompt},
+                ],
+                max_tokens=128,
+                temperature=0.8,
+            )
+            return completion.choices[0].message.content.strip()
         except Exception as e:
             msg = f"Error generating proactive message: {e}"
             print(msg)
@@ -173,35 +167,14 @@ class ConversationAgent:
 
     # ── private helpers ───────────────────────────────────────────────────
 
-    def _ensure_generator(self):
-        """Lazy-load the HuggingFace text-generation pipeline."""
-        if self._generator is not None:
-            return self._generator
+    def _ensure_client(self):
+        """Lazy-load the OpenAI client."""
+        if self._client is not None:
+            return self._client
 
-        model_id = settings.model_chat
-        tokenizer = AutoTokenizer.from_pretrained(model_id)
-        if tokenizer.pad_token is None:
-            tokenizer.pad_token = tokenizer.eos_token
-
-        self._generator = hf_pipeline(
-            "text-generation",
-            model=model_id,
-            tokenizer=tokenizer,
-            model_kwargs={
-                "torch_dtype": (
-                    torch.float16
-                    if torch.backends.mps.is_available()
-                    else torch.float32
-                )
-            },
-            # device_map="auto", # Removed to avoid accelerate errors on CPU/Win
-            trust_remote_code=True,
-            max_new_tokens=256,
-            do_sample=True,
-            temperature=0.7,
-            pad_token_id=tokenizer.eos_token_id,
-        )
-        return self._generator
+        from openai import OpenAI
+        self._client = OpenAI(api_key=settings.openai_api_key)
+        return self._client
 
     @staticmethod
     def _append_crm_nudge(
