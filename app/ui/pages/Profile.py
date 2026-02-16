@@ -25,7 +25,7 @@ def main():
     
     # User Details
     st.subheader("User Details")
-    profile = memory_store.get_user_profile("default") or UserProfile()
+    profile = memory_store.get_user_profile("default") or UserProfile(user_id="default")
     name = st.text_input("Name", value=profile.name or "")
     email = st.text_input("Email", value=profile.email or "")
     birthday = st.text_input("Birthday", value=profile.birthday or "")

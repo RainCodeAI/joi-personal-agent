@@ -70,7 +70,7 @@ class ToolCall(BaseModel):
 
 class UserProfile(Base):
     __tablename__ = "userprofile"
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     user_id: Mapped[str] = mapped_column(String, default="default")
     name: Mapped[Optional[str]] = mapped_column(String)
     email: Mapped[Optional[str]] = mapped_column(String)
