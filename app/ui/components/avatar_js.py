@@ -31,13 +31,30 @@ def render_avatar(phoneme_timeline, audio_data=None, expression="neutral", audio
     # EXCEPT: Streamlit's static serving is historically quirky.
     # If run with `streamlit run app.py`, `static` folder is served at `/app/static/`.
     # Let's assume standard path.
-    ASSET_BASE = "/app/static/assets"
+    # If standard Streamlit serving via config.toml [server] enableStaticServing=true,
+    # files in 'static' dir are served at root path relative to app.
+    # Usually: static/assets/{file} -> /app/static/assets/{file}
+    # FALLBACK: Embed image directly to avoid static serving path issues on Windows
+    def load_base64_asset(filename):
+        try:
+            # Look in CWD/static/assets
+            path = os.path.join(os.getcwd(), "static", "assets", filename)
+            if os.path.exists(path):
+                with open(path, "rb") as f:
+                    return base64.b64encode(f.read()).decode()
+            return None
+        except:
+            return None
+
+    # Load 'Joi_Neutral.png' (user's chosen image)
+    img_b64 = load_base64_asset("Joi_Neutral.png")
     
-    # Map phonemes to filenames (manual mapping or load from config)
-    # Simple mapping based on settings.yaml default
-    # Ideally should read settings.yaml, but hardcoding for speed/robustness in JS MVP
-    # "rest": "Joi_Neutral.png"
-    
+    if img_b64:
+        ASSET_SRC = f"data:image/png;base64,{img_b64}"
+    else:
+        # Last resort fallback if file missing
+        ASSET_SRC = "/app/static/assets/Joi_Neutral.png"
+
     html_code = f"""
     <style>
         .avatar-container {{
@@ -59,11 +76,10 @@ def render_avatar(phoneme_timeline, audio_data=None, expression="neutral", audio
     </style>
     
     <div class="avatar-container">
-        <!-- Layers: Base -> Eyes -> Mouth -> Expression -->
-        <img id="layer-base" class="avatar-layer" src="{ASSET_BASE}/Joi_Base.png">
-        <img id="layer-eyes" class="avatar-layer" src="{ASSET_BASE}/Joi_Neutral.png">
-        <img id="layer-mouth" class="avatar-layer" src="{ASSET_BASE}/Joi_Neutral.png">
-        <!-- <img id="layer-expr" class="avatar-layer" src="{ASSET_BASE}/Joi_Neutral.png"> -->
+        <!-- Layers using embedded source -->
+        <img id="layer-base" class="avatar-layer" src="{ASSET_SRC}">
+        <img id="layer-eyes" class="avatar-layer" src="{ASSET_SRC}">
+        <img id="layer-mouth" class="avatar-layer" src="{ASSET_SRC}">
     </div>
     
     <!-- Audio Element -->
@@ -78,43 +94,26 @@ def render_avatar(phoneme_timeline, audio_data=None, expression="neutral", audio
         const debug = document.getElementById('debug');
         
         const timeline = {timeline_json};
-        const assetBase = "{ASSET_BASE}";
+        const defaultSrc = "{ASSET_SRC}";
         
-        // Phoneme Mapping
+        // Universal Mapping for V1 (Single Image)
         const phonemeMap = {{
-            "rest": "Joi_Neutral.png",
-            "A": "Joi_ah.png",
-            "E": "Joi_ee.png",
-            "O": "Joi_O.png",
-            "U": "Joi_W.png",
-            "MB": "Joi_M.png",
-            "FV": "Joi_F.png",
-            "L": "Joi_L.png",
-            "R": "Joi_R.png",
-            "S": "Joi_S.png",
-            "K": "Joi_K.png",
-            "TH": "Joi_TH.png",
-            "B": "Joi_B.png",
-            "AI": "Joi_ah.png",
-            "etc": "Joi_Neutral.png"
+            "rest": defaultSrc,
+            "A": defaultSrc, "E": defaultSrc, "O": defaultSrc, "U": defaultSrc,
+            "MB": defaultSrc, "FV": defaultSrc, "L": defaultSrc, "R": defaultSrc,
+            "S": defaultSrc, "K": defaultSrc, "TH": defaultSrc, "B": defaultSrc,
+            "AI": defaultSrc, "etc": defaultSrc
         }};
 
-        // Expression overlay mapping (Phase 9.2)
         const exprMap = {{
-            "neutral":   "Joi_Neutral.png",
-            "satisfied": "Joi_Smile.png",
-            "missing":   "Joi_Smirk.png",
-            "needy":     "Joi_Frown.png",
-            "clingy":    "Joi_Frown.png",
-            "positive":  "Joi_Smile.png",
-            "stress":    "Joi_Frown.png",
-            "smirk":     "Joi_Smirk.png",
-            "shock":     "Joi_Shock.png"
+            "neutral": defaultSrc,
+            "satisfied": defaultSrc, "missing": defaultSrc, "needy": defaultSrc,
+            "clingy": defaultSrc, "positive": defaultSrc, "stress": defaultSrc,
+            "smirk": defaultSrc, "shock": defaultSrc
         }};
 
         // Apply expression to eyes layer on load
-        const exprFile = exprMap["{expression}"] || "Joi_Neutral.png";
-        eyesLayer.src = assetBase + "/" + exprFile;
+        eyesLayer.src = defaultSrc;
 
         // --- Playback Logic ---
         const audioSrc = "{audio_src}";
@@ -131,9 +130,6 @@ def render_avatar(phoneme_timeline, audio_data=None, expression="neutral", audio
             if (!audio.paused && !audio.ended) {{
                 const t = audio.currentTime;
                 
-                // Find active phoneme
-                // Timeline is sorted by start time: [ [t0, ph], [t1, ph] ... ]
-                // Find last phoneme where timeline[i][0] <= t
                 let currentPh = "rest";
                 for (let i = 0; i < timeline.length; i++) {{
                     if (timeline[i][0] <= t) {{
@@ -143,41 +139,20 @@ def render_avatar(phoneme_timeline, audio_data=None, expression="neutral", audio
                     }}
                 }}
                 
-                // Update src
-                let filename = phonemeMap[currentPh] || phonemeMap["rest"] || "Joi_Neutral.png";
-                // Only update if changed prevents DOM thrashing? Browser handles it usually.
-                // Construct full path
-                let newSrc = assetBase + "/" + filename;
+                let newSrc = phonemeMap[currentPh] || defaultSrc;
                 
-                if (mouthLayer.src.indexOf(filename) === -1) {{
+                if (mouthLayer.src !== newSrc) {{
                     mouthLayer.src = newSrc;
-                    // debug.innerText = currentPh;
                 }}
             }} else {{
-                // Idle state — mouth rests, eyes keep expression
-                if (mouthLayer.src.indexOf("Joi_Neutral.png") === -1) {{
-                     mouthLayer.src = assetBase + "/Joi_Neutral.png";
-                }}
-                if (eyesLayer.src.indexOf(exprFile) === -1) {{
-                     eyesLayer.src = assetBase + "/" + exprFile;
+                // Idle
+                if (mouthLayer.src !== defaultSrc) {{
+                     mouthLayer.src = defaultSrc;
                 }}
             }}
-            
-            // Blink Logic (separate timer)
-            // implemented simply via JS interval if needed, or CSS animation
         }}
         
         updateFrame();
-        
-        // --- Idle Blink (Independent) ---
-        setInterval(() => {{
-            // Blink closed
-            // Assuming "blink" texture is same as neutral for now based on settings.yaml, 
-            // but if we had Joi_Blink.png:
-            // eyesLayer.src = assetBase + "/Joi_Blink.png";
-            // setTimeout(() => eyesLayer.src = assetBase + "/Joi_Neutral.png", 100);
-        }}, 4000 + Math.random() * 2000); // Random interval 4-6s
-
     </script>
     """
     
