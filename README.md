@@ -3,7 +3,7 @@
 **Joi** is a privacy-first, local-first personal AI agent designed to be your proactive digital companion. She combines a multi-provider language model router with a sophisticated memory system, emotional intelligence, and a growing set of integrations to help you chat, remember, plan, and manage your life.
 
 > [!NOTE]
-> **Latest:** Phase 11 adds GGUF local model inference, memory grooming, and desktop tray app support. See the full changelog below.
+> **Latest:** Phase 13 (Hybrid Packaging) complete. Use `StartJoi.bat` for the full Windows experience. See the full changelog below.
 
 ## ✨ Core Features
 
@@ -145,8 +145,15 @@ Edit `.env` and configure as needed:
 
 *All keys are optional. Joi degrades gracefully — features simply disable when their keys are absent.*
 
-### 4. Run Joi
+### 4. Run Joi (The Easy Way)
+**Windows Hybrid Launcher (Recommended):**
+1.  Find `StartJoi.bat` in the `personal-agent` folder.
+2.  Double-click it!
+3.  (Optional) Right-click -> "Send to Desktop" to create a shortcut.
 
+This launches the full Joi experience (Vision + Voice + Memory) using your local environment.
+
+**Manual Start:**
 **Web UI (Streamlit):**
 ```powershell
 streamlit run app/ui/app.py
@@ -162,7 +169,6 @@ uvicorn app.api.main:app --reload
 ```powershell
 python desktop/tray_app.py
 ```
-This launches a system tray icon that manages the Streamlit server in the background. Use `Ctrl+Space` to toggle the browser window.
 
 ### 5. Persona Configuration
 
@@ -230,6 +236,8 @@ This spins up:
 | 9.3 | Whisper Mode & Screen Traces | Complete |
 | 10 | Desktop Tray App, Global Hotkey, Native Notifications | Complete |
 | 11 | GGUF Optimization & Memory Grooming | Complete |
+| 12 | Polish & UI Enhancements | Complete |
+| 13 | Packaging (Hybrid Launcher) | Complete |
 
 ## 📜 License
 
