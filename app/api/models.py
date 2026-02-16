@@ -70,7 +70,7 @@ class ToolCall(BaseModel):
 
 class UserProfile(Base):
     __tablename__ = "userprofile"
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
     user_id: Mapped[str] = mapped_column(String, default="default")
     name: Mapped[Optional[str]] = mapped_column(String)
     email: Mapped[Optional[str]] = mapped_column(String)
@@ -108,7 +108,7 @@ class MoodEntry(Base):
 
 class ChatMessage(Base):
     __tablename__ = "chatmessage"
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
     session_id: Mapped[str] = mapped_column(String)
     role: Mapped[str] = mapped_column(String)
     content: Mapped[str] = mapped_column(Text)

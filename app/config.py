@@ -6,8 +6,7 @@ from typing import Optional
 class Settings(BaseSettings):
     app_env: str = Field(default="dev")
     ollama_host: str = Field(default="http://127.0.0.1:11434")
-    db_path: str = Field(default="./data/agent.db")
-    db_path: str = Field(default="./data/agent.db")
+    db_path: str = Field(default="./data/joi_v1.db")
     chroma_path: str = Field(default="./data/index", validation_alias="AGENT_CHROMA_PATH")
     chroma_collection: str = Field(default="memories", validation_alias="AGENT_CHROMA_COLLECTION")
     airgap: bool = Field(default=False)
