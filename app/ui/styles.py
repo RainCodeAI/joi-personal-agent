@@ -45,10 +45,19 @@ def inject_global_styles():
         /* 4. Streamlit UI Overrides */
         
         /* Hide Header & Footer */
+        /* Hide Header & Footer */
         header[data-testid="stHeader"] {
             background: transparent;
+            /* visibility: hidden; <- Hides sidebar toggle! */
+            opacity: 1; /* Keep visible for controls */
+            z-index: 1;
+        }
+        
+        /* Hide decoration bar only */
+        header[data-testid="stHeader"] .stDecoration {
             visibility: hidden;
         }
+
         footer {
             visibility: hidden;
         }

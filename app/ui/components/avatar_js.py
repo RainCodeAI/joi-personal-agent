@@ -181,4 +181,4 @@ def render_avatar(phoneme_timeline, audio_data=None, expression="neutral", audio
     </script>
     """
     
-    st.components.v1.html(html_code, height=320, key=key)
+    st.components.v1.html(html_code, height=320)

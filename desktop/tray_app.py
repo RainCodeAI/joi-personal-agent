@@ -72,9 +72,12 @@ class JoiTrayApp:
         self._server_proc = subprocess.Popen(
             cmd,
             cwd=BASE_DIR,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0,
+            stdout=sys.stdout,  # Pipe directly to console
+            stderr=sys.stderr,  # Pipe directly to console
+            # Remove CREATE_NO_WINDOW so we can see output if needed, 
+            # or keep it but ensure stdout/err goes to the parent terminal.
+            # Since the user has a terminal open via StartJoi.bat, inheriting handles works best.
+            creationflags=0, 
         )
         log.info(f"Streamlit PID: {self._server_proc.pid}")
 
@@ -131,6 +134,9 @@ class JoiTrayApp:
 
         # Start server before showing tray
         self.start_server()
+        
+        # Auto-open browser on launch (UX improvement)
+        self.open_browser()
 
         # Start global hotkey listener in background
         hotkey_thread = threading.Thread(target=self._register_hotkey, daemon=True)

@@ -50,46 +50,52 @@ def main():
     else:
         st.write("**DB URL**: Not set")
 
-    # Extensions
-    st.subheader("Extensions")
-    extensions = ["uuid-ossp", "vector"]
-    for ext in extensions:
-        try:
-            with SQLSession(engine) as session:
-                result = session.execute(text(f"SELECT * FROM pg_extension WHERE extname = '{ext}'")).fetchone()
-            if result:
-                st.success(f"✅ {ext} installed")
-            else:
-                st.warning(f"⚠️ {ext} not installed")
-        except Exception as e:
-            st.error(f"❌ {ext} check failed: {e}")
+    # Extensions (Postgres Only)
+    if engine.dialect.name == 'postgresql':
+        st.subheader("Extensions")
+        extensions = ["uuid-ossp", "vector"]
+        for ext in extensions:
+            try:
+                with SQLSession(engine) as session:
+                    result = session.execute(text(f"SELECT * FROM pg_extension WHERE extname = '{ext}'")).fetchone()
+                if result:
+                    st.success(f"✅ {ext} installed")
+                else:
+                    st.warning(f"⚠️ {ext} not installed")
+            except Exception as e:
+                st.error(f"❌ {ext} check failed: {e}")
+    else:
+        st.info("ℹ️ Running on SQLite (Extensions skipped)")
 
-    # Indexes — expanded to check all performance indexes
+    # Indexes (Postgres Only)
     st.subheader("Indexes")
-    indexes = [
-        ("ix_memory_embedding", "memory"),
-        ("ix_memory_type_created", "memory"),
-        ("ix_entity_name_type", "entity"),
-        ("ix_entity_embedding_ivfflat", "entity"),
-        ("ix_rel_from_to", "relationship"),
-        ("ix_rel_type", "relationship"),
-        ("ix_chat_session_ts", "chatmessage"),
-        ("ix_mood_user_date", "moodentry"),
-    ]
-    idx_cols = st.columns(2)
-    for i, (idx_name, table_name) in enumerate(indexes):
-        col = idx_cols[i % 2]
-        try:
-            with SQLSession(engine) as session:
-                result = session.execute(text(f"SELECT * FROM pg_indexes WHERE indexname = '{idx_name}'")).fetchone()
-            if result:
-                col.success(f"✅ {idx_name}")
-            else:
-                col.warning(f"⚠️ {idx_name} missing")
-        except Exception as e:
-            col.error(f"❌ {idx_name}: {e}")
+    if engine.dialect.name == 'postgresql':
+        indexes = [
+            ("ix_memory_embedding", "memory"),
+            ("ix_memory_type_created", "memory"),
+            ("ix_entity_name_type", "entity"),
+            ("ix_entity_embedding_ivfflat", "entity"),
+            ("ix_rel_from_to", "relationship"),
+            ("ix_rel_type", "relationship"),
+            ("ix_chat_session_ts", "chatmessage"),
+            ("ix_mood_user_date", "moodentry"),
+        ]
+        idx_cols = st.columns(2)
+        for i, (idx_name, table_name) in enumerate(indexes):
+            col = idx_cols[i % 2]
+            try:
+                with SQLSession(engine) as session:
+                    result = session.execute(text(f"SELECT * FROM pg_indexes WHERE indexname = '{idx_name}'")).fetchone()
+                if result:
+                    col.success(f"✅ {idx_name}")
+                else:
+                    col.warning(f"⚠️ {idx_name} missing")
+            except Exception as e:
+                col.error(f"❌ {idx_name}: {e}")
+    else:
+        st.info("ℹ️ Running on SQLite (Index checks skipped)")
 
-    # Row Counts — expanded with entity/relationship/contacts tables
+    # Row Counts (Universal)
     st.subheader("Row Counts")
     tables = [
         "memory", "chatmessage", "moodentry", "habit", "decision",
@@ -104,108 +110,54 @@ def main():
                 result = session.execute(text(f"SELECT COUNT(*) FROM {table}")).scalar()
             col.metric(table, f"{result:,}")
         except Exception as e:
-            col.error(f"❌ {table}: {e}")
+            # SQLite might fail if table doesn't exist yet
+            if "no such table" in str(e):
+                col.metric(table, "0")
+            else:
+                col.error(f"❌ {table}: {e}")
 
-    # Table Stats — pg_stat_user_tables
+    # Table Stats (Postgres Only)
     st.subheader("Table Performance Stats")
-    st.caption("Sequential vs. index scans, dead tuples (from pg_stat_user_tables)")
-    try:
-        with SQLSession(engine) as session:
-            stats = session.execute(text("""
-                SELECT relname, seq_scan, idx_scan,
-                       n_live_tup, n_dead_tup,
-                       last_vacuum, last_autovacuum
-                FROM pg_stat_user_tables
-                ORDER BY seq_scan DESC
-            """)).fetchall()
-        if stats:
-            import pandas as pd
-            df = pd.DataFrame(stats, columns=[
-                "Table", "Seq Scans", "Idx Scans",
-                "Live Rows", "Dead Rows",
-                "Last Vacuum", "Last Autovacuum"
-            ])
-            st.dataframe(df, use_container_width=True)
-        else:
-            st.info("No table stats available.")
-    except Exception as e:
-        st.error(f"Stats query failed: {e}")
-
-    # Query Timing — benchmark key queries
-    st.subheader("Query Benchmarks")
-    if st.button("Run Benchmarks"):
-        benchmarks = {
-            "Memory by type": "SELECT COUNT(*) FROM memory WHERE type = 'user_input'",
-            "Chat history lookup": "SELECT COUNT(*) FROM chatmessage WHERE session_id = 'default'",
-            "Mood trend": "SELECT AVG(mood) FROM moodentry WHERE user_id = 'default'",
-            "Entity lookup": "SELECT COUNT(*) FROM entity WHERE name IS NOT NULL",
-            "Relationship traversal": "SELECT COUNT(*) FROM relationship",
-        }
-        for label, query in benchmarks.items():
-            try:
-                with SQLSession(engine) as session:
-                    t0 = time.perf_counter()
-                    session.execute(text(query)).fetchall()
-                    elapsed = (time.perf_counter() - t0) * 1000
-                color = "green" if elapsed < 50 else "orange" if elapsed < 200 else "red"
-                st.markdown(f":{color}[**{label}**]: `{elapsed:.1f}ms`")
-            except Exception as e:
-                st.error(f"❌ {label}: {e}")
-
-    # ANALYZE Button
-    if st.button("Run ANALYZE on Tables"):
+    if engine.dialect.name == 'postgresql':
+        st.caption("Sequential vs. index scans, dead tuples (from pg_stat_user_tables)")
         try:
             with SQLSession(engine) as session:
-                for table in tables:
-                    session.execute(text(f"ANALYZE {table}"))
-                session.commit()
-            st.success("✅ ANALYZE completed")
-        except Exception as e:
-            st.error(f"❌ ANALYZE failed: {e}")
-
-    # Health Checks
-    st.subheader("Health Checks")
-    # DB Health
-    if db_ok:
-        st.success("✅ DB Health OK")
-    else:
-        st.error(f"❌ DB Health: {db_error}")
-
-    # Ollama Health
-    try:
-        with httpx.Client(timeout=5.0) as client:
-            response = client.get(f"{settings.ollama_host}/api/tags")
-            if response.status_code == 200:
-                st.success("✅ Ollama Health OK")
+                stats = session.execute(text("""
+                    SELECT relname, seq_scan, idx_scan,
+                           n_live_tup, n_dead_tup,
+                           last_vacuum, last_autovacuum
+                    FROM pg_stat_user_tables
+                    ORDER BY seq_scan DESC
+                """)).fetchall()
+            if stats:
+                import pandas as pd
+                df = pd.DataFrame(stats, columns=[
+                    "Table", "Seq Scans", "Idx Scans",
+                    "Live Rows", "Dead Rows",
+                    "Last Vacuum", "Last Autovacuum"
+                ])
+                st.dataframe(df, use_container_width=True)
             else:
-                st.warning(f"⚠️ Ollama status: {response.status_code}")
-    except Exception as e:
-        st.error(f"❌ Ollama Health: {e}")
-
-    # Chroma Health (basic heartbeat)
-    memory_store = MemoryStore()
+                st.info("No table stats available.")
+        except Exception as e:
+            st.error(f"Stats query failed: {e}")
+    else:
+        st.info("ℹ️ Running on SQLite (Performance stats skipped)")
+        
+    # Chroma Detailed Health (Optional Server Check)
+    st.subheader("Chroma Server Health")
     try:
-        memory_store.chroma_client.heartbeat()
-        st.success("✅ Chroma Health OK")
+        # Check if we expect a server
+        if settings.chroma_server_host:
+            resp = requests.get(f"http://{settings.chroma_server_host}:{settings.chroma_server_port}/api/v1/heartbeat", timeout=2)
+            if resp.status_code == 200:
+                 st.success("✅ Chroma Server Online")
+            else:
+                 st.warning(f"⚠️ Chroma Server returned {resp.status_code}")
+        else:
+            st.info("ℹ️ Using Local Persistence (No Server API)")
     except Exception as e:
-        st.warning(f"⚠️ Chroma Health: {e}")
-
-    # Chroma Detailed Health (via endpoint)
-    st.subheader("Chroma Health")
-    try:
-        resp = requests.get("http://localhost:8000/diagnostics/chroma/health").json()
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            st.metric("Collection", resp["name"])
-        with col2:
-            st.metric("Item Count", resp["count"])
-        with col3:
-            dim = resp["embed_dim_meta"]
-            st.metric("Embed Dim", dim, delta=f"Expected: {settings.embed_dim}" if dim == str(settings.embed_dim) else "MISMATCH!")
-        if int(dim) != settings.embed_dim:
-            st.error("Run reset_chroma.py!")
-    except Exception as e:
-        st.error(f"Health check failed: {e}")
+        st.caption(f"Server check skipped: {e}")
 
     # Fallback Status Banner
     st.subheader("AI Fallback Status")
