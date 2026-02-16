@@ -40,11 +40,13 @@ class MemoryStore:
         self.router_timeout = settings.router_timeout
 
         try:
-            # Force fail to test fallback
-            raise ImportError("Chroma disabled for verification")
             import chromadb
             self.chroma_client = chromadb.PersistentClient(path=str(settings.chroma_path_abs))
-            self.collection = self.chroma_client.get_or_create_collection(name=settings.chroma_collection)
+            # Disable default embedding function (avoids local ML dependency)
+            self.collection = self.chroma_client.get_or_create_collection(
+                name=settings.chroma_collection,
+                embedding_function=None
+            )
             
             # Validate collection dimension on init
             coll_meta = self.collection.metadata
@@ -69,13 +71,37 @@ class MemoryStore:
              # Lazy import for speed
             from sentence_transformers import SentenceTransformer
         except ImportError:
+            # Fallback to Cloud Embeddings (OpenAI) if local ML is missing
             import logging
-            logging.warning("Could not import sentence_transformers. Using MockSentenceTransformer.")
-            class SentenceTransformer:
+            from openai import OpenAI
+            
+            logging.warning("Local ML missing. Switching to Cloud Embeddings (OpenAI).")
+            
+            class CloudEmbedding:
                 def __init__(self, model_name, device=None):
-                    self.get_sentence_embedding_dimension = lambda: 768
+                    self.client = OpenAI(api_key=settings.openai_api_key)
+                    self.model = "text-embedding-3-small" # Efficient and cheap
+                    
                 def encode(self, text, *args, **kwargs):
-                    return np.zeros(768, dtype=np.float32)
+                    try:
+                        # Ensure text is string and not empty
+                        if not text or not isinstance(text, str):
+                            return np.zeros(self.get_sentence_embedding_dimension(), dtype=np.float32)
+                            
+                        response = self.client.embeddings.create(
+                            input=text,
+                            model=self.model
+                        )
+                        return np.array(response.data[0].embedding, dtype=np.float32)
+                    except Exception as e:
+                        print(f"Cloud embedding failed: {e}")
+                        return np.zeros(self.get_sentence_embedding_dimension(), dtype=np.float32)
+
+                def get_sentence_embedding_dimension(self):
+                    return 1536 # OpenAI small embedding dim
+
+            # Patch the unavailable class with our Cloud implementation
+            SentenceTransformer = CloudEmbedding
 
         if self.embedder is None:
             model_name = "sentence-transformers/all-mpnet-base-v2"  # 768-dim, quality; swap to "all-MiniLM-L6-v2" (384-dim, 2x faster) if perf lags

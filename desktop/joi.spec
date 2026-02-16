@@ -12,9 +12,18 @@ dynamic imports. Directory mode is the recommended approach.
 
 import os
 import sys
+from PyInstaller.utils.hooks import copy_metadata
 
 block_cipher = None
 BASE_DIR = os.path.abspath(os.path.join(SPECPATH, ".."))
+
+# Collect metadata for packages that check their own version at runtime
+my_datas = []
+for pkg in ['streamlit', 'tqdm', 'regex', 'requests', 'packaging', 'filelock', 'numpy', 'tokenizers', 'huggingface-hub', 'safetensors', 'accelerate']:
+    try:
+        my_datas += copy_metadata(pkg)
+    except Exception as e:
+        print(f"Start-up warning: Could not copy metadata for {pkg}: {e}")
 
 a = Analysis(
     [os.path.join(BASE_DIR, "desktop", "tray_app.py")],
@@ -31,7 +40,7 @@ a = Analysis(
         (os.path.join(BASE_DIR, ".env.example"), "."),
         (os.path.join(BASE_DIR, "persona.yaml"), "."),
         (os.path.join(BASE_DIR, "system_prompt.md"), "."),
-    ],
+    ] + my_datas,
     hiddenimports=[
         "streamlit",
         "streamlit.web.cli",
@@ -66,6 +75,12 @@ a = Analysis(
         "jupyter",
         "notebook",
         "IPython",
+        # Exclude heavy ML libs to ensure successful build (Joi runs in Safe Mode)
+        "torch",
+        "transformers",
+        "sentence_transformers",
+        "chromadb",
+        "lancedb",
     ],
     win_no_prefer_redirects=False,
     win_private_assemblies=False,
