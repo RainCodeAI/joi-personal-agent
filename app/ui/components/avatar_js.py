@@ -96,7 +96,7 @@ def render_avatar(phoneme_timeline, audio_data=None, expression="neutral", audio
             height: 100%;
             object-fit: contain;
             opacity: 0;
-            transition: opacity 0.14s ease-in-out;
+            transition: opacity 0.14s ease-in-out;  /* Default, overridden by JS for vowel/consonant */
         }}
         .mouth-layer.active {{
             opacity: 1;
@@ -225,17 +225,22 @@ def render_avatar(phoneme_timeline, audio_data=None, expression="neutral", audio
             }});
         }}
 
-        // ── Lip-sync Animation Loop (Phase 3: Vowel Hold) ──
+        // ── Lip-sync Animation Loop ──────────────────────
+        // Phase 3: Vowels use slower crossfade (held feel), consonants use faster
         const vowels = new Set(["A", "E", "O", "U", "Oh", "AI"]);
-        let lastChangeTime = 0;
-        const VOWEL_HOLD_MS = 120;  // Minimum ms to hold a vowel viseme
+        const VOWEL_FADE = '0.20s ease-in-out';    // Slower = vowels feel sustained
+        const CONSONANT_FADE = '0.09s ease-in-out'; // Snappy for consonants
+        
+        function setFadeSpeed(speed) {{
+            mouthA.style.transition = 'opacity ' + speed;
+            mouthB.style.transition = 'opacity ' + speed;
+        }}
         
         function updateFrame() {{
             requestAnimationFrame(updateFrame);
             
             if (!audio.paused && !audio.ended) {{
                 const t = audio.currentTime;
-                const nowMs = performance.now();
                 
                 let currentPh = "rest";
                 for (let i = 0; i < timeline.length; i++) {{
@@ -247,22 +252,16 @@ def render_avatar(phoneme_timeline, audio_data=None, expression="neutral", audio
                 }}
                 
                 if (currentPh !== lastPh) {{
-                    // Phase 3: If the PREVIOUS viseme was a vowel, enforce hold time
-                    if (lastPh && vowels.has(lastPh)) {{
-                        const elapsed = nowMs - lastChangeTime;
-                        if (elapsed < VOWEL_HOLD_MS) {{
-                            return;  // Hold the vowel viseme a bit longer
-                        }}
-                    }}
-                    
                     lastPh = currentPh;
-                    lastChangeTime = nowMs;
+                    
+                    // Set crossfade speed based on viseme type
+                    setFadeSpeed(vowels.has(currentPh) ? VOWEL_FADE : CONSONANT_FADE);
+                    
                     const mouthSrc = phonemeMap[currentPh];
                     
                     if (mouthSrc) {{
                         crossfadeTo(mouthSrc);
                     }} else {{
-                        // "rest" — crossfade back to neutral expression
                         hideAllMouths();
                     }}
                     
