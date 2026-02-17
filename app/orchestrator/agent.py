@@ -186,21 +186,6 @@ class Agent:
 
         phoneme_timeline = self._text_to_phonemes(text)
 
-        # ── Phase 1: Scale timeline to actual audio duration ──────────────
-        try:
-            with wave.open(io.BytesIO(audio_bytes), "rb") as wf:
-                audio_duration = wf.getnframes() / float(wf.getframerate())
-            if phoneme_timeline and len(phoneme_timeline) > 1:
-                raw_duration = phoneme_timeline[-1][0]
-                if raw_duration > 0 and audio_duration > 0:
-                    # Leave a small tail so mouth closes before audio ends
-                    target = max(audio_duration - 0.15, audio_duration * 0.92)
-                    scale = target / raw_duration
-                    phoneme_timeline = [
-                        (round(t * scale, 3), ph) for t, ph in phoneme_timeline
-                    ]
-        except Exception:
-            pass  # If WAV parsing fails, use raw timeline
 
         # Sentiment from DB
         recent_moods = self.memory_store.get_recent_moods(session_id, 1)
@@ -316,31 +301,7 @@ class Agent:
             if entry[1] != deduped[-1][1]:
                 deduped.append(entry)
 
-        # ── Phase 2: Insert transition rest frames between distant visemes ─
-        # Mouth openness: 0 = closed, 1 = slightly open, 2 = open, 3 = wide
-        OPENNESS = {
-            "rest": 1, "MB": 0, "FV": 0, "B": 0,
-            "S": 1, "K": 1, "TH": 1, "L": 1, "R": 1,
-            "E": 2, "U": 2, "W": 2,
-            "A": 3, "O": 3, "Oh": 3,
-        }
-        smoothed = [deduped[0]]
-        for i in range(1, len(deduped)):
-            prev_ph = deduped[i - 1][1]
-            curr_ph = deduped[i][1]
-            prev_open = OPENNESS.get(prev_ph, 1)
-            curr_open = OPENNESS.get(curr_ph, 1)
-
-            # If openness changes by 2+ levels, insert a brief rest transition
-            if abs(prev_open - curr_open) >= 2 and prev_ph != "rest" and curr_ph != "rest":
-                gap = deduped[i][0] - deduped[i - 1][0]
-                if gap > 0.06:  # Only if enough time for a transition
-                    mid_t = round(deduped[i - 1][0] + gap * 0.45, 3)
-                    smoothed.append((mid_t, "rest"))
-
-            smoothed.append(deduped[i])
-
-        return smoothed
+        return deduped
 
     # ── action ledger ─────────────────────────────────────────────────────
 

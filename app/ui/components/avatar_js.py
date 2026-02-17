@@ -96,7 +96,7 @@ def render_avatar(phoneme_timeline, audio_data=None, expression="neutral", audio
             height: 100%;
             object-fit: contain;
             opacity: 0;
-            transition: opacity 0.14s ease-in-out;  /* Default, overridden by JS for vowel/consonant */
+            transition: opacity 0.14s ease-in-out;
         }}
         .mouth-layer.active {{
             opacity: 1;
@@ -226,16 +226,6 @@ def render_avatar(phoneme_timeline, audio_data=None, expression="neutral", audio
         }}
 
         // ── Lip-sync Animation Loop ──────────────────────
-        // Phase 3: Vowels use slower crossfade (held feel), consonants use faster
-        const vowels = new Set(["A", "E", "O", "U", "Oh", "AI"]);
-        const VOWEL_FADE = '0.20s ease-in-out';    // Slower = vowels feel sustained
-        const CONSONANT_FADE = '0.09s ease-in-out'; // Snappy for consonants
-        
-        function setFadeSpeed(speed) {{
-            mouthA.style.transition = 'opacity ' + speed;
-            mouthB.style.transition = 'opacity ' + speed;
-        }}
-        
         function updateFrame() {{
             requestAnimationFrame(updateFrame);
             
@@ -253,15 +243,12 @@ def render_avatar(phoneme_timeline, audio_data=None, expression="neutral", audio
                 
                 if (currentPh !== lastPh) {{
                     lastPh = currentPh;
-                    
-                    // Set crossfade speed based on viseme type
-                    setFadeSpeed(vowels.has(currentPh) ? VOWEL_FADE : CONSONANT_FADE);
-                    
                     const mouthSrc = phonemeMap[currentPh];
                     
                     if (mouthSrc) {{
                         crossfadeTo(mouthSrc);
                     }} else {{
+                        // "rest" — crossfade back to neutral expression
                         hideAllMouths();
                     }}
                     
