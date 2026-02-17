@@ -225,12 +225,17 @@ def render_avatar(phoneme_timeline, audio_data=None, expression="neutral", audio
             }});
         }}
 
-        // ── Lip-sync Animation Loop ──────────────────────
+        // ── Lip-sync Animation Loop (Phase 3: Vowel Hold) ──
+        const vowels = new Set(["A", "E", "O", "U", "Oh", "AI"]);
+        let lastChangeTime = 0;
+        const VOWEL_HOLD_MS = 120;  // Minimum ms to hold a vowel viseme
+        
         function updateFrame() {{
             requestAnimationFrame(updateFrame);
             
             if (!audio.paused && !audio.ended) {{
                 const t = audio.currentTime;
+                const nowMs = performance.now();
                 
                 let currentPh = "rest";
                 for (let i = 0; i < timeline.length; i++) {{
@@ -242,7 +247,16 @@ def render_avatar(phoneme_timeline, audio_data=None, expression="neutral", audio
                 }}
                 
                 if (currentPh !== lastPh) {{
+                    // Phase 3: If the PREVIOUS viseme was a vowel, enforce hold time
+                    if (lastPh && vowels.has(lastPh)) {{
+                        const elapsed = nowMs - lastChangeTime;
+                        if (elapsed < VOWEL_HOLD_MS) {{
+                            return;  // Hold the vowel viseme a bit longer
+                        }}
+                    }}
+                    
                     lastPh = currentPh;
+                    lastChangeTime = nowMs;
                     const mouthSrc = phonemeMap[currentPh];
                     
                     if (mouthSrc) {{
