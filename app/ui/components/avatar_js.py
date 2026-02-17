@@ -104,6 +104,13 @@ def render_avatar(phoneme_timeline, audio_data=None, expression="neutral", audio
         .mouth-layer.active {{
             opacity: 1;
         }}
+        /* Step 2: Vowels hold longer, consonants snap */
+        .mouth-layer.vowel-fade {{
+            transition: opacity 0.20s ease-in-out;
+        }}
+        .mouth-layer.fast-fade {{
+            transition: opacity 0.08s ease-in-out;
+        }}
         /* Expression layer with smooth blend */
         #layer-expression {{
             transition: opacity 0.3s ease-in-out;
@@ -155,20 +162,31 @@ def render_avatar(phoneme_timeline, audio_data=None, expression="neutral", audio
         let activeMouth = 'a';  // which layer is currently visible
         let lastPh = null;
         
-        function crossfadeTo(src) {{
-            // Swap: fade out current layer, fade in the other with new image
-            if (activeMouth === 'a') {{
-                // Preload on B, then swap
-                mouthB.src = src;
-                mouthB.classList.add('active');
-                mouthA.classList.remove('active');
-                activeMouth = 'b';
-            }} else {{
-                mouthA.src = src;
-                mouthA.classList.add('active');
-                mouthB.classList.remove('active');
-                activeMouth = 'a';
+        // Step 2: Safety flag — set to false to disable dynamic fades
+        const USE_DYNAMIC_FADES = true;
+        const vowels = new Set(["A", "E", "O", "U", "Oh", "AI"]);
+        
+        function crossfadeTo(src, phoneme) {{
+            // Determine which layer to fade in
+            const incoming = (activeMouth === 'a') ? mouthB : mouthA;
+            const outgoing = (activeMouth === 'a') ? mouthA : mouthB;
+            
+            // Step 2: Set fade speed class before swapping
+            if (USE_DYNAMIC_FADES) {{
+                incoming.classList.remove('vowel-fade', 'fast-fade');
+                outgoing.classList.remove('vowel-fade', 'fast-fade');
+                if (vowels.has(phoneme)) {{
+                    incoming.classList.add('vowel-fade');
+                }} else {{
+                    incoming.classList.add('fast-fade');
+                }}
             }}
+            
+            // Swap: preload on incoming, then crossfade
+            incoming.src = src;
+            incoming.classList.add('active');
+            outgoing.classList.remove('active');
+            activeMouth = (activeMouth === 'a') ? 'b' : 'a';
         }}
         
         function hideAllMouths() {{
@@ -249,7 +267,7 @@ def render_avatar(phoneme_timeline, audio_data=None, expression="neutral", audio
                     const mouthSrc = phonemeMap[currentPh];
                     
                     if (mouthSrc) {{
-                        crossfadeTo(mouthSrc);
+                        crossfadeTo(mouthSrc, currentPh);
                     }} else {{
                         // "rest" — crossfade back to neutral expression
                         hideAllMouths();
