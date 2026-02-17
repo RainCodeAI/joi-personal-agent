@@ -29,31 +29,34 @@ def render_avatar(phoneme_timeline, audio_data=None, expression="neutral", audio
         except Exception:
             return None
 
-    # Viseme (mouth shape) and expression assets
+    # Mouth overlay assets (composited: base face + viseme mouth region)
+    # These prevent full-face popping by keeping eyes/hair/skin stable
     asset_map = {
         "Neutral":  load_base64_asset("Joi_Neutral.png"),
         "Base":     load_base64_asset("Joi_Base.png"),
-        "ah":       load_base64_asset("Joi_ah.png"),
-        "ee":       load_base64_asset("Joi_ee.png"),
-        "O":        load_base64_asset("Joi_O.png"),
-        "Oh":       load_base64_asset("Joi_Oh.png"),
-        "M":        load_base64_asset("Joi_M.png"),
-        "B":        load_base64_asset("Joi_B.png"),
-        "F":        load_base64_asset("Joi_F.png"),
-        "K":        load_base64_asset("Joi_K.png"),
-        "L":        load_base64_asset("Joi_L.png"),
-        "R":        load_base64_asset("Joi_R.png"),
-        "S":        load_base64_asset("Joi_S.png"),
-        "TH":       load_base64_asset("Joi_TH.png"),
-        "W":        load_base64_asset("Joi_W.png"),
+        # Mouth overlays (from mouth_overlays/ directory)
+        "ah":       load_base64_asset(os.path.join("mouth_overlays", "mouth_ah.png")),
+        "ee":       load_base64_asset(os.path.join("mouth_overlays", "mouth_ee.png")),
+        "O":        load_base64_asset(os.path.join("mouth_overlays", "mouth_O.png")),
+        "Oh":       load_base64_asset(os.path.join("mouth_overlays", "mouth_Oh.png")),
+        "M":        load_base64_asset(os.path.join("mouth_overlays", "mouth_M.png")),
+        "B":        load_base64_asset(os.path.join("mouth_overlays", "mouth_B.png")),
+        "F":        load_base64_asset(os.path.join("mouth_overlays", "mouth_F.png")),
+        "K":        load_base64_asset(os.path.join("mouth_overlays", "mouth_K.png")),
+        "L":        load_base64_asset(os.path.join("mouth_overlays", "mouth_L.png")),
+        "R":        load_base64_asset(os.path.join("mouth_overlays", "mouth_R.png")),
+        "S":        load_base64_asset(os.path.join("mouth_overlays", "mouth_S.png")),
+        "TH":       load_base64_asset(os.path.join("mouth_overlays", "mouth_TH.png")),
+        "W":        load_base64_asset(os.path.join("mouth_overlays", "mouth_W.png")),
+        # Full-face expression assets (these change the whole face)
         "Smile":    load_base64_asset("Joi_Smile.png"),
         "Frown":    load_base64_asset("Joi_Frown.png"),
         "Shock":    load_base64_asset("Joi_Shock.png"),
         "Smirk":    load_base64_asset("Joi_Smirk.png"),
     }
 
-    # Fallback: use Neutral for any missing assets
-    default_src = asset_map["Neutral"] or "/app/static/assets/Joi_Neutral.png"
+    # Fallback: use Base for any missing assets
+    default_src = asset_map["Base"] or asset_map["Neutral"] or "/app/static/assets/Joi_Neutral.png"
     for k in asset_map:
         if asset_map[k] is None:
             asset_map[k] = default_src
