@@ -81,6 +81,20 @@ def render_avatar(phoneme_timeline, audio_data=None, expression="neutral", audio
             background: radial-gradient(ellipse at center, rgba(120, 80, 200, 0.15), transparent 70%);
             box-shadow: 0 0 40px rgba(180, 120, 255, 0.2),
                         0 0 80px rgba(100, 160, 255, 0.1);
+            /* Step 6: Subtle breathing + holographic glow */
+            animation: breathe 4s ease-in-out infinite, glowPulse 6s ease-in-out infinite;
+        }}
+        /* Step 6: Idle micro-animations */
+        @keyframes breathe {{
+            0%, 100% {{ transform: translateY(0); }}
+            50% {{ transform: translateY(-2px); }}
+        }}
+        @keyframes glowPulse {{
+            0%, 100% {{ box-shadow: 0 0 40px rgba(180, 120, 255, 0.2), 0 0 80px rgba(100, 160, 255, 0.1); }}
+            50% {{ box-shadow: 0 0 50px rgba(180, 120, 255, 0.3), 0 0 100px rgba(100, 160, 255, 0.15); }}
+        }}
+        .avatar-container.speaking {{
+            animation: glowPulse 6s ease-in-out infinite;
         }}
         .avatar-layer {{
             position: absolute;
@@ -258,13 +272,20 @@ def render_avatar(phoneme_timeline, audio_data=None, expression="neutral", audio
         exprLayer.src = exprMap[expression] || assets["Neutral"];
 
         // ── Audio Playback ────────────────────────────────
+        const container = document.querySelector('.avatar-container');
         const audioSrc = "{audio_src}";
         if (audioSrc) {{
             audio.src = audioSrc;
             statusEl.innerText = "Speaking...";
+            // Step 6: Pause breathing during speech
+            container.classList.add('speaking');
             audio.play().catch(e => {{
                 statusEl.innerText = "Click to play";
                 debugEl.innerText = "Autoplay blocked: " + e.message;
+                container.classList.remove('speaking');
+            }});
+            audio.addEventListener('ended', () => {{
+                container.classList.remove('speaking');
             }});
         }}
 
