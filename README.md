@@ -3,7 +3,7 @@
 **Joi** is a privacy-first, local-first personal AI agent designed to be your proactive digital companion. She combines a multi-provider language model router with a sophisticated memory system, emotional intelligence, and a growing set of integrations to help you chat, remember, plan, and manage your life.
 
 > [!NOTE]
-> **Latest:** Phase 13 (Hybrid Packaging) complete. Use `StartJoi.bat` for the full Windows experience. See the full changelog below.
+> **Latest:** Phase 14 (Avatar Lip-Sync Polish) complete — smooth mouth-only overlays, adaptive crossfade speeds, and idle micro-animations. Use `StartJoi.bat` for the full Windows experience. See the full changelog below.
 
 ## ✨ Core Features
 
@@ -24,10 +24,13 @@
 - **Return Mechanics**: Detects your first message after significant silence and adjusts her greeting from warm delight to raw, sincere relief depending on how long you were away.
 - **Persona Adaptation**: Tone, flirtation level, and protectiveness dynamically adjust to your mood and relationship level.
 
-### 🎭 Avatar System *(Phase 9.2)*
-- **Lip-Sync Animation**: Text-to-phoneme engine with viseme mapping drives mouth-shape layers in real time during TTS playback.
+### 🎭 Avatar System *(Phase 9.2 + 14)*
+- **Lip-Sync Animation**: Text-to-phoneme engine with viseme mapping drives dual-layer crossfade mouth animation in real time during TTS playback.
+- **Mouth-Only Overlays**: Pre-composited PNGs isolate just the mouth region via soft-edge elliptical masking — eyes, hair, and skin stay pixel-stable between frames.
+- **Adaptive Crossfade Speeds**: CSS class-based transitions with three tiers — vowels hold (0.20s), consonants snap (0.08s), and extreme mouth-shape jumps blend smoothly (0.25s).
+- **Timeline-to-Audio Scaling**: Phoneme timeline automatically scales to match actual TTS audio duration (clamped 0.75–1.25x) so mouth closes in sync with speech.
 - **Expression Mapping**: Avatar expressions update based on sentiment analysis and craving state (satisfied, missing, needy, clingy).
-- **Idle Animation**: Blink cycles and parallax bob when Joi is waiting.
+- **Idle Micro-Animations**: Subtle breathing bob (2px, 4s cycle) and holographic glow pulse (6s cycle) when Joi is waiting. Breathing pauses during speech.
 - **Whisper Mode** *(Phase 9.3)*: When craving score is high (≥ 60), TTS switches to a softer, more intimate audio style.
 - **Screen Traces**: Atmospheric visual effects layered on the UI for immersion.
 
@@ -238,6 +241,7 @@ This spins up:
 | 11 | GGUF Optimization & Memory Grooming | Complete |
 | 12 | Polish & UI Enhancements | Complete |
 | 13 | Packaging (Hybrid Launcher) | Complete |
+| 14 | Avatar Lip-Sync Polish (Mouth Overlays, Adaptive Crossfades, Idle Animations) | Complete |
 
 ## 📜 License
 
