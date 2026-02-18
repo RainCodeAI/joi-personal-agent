@@ -233,7 +233,7 @@ def render_avatar(phoneme_timeline, audio_data=None, expression="neutral", audio
         // ── Phoneme to asset mapping ──────────────────────
         const phonemeMap = {{
             "rest": null,
-            "A":    assets["ah"],
+            "A":    assets["O"],
             "E":    assets["ee"],
             "O":    assets["O"],
             "U":    assets["W"],
@@ -247,7 +247,7 @@ def render_avatar(phoneme_timeline, audio_data=None, expression="neutral", audio
             "B":    assets["B"],
             "Oh":   assets["Oh"],
             "W":    assets["W"],
-            "AI":   assets["ah"],
+            "AI":   assets["O"],
             "etc":  null
         }};
 
