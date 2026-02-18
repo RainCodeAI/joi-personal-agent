@@ -220,8 +220,8 @@ class Agent:
             "k": "K", "c": "K", "g": "K", "q": "K",
             "t": "rest", "d": "rest", "n": "rest" # Consonants often closed/neutral
         }
-        VOWEL_DURATION = 0.12
-        CONSONANT_DURATION = 0.08
+        VOWEL_DURATION = 0.16     # Step 3: hold vowels longer for natural feel
+        CONSONANT_DURATION = 0.07  # Step 3: snap consonants faster
         WORD_GAP = 0.08
 
         timeline = []
