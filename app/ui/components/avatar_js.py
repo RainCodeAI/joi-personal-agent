@@ -111,6 +111,10 @@ def render_avatar(phoneme_timeline, audio_data=None, expression="neutral", audio
         .mouth-layer.fast-fade {{
             transition: opacity 0.08s ease-in-out;
         }}
+        /* Step 5: Slow blend for big mouth-shape jumps */
+        .mouth-layer.blend-fade {{
+            transition: opacity 0.25s ease-in-out;
+        }}
         /* Expression layer with smooth blend */
         #layer-expression {{
             transition: opacity 0.3s ease-in-out;
@@ -166,16 +170,34 @@ def render_avatar(phoneme_timeline, audio_data=None, expression="neutral", audio
         const USE_DYNAMIC_FADES = true;
         const vowels = new Set(["A", "E", "O", "U", "Oh", "AI"]);
         
-        function crossfadeTo(src, phoneme) {{
+        // Step 5: Openness map for blend detection
+        // 0 = closed, 1 = slightly open, 2 = open, 3 = wide
+        const OPENNESS = {{
+            "rest": 1, "MB": 0, "FV": 0, "B": 0,
+            "S": 1, "K": 1, "TH": 1, "L": 1, "R": 1,
+            "E": 2, "U": 2, "W": 2,
+            "A": 3, "O": 3, "Oh": 3
+        }};
+        
+        function crossfadeTo(src, phoneme, prevPhoneme) {{
             // Determine which layer to fade in
             const incoming = (activeMouth === 'a') ? mouthB : mouthA;
             const outgoing = (activeMouth === 'a') ? mouthA : mouthB;
             
-            // Step 2: Set fade speed class before swapping
+            // Step 2 + 5: Set fade speed based on phoneme type and jump distance
             if (USE_DYNAMIC_FADES) {{
-                incoming.classList.remove('vowel-fade', 'fast-fade');
-                outgoing.classList.remove('vowel-fade', 'fast-fade');
-                if (vowels.has(phoneme)) {{
+                incoming.classList.remove('vowel-fade', 'fast-fade', 'blend-fade');
+                outgoing.classList.remove('vowel-fade', 'fast-fade', 'blend-fade');
+                
+                // Step 5: Check openness jump distance
+                const prevOpen = OPENNESS[prevPhoneme] !== undefined ? OPENNESS[prevPhoneme] : 1;
+                const currOpen = OPENNESS[phoneme] !== undefined ? OPENNESS[phoneme] : 1;
+                const jump = Math.abs(currOpen - prevOpen);
+                
+                if (jump >= 2) {{
+                    // Big jump (e.g., wide A → closed MB) — slow blend
+                    incoming.classList.add('blend-fade');
+                }} else if (vowels.has(phoneme)) {{
                     incoming.classList.add('vowel-fade');
                 }} else {{
                     incoming.classList.add('fast-fade');
@@ -267,7 +289,7 @@ def render_avatar(phoneme_timeline, audio_data=None, expression="neutral", audio
                     const mouthSrc = phonemeMap[currentPh];
                     
                     if (mouthSrc) {{
-                        crossfadeTo(mouthSrc, currentPh);
+                        crossfadeTo(mouthSrc, currentPh, lastPh || 'rest');
                     }} else {{
                         // "rest" — crossfade back to neutral expression
                         hideAllMouths();
