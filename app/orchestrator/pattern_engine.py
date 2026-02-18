@@ -27,7 +27,8 @@ class PatternEngine:
 
         # 2. Mood Trend
         mood_data = self.store.mood_trend_analysis(session_id)
-        if mood_data.get("trend") == "down" and mood_data.get("num_entries", 0) >= 3:
+        # Check 'direction' since 'trend' is now a float slope
+        if mood_data.get("direction") == "down" and mood_data.get("num_entries", 0) >= 3:
              insights.append({
                  "type": "mood_decline",
                  "value": mood_data.get("avg_mood"),

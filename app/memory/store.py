@@ -564,18 +564,34 @@ JSON:
         return exercises[0]
 
     def mood_trend_analysis(self, session_id: str) -> Dict[str, Any]:
-        # Simple trend: average mood over last 7 entries for user (assuming session_id = user_id)
+        # Simple trend: linear regression slope of mood over last 7 entries
         user_id = session_id  # Adjust if session_id != user_id
         recent_moods = self.get_recent_moods(user_id, limit=7)
-        if not recent_moods:
-            return {"trend": "no_data", "avg_mood": 0, "moods": []}
+        if not recent_moods or len(recent_moods) < 2:
+            return {"trend": 0.0, "avg_mood": 0.0, "moods": [], "direction": "flat"}
+        
+        # Calculate avg
         avg_mood = sum(m.mood for m in recent_moods) / len(recent_moods)
-        trend = "up" if avg_mood > 5 else "down"  # Basic threshold
+        
+        # Calculate slope (trend)
+        # reversed() because get_recent_moods returns newest first [new, ..., old]
+        # We want chronological order for slope [old, ..., new]
+        y = [m.mood for m in reversed(recent_moods)]
+        x = np.arange(len(y))
+        
+        try:
+            slope, _ = np.polyfit(x, y, 1)
+        except Exception:
+            slope = 0.0
+
+        direction = "up" if slope > 0.1 else ("down" if slope < -0.1 else "flat")
+        
         return {
-            "trend": trend,
-            "avg_mood": avg_mood,
-            "moods": [m.mood for m in recent_moods],
-            "num_entries": len(recent_moods)
+            "trend": float(slope),  # Now a float, fixing planner.py TypeError
+            "avg_mood": float(avg_mood),
+            "moods": y,
+            "num_entries": len(recent_moods),
+            "direction": direction
         }
 
     def add_sleep_log(self, hours_slept: float, quality: int = 5, log_date: date = None, user_id: str = "default"):
