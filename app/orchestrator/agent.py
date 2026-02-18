@@ -186,7 +186,22 @@ class Agent:
 
         phoneme_timeline = self._text_to_phonemes(text)
 
-
+        # ── Step 4: Scale timeline to actual audio duration ───────────────
+        USE_AUDIO_SCALING = True  # Safety flag — set False to disable
+        if USE_AUDIO_SCALING:
+            try:
+                with wave.open(io.BytesIO(audio_bytes), "rb") as wf:
+                    audio_duration = wf.getnframes() / float(wf.getframerate())
+                if phoneme_timeline and len(phoneme_timeline) > 1:
+                    raw_end = phoneme_timeline[-1][0]
+                    if raw_end > 0 and audio_duration > 0:
+                        scale = (audio_duration * 0.92) / raw_end
+                        scale = max(0.75, min(scale, 1.25))  # Safety clamp
+                        phoneme_timeline = [
+                            (round(t * scale, 3), ph) for t, ph in phoneme_timeline
+                        ]
+            except Exception:
+                pass  # If WAV parsing fails, use raw timeline
         # Sentiment from DB
         recent_moods = self.memory_store.get_recent_moods(session_id, 1)
         if recent_moods:
