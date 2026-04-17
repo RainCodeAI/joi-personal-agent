@@ -306,17 +306,18 @@ def render_avatar(phoneme_timeline, audio_data=None, expression="neutral", audio
                 }}
                 
                 if (currentPh !== lastPh) {{
-                    lastPh = currentPh;
+                    const prevPh = lastPh || 'rest';
                     const mouthSrc = phonemeMap[currentPh];
                     
                     if (mouthSrc) {{
-                        crossfadeTo(mouthSrc, currentPh, lastPh || 'rest');
+                        crossfadeTo(mouthSrc, currentPh, prevPh);
                     }} else {{
                         // "rest" — crossfade back to neutral expression
                         hideAllMouths();
                     }}
                     
                     debugEl.innerText = "Viseme: " + currentPh;
+                    lastPh = currentPh;
                 }}
             }} else if (audio.ended) {{
                 hideAllMouths();

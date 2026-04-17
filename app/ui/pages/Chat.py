@@ -185,16 +185,9 @@ def main():
             image_context = ""
             if uploaded_file:
                 from app.tools import vision_clip
-                # Save temp to process (or pass bytes if vision_clip supported it, but it takes path currently? 
-                # Wait, vision_clip.describe_image takes image_path str. I should update it to take PIL Image or bytes, 
-                # or save temp. Saving temp is safer for lazy loading pipeline reading from file.)
-                # Actually pipeline can take PIL Image. Let's check vision_clip.py...
-                # It takes image_path string. I'll save to temp.
-                with open("temp_image.png", "wb") as f:
-                    f.write(uploaded_file.getbuffer())
-                
                 with st.spinner("Analyzing image..."):
-                    desc = vision_clip.describe_image("temp_image.png")
+                    uploaded_file.seek(0)
+                    desc = vision_clip.describe_image(Image.open(uploaded_file))
                     image_context = f" [User uploaded an image. Description: {desc}]"
                     st.image(uploaded_file, caption=f"Joi sees: {desc}", width=200)
 

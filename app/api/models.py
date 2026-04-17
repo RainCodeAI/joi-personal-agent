@@ -6,7 +6,7 @@ from sqlalchemy.dialects.postgresql import JSONB
 from pgvector.sqlalchemy import Vector
 from datetime import datetime, date
 from typing import Optional, List, Dict, Any
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.ext.declarative import declarative_base  # Kept for compatibility if needed
 
 # Legacy Base for any old-style models (if any)
@@ -33,18 +33,14 @@ class ChatRequest(BaseModel):
 class ChatResponse(BaseModel):
     text: str
     session_id: str
-    tool_calls: Optional[List[Dict[str, Any]]] = []
+    tool_calls: List[Dict[str, Any]] = Field(default_factory=list)
     craving_score: float = 0.0
     is_dramatic_return: bool = False
 
 class MemoryItem(BaseModel):
-    id: int
-    kind: str
     text: str
-    tags: List[str]
-    priority: float
-    last_accessed: datetime
-    memory_type: str  # "semantic" or "episodic"
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+    distance: float
 
 class MemorySearchRequest(BaseModel):
     query: str

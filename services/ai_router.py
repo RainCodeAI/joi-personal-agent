@@ -1,10 +1,7 @@
 import time
-from typing import Callable, Dict, Any, Optional, List
+from typing import Any, Callable, Dict, List, Optional
 
 import httpx
-import openai
-import grokpy as grok  # Assuming grokpy
-import google.generativeai as genai
 
 from app.config import settings
 from services.router_logging import log_inference
@@ -13,12 +10,12 @@ from services.router_logging import log_inference
 ProviderResult = Dict[str, Any]
 
 
-def _persona_filter(response: str, mood: str) -> str:
-    persona_note = " Respond in a calm, witty, precise manner, adapting to user mood: " + mood
-    return response + persona_note
-
-
-def _provider_result(success: bool, model: str, text: str = "", error: Optional[str] = None) -> ProviderResult:
+def _provider_result(
+    success: bool,
+    model: str,
+    text: str = "",
+    error: Optional[str] = None,
+) -> ProviderResult:
     return {
         "success": success,
         "model": model,
@@ -49,7 +46,10 @@ def call_openai(prompt: str, context: Dict[str, Any]) -> ProviderResult:
     api_key = settings.openai_api_key
     if not api_key:
         return _provider_result(False, "gpt4o", error="OpenAI API key missing")
+
     try:
+        import openai
+
         client = openai.OpenAI(api_key=api_key)
         response = client.chat.completions.create(
             model="gpt-4o",
@@ -66,7 +66,10 @@ def call_grok(prompt: str, context: Dict[str, Any]) -> ProviderResult:
     api_key = settings.xai_api_key
     if not api_key:
         return _provider_result(False, "grok", error="Grok API key missing")
+
     try:
+        import grokpy as grok
+
         client = grok.Client(api_key=api_key)
         response = client.generate(prompt)
         text = response.strip() if response else ""
@@ -82,7 +85,10 @@ def call_gemini(prompt: str, context: Dict[str, Any]) -> ProviderResult:
     api_key = settings.gemini_api_key
     if not api_key:
         return _provider_result(False, "gemini", error="Gemini API key missing")
+
     try:
+        import google.generativeai as genai
+
         genai.configure(api_key=api_key)
         model = genai.GenerativeModel("gemini-1.5-flash")
         response = model.generate_content(prompt)
@@ -96,9 +102,9 @@ def call_gemini(prompt: str, context: Dict[str, Any]) -> ProviderResult:
 
 
 def call_gguf(prompt: str, context: Dict[str, Any]) -> ProviderResult:
-    """Local GGUF model via llama-cpp-python (Phase 11)."""
     try:
-        from services.llama_local import is_available, generate
+        from services.llama_local import generate, is_available
+
         if not is_available():
             return _provider_result(False, "gguf", error="GGUF model not configured")
         text = generate(prompt)
@@ -112,7 +118,7 @@ def call_gguf(prompt: str, context: Dict[str, Any]) -> ProviderResult:
 
 def multi_ai_response(prompt: str, context: Dict[str, Any]) -> ProviderResult:
     providers: List[Callable[[str, Dict[str, Any]], ProviderResult]] = [
-        call_gguf,     # Phase 11: Local GGUF first (fastest, no API cost)
+        call_gguf,
         call_ollama,
         call_openai,
         call_grok,
@@ -168,10 +174,8 @@ def multi_ai_response(prompt: str, context: Dict[str, Any]) -> ProviderResult:
 
 def route_request(prompt: str, context: dict) -> dict:
     result = multi_ai_response(prompt, context)
-    mood = context.get("mood", "neutral")
-
     if result["success"]:
-        response_text = _persona_filter(result["text"], mood)
+        response_text = result["text"]
         model_used = result["model"]
     else:
         response_text = "All providers failed. Please try again later."

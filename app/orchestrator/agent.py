@@ -337,8 +337,8 @@ class Agent:
             f"Generate a journaling prompt for someone feeling {mood} in {location}. "
             "Make it empathetic and insightful."
         )
-        return self.conversation_agent.generate_proactive_message(prompt)
+        return self._conversation.generate_proactive_message(prompt)
 
     def analyze_journal_entry(self, entry: str, session_id: str) -> str:
         prompt = f"Analyze this journal entry for emotions and insights: {entry}"
-        return self.conversation_agent.generate_proactive_message(prompt)
+        return self._conversation.generate_proactive_message(prompt)

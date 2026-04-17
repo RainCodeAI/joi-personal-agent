@@ -10,6 +10,7 @@ from typing import List, Dict, Any
 from app.tools.types import ToolResult
 
 MAX_RESULTS = 20
+SCOPES = ['https://www.googleapis.com/auth/gmail.modify']
 
 def is_authenticated() -> bool:
     """Check if valid credentials exist."""

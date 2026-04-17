@@ -6,6 +6,7 @@ and returns structured ToolCall results.
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import List, TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -99,6 +100,8 @@ class ExecutorAgent:
     @staticmethod
     def _handle_email_read() -> List[ToolCallModel]:
         try:
+            from app.tools import email_gmail
+
             threads = email_gmail.list_threads()
             summary = email_gmail.summarize_threads(threads)
             return [
@@ -120,7 +123,28 @@ class ExecutorAgent:
 
     @staticmethod
     def _handle_calendar_read() -> List[ToolCallModel]:
-        # TODO: Wire up real calendar_gcal.upcoming_events() once OAuth is fully integrated
+        try:
+            from app.tools import calendar_gcal
+
+            if calendar_gcal.is_authenticated():
+                events = calendar_gcal.upcoming_events(days=1)
+                return [
+                    ToolCallModel(
+                        tool_name="calendar_upcoming",
+                        args={},
+                        result={"events": events},
+                    )
+                ]
+        except Exception as e:
+            return [
+                ToolCallModel(
+                    tool_name="calendar_upcoming",
+                    args={},
+                    result={"error": str(e)},
+                    status="error",
+                )
+            ]
+
         return [
             ToolCallModel(
                 tool_name="calendar_upcoming",

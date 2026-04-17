@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any, Dict, List, TYPE_CHECKING
 
 from app.config import settings
+from services.ai_router import route_request
 
 if TYPE_CHECKING:
     from app.memory.store import MemoryStore
@@ -101,19 +102,16 @@ class ConversationAgent:
         }
 
         try:
-            client = self._ensure_client()
-            completion = client.chat.completions.create(
-                model=settings.model_chat,
-                messages=messages,
-                max_tokens=512,
-                temperature=0.8,
+            routed = route_request(
+                self._build_router_prompt(messages),
+                {
+                    "mood": "supportive" if avg_mood < 5 else "playful",
+                },
             )
-            reply = completion.choices[0].message.content.strip()
-            log_entry["provider"] = "OpenAI"
-            log_entry["usage"] = {
-                "prompt_tokens": completion.usage.prompt_tokens,
-                "completion_tokens": completion.usage.completion_tokens,
-            }
+            reply = routed["response"].strip()
+            log_entry["provider"] = routed["model_used"]
+            log_entry["route"] = routed.get("route", [])
+            log_entry["errors"] = routed.get("errors", [])
         except Exception as e:
             reply = (
                 f"I'm having trouble connecting right now... ({e}). "
@@ -175,6 +173,15 @@ class ConversationAgent:
         from openai import OpenAI
         self._client = OpenAI(api_key=settings.openai_api_key)
         return self._client
+
+    @staticmethod
+    def _build_router_prompt(messages: List[Dict[str, str]]) -> str:
+        parts = []
+        for msg in messages:
+            role = msg.get("role", "user").upper()
+            content = msg.get("content", "")
+            parts.append(f"[{role}]\n{content}")
+        return "\n\n".join(parts)
 
     @staticmethod
     def _append_crm_nudge(

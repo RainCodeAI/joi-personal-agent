@@ -1,5 +1,3 @@
-
-from typing import Optional
 from PIL import Image
 import torch
 from transformers import pipeline
@@ -17,11 +15,14 @@ def get_pipeline():
         _caption_pipeline = pipeline("image-to-text", model="Salesforce/blip-image-captioning-base")
     return _caption_pipeline
 
-def describe_image(image_path: str) -> str:
-    """Generate a text description (caption) for the given image."""
+def describe_image(image_input) -> str:
+    """Generate a text description from a file path or PIL image."""
     try:
         pipe = get_pipeline()
-        image = Image.open(image_path).convert('RGB')
+        if hasattr(image_input, "convert") and not isinstance(image_input, (str, bytes)):
+            image = image_input.convert('RGB')
+        else:
+            image = Image.open(image_input).convert('RGB')
         
         # explicit generation args can be added if needed
         results = pipe(image)
