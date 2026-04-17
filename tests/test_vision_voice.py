@@ -3,16 +3,7 @@ import sys
 import os
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../')))
 
-import pytest
 from unittest.mock import MagicMock, patch
-
-# Mock modules that might not be installed in test env
-sys.modules["transformers"] = MagicMock()
-sys.modules["PIL"] = MagicMock()
-sys.modules["PIL.Image"] = MagicMock()
-sys.modules["torch"] = MagicMock()
-sys.modules["elevenlabs"] = MagicMock()
-sys.modules["elevenlabs.api"] = MagicMock()
 
 # Now import the modules to test
 from app.tools import vision_clip
@@ -37,9 +28,10 @@ class TestVisionVoice:
         mock_pipeline.assert_called_with("image-to-text", model="Salesforce/blip-image-captioning-base")
         mock_open.assert_called_with("fake_path.jpg")
 
-    @patch("app.tools.voice_elevenlabs.get_secret")
     @patch("app.tools.voice_elevenlabs.generate")
-    def test_elevenlabs_tts(self, mock_generate, mock_get_secret):
+    @patch("app.tools.voice_elevenlabs.set_api_key")
+    @patch("app.tools.voice_elevenlabs.get_secret")
+    def test_elevenlabs_tts(self, mock_get_secret, mock_set_api_key, mock_generate):
         # Setup
         mock_get_secret.return_value = "fake_key"
         mock_generate.return_value = b"fake_audio_bytes"
@@ -50,6 +42,7 @@ class TestVisionVoice:
         
         # Verify
         assert audio == b"fake_audio_bytes"
+        mock_set_api_key.assert_called_with("fake_key")
         mock_generate.assert_called()
 
     @patch("app.tools.voice_elevenlabs")

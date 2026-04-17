@@ -1,10 +1,11 @@
+import asyncio
 import httpx
 import json
-import asyncio
+import logging
 from concurrent.futures import ThreadPoolExecutor
 from typing import List, Dict, Any, Optional
 from pathlib import Path
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from app.config import settings
 from app.api.models import UserProfile, Feedback, Milestone, ChatMessage, Memory, MoodEntry, Habit, Decision, PersonalGoal, ActivityLog, CbtExercise, Entity, Relationship, Contact, SleepLog, Transaction
 from sqlalchemy import select, create_engine, text as sa_text
@@ -14,7 +15,6 @@ import torch
 try:
     from sentence_transformers import SentenceTransformer
 except ImportError:
-    import logging
     logging.warning("Could not import sentence_transformers. Using MockSentenceTransformer.")
     class SentenceTransformer:
         def __init__(self, model_name):
@@ -72,7 +72,6 @@ class MemoryStore:
             from sentence_transformers import SentenceTransformer
         except ImportError:
             # Fallback to Cloud Embeddings (OpenAI) if local ML is missing
-            import logging
             from openai import OpenAI
             
             logging.warning("Local ML missing. Switching to Cloud Embeddings (OpenAI).")
@@ -80,17 +79,19 @@ class MemoryStore:
             class CloudEmbedding:
                 def __init__(self, model_name, device=None):
                     self.client = OpenAI(api_key=settings.openai_api_key)
-                    self.model = "text-embedding-3-small" # Efficient and cheap
+                    self.model = "text-embedding-3-small"
+                    self.dimensions = settings.embed_dim
                     
                 def encode(self, text, *args, **kwargs):
                     try:
                         # Ensure text is string and not empty
                         if not text or not isinstance(text, str):
                             return np.zeros(self.get_sentence_embedding_dimension(), dtype=np.float32)
-                            
+                        
                         response = self.client.embeddings.create(
                             input=text,
-                            model=self.model
+                            model=self.model,
+                            dimensions=self.dimensions
                         )
                         return np.array(response.data[0].embedding, dtype=np.float32)
                     except Exception as e:
@@ -98,7 +99,7 @@ class MemoryStore:
                         return np.zeros(self.get_sentence_embedding_dimension(), dtype=np.float32)
 
                 def get_sentence_embedding_dimension(self):
-                    return 1536 # OpenAI small embedding dim
+                    return self.dimensions
 
             # Patch the unavailable class with our Cloud implementation
             SentenceTransformer = CloudEmbedding
