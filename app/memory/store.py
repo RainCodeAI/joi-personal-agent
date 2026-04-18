@@ -7,7 +7,7 @@ from typing import List, Dict, Any, Optional
 from pathlib import Path
 from datetime import date, datetime, timedelta
 from app.config import settings
-from app.api.models import UserProfile, Feedback, Milestone, ChatMessage, Memory, MoodEntry, Habit, Decision, PersonalGoal, ActivityLog, CbtExercise, Entity, Relationship, Contact, SleepLog, Transaction
+from app.api.models import UserProfile, Feedback, Milestone, ChatMessage, ChatSession, Memory, MoodEntry, Habit, Decision, PersonalGoal, ActivityLog, CbtExercise, Entity, Relationship, Contact, SleepLog, Transaction
 from sqlalchemy import select, create_engine, text as sa_text
 from sqlalchemy.orm import Session as SQLSession
 import numpy as np
@@ -391,11 +391,48 @@ JSON:
             statement = select(ChatMessage).where(ChatMessage.session_id == session_id).order_by(ChatMessage.timestamp)
             return session.execute(statement).scalars().all()
 
-    def add_chat_message(self, session_id: str, role: str, content: str):
+    def create_session(self, session_id: str, user_id: str = "default", title: Optional[str] = None) -> ChatSession:
         with SQLSession(engine) as session:
+            existing = session.get(ChatSession, session_id)
+            if existing:
+                if title and not existing.title:
+                    existing.title = title
+                    existing.updated_at = datetime.utcnow()
+                    session.commit()
+                    session.refresh(existing)
+                return existing
+
+            record = ChatSession(id=session_id, user_id=user_id, title=title)
+            session.add(record)
+            session.commit()
+            session.refresh(record)
+            return record
+
+    def get_session(self, session_id: str) -> Optional[ChatSession]:
+        with SQLSession(engine) as session:
+            return session.get(ChatSession, session_id)
+
+    def list_sessions(self, limit: int = 50) -> List[ChatSession]:
+        with SQLSession(engine) as session:
+            statement = select(ChatSession).order_by(ChatSession.updated_at.desc()).limit(limit)
+            return session.execute(statement).scalars().all()
+
+    def add_chat_message(self, session_id: str, role: str, content: str) -> ChatMessage:
+        with SQLSession(engine) as session:
+            chat_session = session.get(ChatSession, session_id)
+            if chat_session is None:
+                title = content[:80] if role == "user" else None
+                chat_session = ChatSession(id=session_id, title=title)
+                session.add(chat_session)
+
             message = ChatMessage(session_id=session_id, role=role, content=content)
             session.add(message)
+            chat_session.updated_at = datetime.utcnow()
+            if role == "user" and not chat_session.title:
+                chat_session.title = content[:80]
             session.commit()
+            session.refresh(message)
+            return message
 
     def get_user_profile(self, user_id: str) -> Optional[UserProfile]:
         with SQLSession(engine) as session:

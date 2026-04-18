@@ -27,6 +27,7 @@ class PendingApproval:
     id: str
     tool_name: str
     args: Dict[str, Any]
+    session_id: Optional[str] = None
     status: ApprovalStatus = ApprovalStatus.PENDING
     created_at: str = field(default_factory=lambda: datetime.utcnow().isoformat())
     resolved_at: Optional[str] = None
@@ -70,27 +71,37 @@ class ToolApprovalManager:
         """Check whether a tool requires user confirmation before execution."""
         return tool_name in DESTRUCTIVE_TOOLS
 
-    def request_approval(self, tool_name: str, args: Dict[str, Any]) -> str:
+    def request_approval(
+        self,
+        tool_name: str,
+        args: Dict[str, Any],
+        session_id: Optional[str] = None,
+    ) -> str:
         """Queue a new approval request.  Returns the pending ID."""
         pending = PendingApproval(
             id=str(uuid.uuid4()),
             tool_name=tool_name,
             args=args,
+            session_id=session_id,
         )
         self._store[pending.id] = pending
         return pending.id
 
-    def approve(self, pending_id: str) -> None:
+    def approve(self, pending_id: str) -> Optional[PendingApproval]:
         """Mark a pending request as approved."""
         if pending_id in self._store:
             self._store[pending_id].status = ApprovalStatus.APPROVED
             self._store[pending_id].resolved_at = datetime.utcnow().isoformat()
+            return self._store[pending_id]
+        return None
 
-    def deny(self, pending_id: str) -> None:
+    def deny(self, pending_id: str) -> Optional[PendingApproval]:
         """Mark a pending request as denied."""
         if pending_id in self._store:
             self._store[pending_id].status = ApprovalStatus.DENIED
             self._store[pending_id].resolved_at = datetime.utcnow().isoformat()
+            return self._store[pending_id]
+        return None
 
     def check_approval(self, pending_id: str) -> Optional[bool]:
         """Return True if approved, False if denied, None if still pending."""
@@ -109,6 +120,10 @@ class ToolApprovalManager:
             pa for pa in self._store.values()
             if pa.status == ApprovalStatus.PENDING
         ]
+
+    def get(self, pending_id: str) -> Optional[PendingApproval]:
+        """Return a pending or resolved approval by ID."""
+        return self._store.get(pending_id)
 
     def clear_resolved(self) -> int:
         """Remove resolved (approved + denied) entries.  Returns count removed."""

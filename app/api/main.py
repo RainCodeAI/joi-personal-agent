@@ -11,23 +11,23 @@ from app.api.models import (
     OAuthCallbackResponse,
     OAuthStartResponse,
 )
-from app.memory.store import MemoryStore
-from app.orchestrator.agent import Agent
+from app.api.state import agent, memory_store
+from app.api.v2 import router as v2_router
 
 
 app = FastAPI(title="Joi API", version="1.0.0")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:8501"],
+    allow_origins=[
+        "http://localhost:3000",
+        "http://localhost:3001",
+        "http://localhost:8501",
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-memory_store = MemoryStore()
-agent = Agent()
-
 
 @app.get("/health")
 async def health():
@@ -69,6 +69,7 @@ async def oauth_callback(code: str, state: str = ""):
 
 
 app.include_router(diagnostics_router)
+app.include_router(v2_router)
 
 
 if __name__ == "__main__":

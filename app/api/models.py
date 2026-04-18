@@ -36,6 +36,12 @@ class ChatResponse(BaseModel):
     tool_calls: List[Dict[str, Any]] = Field(default_factory=list)
     craving_score: float = 0.0
     is_dramatic_return: bool = False
+    provider: str = ""
+    route: List[str] = Field(default_factory=list)
+    errors: List[Dict[str, Any]] = Field(default_factory=list)
+    user_message_id: Optional[int] = None
+    assistant_message_id: Optional[int] = None
+    assistant_timestamp: Optional[str] = None
 
 class MemoryItem(BaseModel):
     text: str
@@ -109,6 +115,14 @@ class ChatMessage(Base):
     role: Mapped[str] = mapped_column(String)
     content: Mapped[str] = mapped_column(Text)
     timestamp: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+class ChatSession(Base):
+    __tablename__ = "chatsession"
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    user_id: Mapped[str] = mapped_column(String, default="default")
+    title: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 class Habit(Base):
     __tablename__ = "habit"

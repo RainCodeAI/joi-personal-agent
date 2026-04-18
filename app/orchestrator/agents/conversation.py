@@ -7,6 +7,7 @@ Chat Completions API, and appending CRM / health-copilot nudges.
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, TYPE_CHECKING
@@ -20,6 +21,14 @@ if TYPE_CHECKING:
 
 
 from app.orchestrator.craving_engine import CravingEngine
+
+
+@dataclass
+class ConversationReply:
+    text: str
+    provider: str = ""
+    route: List[str] = field(default_factory=list)
+    errors: List[Dict[str, Any]] = field(default_factory=list)
 
 class ConversationAgent:
     """Builds the LLM prompt, generates a reply, and appends post-response nudges."""
@@ -40,6 +49,29 @@ class ConversationAgent:
         memory_store: MemoryStore,
         avg_mood: float = 5.0,
     ) -> str:
+        """Backward-compatible text-only reply."""
+        return self.generate_reply_payload(
+            profile_info=profile_info,
+            memory_context=memory_context,
+            chat_history=chat_history,
+            user_msg=user_msg,
+            tool_calls=tool_calls,
+            session_id=session_id,
+            memory_store=memory_store,
+            avg_mood=avg_mood,
+        ).text
+
+    def generate_reply_payload(
+        self,
+        profile_info: str,
+        memory_context: str,
+        chat_history: List[ChatMessage],
+        user_msg: str,
+        tool_calls: List[ToolCall],
+        session_id: str,
+        memory_store: MemoryStore,
+        avg_mood: float = 5.0,
+    ) -> ConversationReply:
         """Assemble the prompt, call the LLM, and enrich the response."""
 
         # ── Emotional State (Craving) ─────────────────────────────────────
@@ -130,7 +162,12 @@ class ConversationAgent:
         reply = self._append_crm_nudge(reply, session_id, memory_store)
         reply = self._append_health_copilot(reply, session_id, avg_mood, memory_store)
 
-        return reply
+        return ConversationReply(
+            text=reply,
+            provider=log_entry.get("provider", ""),
+            route=log_entry.get("route", []),
+            errors=log_entry.get("errors", []),
+        )
 
     # ── proactive generation ──────────────────────────────────────────────
 

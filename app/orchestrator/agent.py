@@ -36,8 +36,8 @@ class Agent:
     the pipeline: MemoryRetriever → Planner → Executor → Conversation.
     """
 
-    def __init__(self) -> None:
-        self.memory_store = MemoryStore()
+    def __init__(self, memory_store: MemoryStore | None = None) -> None:
+        self.memory_store = memory_store or MemoryStore()
         self.ollama_host = settings.ollama_host
 
         # Sub-agents
@@ -74,7 +74,7 @@ class Agent:
         is_return, _ = _craving.get_return_bonus(session_id)
 
         # Persist the incoming user message
-        self.memory_store.add_chat_message(session_id, "user", user_msg)
+        user_record = self.memory_store.add_chat_message(session_id, "user", user_msg)
         self.memory_store.add_memory("user_input", user_msg, ["chat", session_id])
 
         # 1. Memory Retriever — gather context
@@ -100,7 +100,7 @@ class Agent:
         tool_calls = self._executor.execute_tools(user_msg, session_id)
 
         # 4. Conversation — generate LLM reply
-        reply = self._conversation.generate_reply(
+        reply_payload = self._conversation.generate_reply_payload(
             profile_info=context.profile_info,
             memory_context=context.memory_context,
             chat_history=chat_history,
@@ -110,9 +110,10 @@ class Agent:
             memory_store=self.memory_store,
             avg_mood=context.avg_mood,
         )
+        reply = reply_payload.text
 
         # Persist assistant reply
-        self.memory_store.add_chat_message(session_id, "assistant", reply)
+        assistant_record = self.memory_store.add_chat_message(session_id, "assistant", reply)
 
         # Audit ledger
         self.log_action(
@@ -142,6 +143,12 @@ class Agent:
             tool_calls=[tc.dict() for tc in tool_calls],
             craving_score=craving_score,
             is_dramatic_return=is_return,
+            provider=reply_payload.provider,
+            route=reply_payload.route,
+            errors=reply_payload.errors,
+            user_message_id=user_record.id,
+            assistant_message_id=assistant_record.id,
+            assistant_timestamp=assistant_record.timestamp.isoformat(),
         )
 
     # ── persona filter (delegated) ────────────────────────────────────────
