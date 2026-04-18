@@ -2,6 +2,7 @@ import asyncio
 import httpx
 import json
 import logging
+import threading
 from concurrent.futures import ThreadPoolExecutor
 from typing import List, Dict, Any, Optional
 from pathlib import Path
@@ -25,10 +26,19 @@ except ImportError:
 
 # Database setup
 engine = create_engine(settings.database_url or f"sqlite:///{settings.db_path}")
+_db_init_lock = threading.Lock()
+_db_initialized = False
 
 def create_db_and_tables():
+    global _db_initialized
+    if _db_initialized:
+        return
     from app.api.models import Base
-    Base.metadata.create_all(engine)
+    with _db_init_lock:
+        if _db_initialized:
+            return
+        Base.metadata.create_all(engine)
+        _db_initialized = True
 
 class MemoryStore:
     _executor = ThreadPoolExecutor(max_workers=2)

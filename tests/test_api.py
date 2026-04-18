@@ -9,6 +9,7 @@ from app.api.main import app
 from app.api.models import ChatResponse
 from app.api.realtime import RealtimeEventBus, format_sse_event
 from app.api import v2 as api_v2
+from app.api import diagnostics as diagnostics_api
 from app.orchestrator.security.approval import ApprovalStatus, PendingApproval
 
 
@@ -19,6 +20,46 @@ def test_health():
     response = client.get("/health")
     assert response.status_code == 200
     assert response.json() == {"status": "ok"}
+
+
+def test_runtime_diagnostics(monkeypatch):
+    monkeypatch.setattr(
+        diagnostics_api,
+        "_provider_diagnostics",
+        lambda: {
+            "ollama": {"configured": True, "available": True, "host": "http://127.0.0.1:11434"},
+            "openai": {"configured": False, "sdk_available": True},
+        },
+    )
+    monkeypatch.setattr(
+        diagnostics_api,
+        "_storage_diagnostics",
+        lambda: {
+            "airgap": False,
+            "database_mode": "sqlite",
+            "database_target": "./data/joi_v1.db",
+            "vector_mode": "sql_only",
+            "session_store": "sqlalchemy",
+        },
+    )
+    monkeypatch.setattr(
+        diagnostics_api,
+        "_media_diagnostics",
+        lambda: {
+            "tts": {"openai": True, "elevenlabs_sdk": False, "elevenlabs_configured": False, "local_engine": True},
+            "stt": {"google_local_stack": True, "whisper_local": True, "microphone_stack": True},
+            "vision": {"captioning_stack": True, "torch": True},
+        },
+    )
+
+    response = client.get("/diagnostics/runtime")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "ok"
+    assert body["providers"]["ollama"]["available"] is True
+    assert body["storage"]["vector_mode"] == "sql_only"
+    assert body["media"]["tts"]["openai"] is True
 
 
 def test_v2_create_session(monkeypatch):
