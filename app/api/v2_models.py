@@ -116,6 +116,19 @@ class AvatarSyncResponse(V2ResponseBase):
     sentiment: str = "neutral"
 
 
+class RealtimeEventEnvelope(V2ResponseBase):
+    event_id: str
+    event: str
+    source: str
+    session_id: Optional[str] = None
+    timestamp: str
+    payload: Dict[str, Any] = Field(default_factory=dict)
+
+
+class RealtimeEventsResponse(V2ResponseBase):
+    events: List[RealtimeEventEnvelope] = Field(default_factory=list)
+
+
 class SettingsResource(BaseModel):
     airgap: bool
     autonomy_level: str

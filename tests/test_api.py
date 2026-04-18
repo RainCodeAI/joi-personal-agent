@@ -1,3 +1,5 @@
+import asyncio
+import json
 from datetime import datetime
 from types import SimpleNamespace
 
@@ -5,6 +7,7 @@ from fastapi.testclient import TestClient
 
 from app.api.main import app
 from app.api.models import ChatResponse
+from app.api.realtime import RealtimeEventBus, format_sse_event
 from app.api import v2 as api_v2
 from app.orchestrator.security.approval import ApprovalStatus, PendingApproval
 
@@ -121,6 +124,22 @@ def test_v2_chat_contract(monkeypatch):
     )
     monkeypatch.setattr(api_v2.approval_manager, "request_approval", lambda *args, **kwargs: "approval-1")
     monkeypatch.setattr(api_v2.approval_manager, "get", lambda approval_id: pending)
+    published_events = []
+
+    async def fake_publish(event, payload, session_id=None, source="system"):
+        envelope = {
+            "api_version": "v2",
+            "event_id": f"evt-{len(published_events)+1}",
+            "event": event,
+            "source": source,
+            "session_id": session_id,
+            "timestamp": "2026-01-03T12:00:01",
+            "payload": payload,
+        }
+        published_events.append(envelope)
+        return envelope
+
+    monkeypatch.setattr(api_v2.event_bus, "publish", fake_publish)
 
     class FakeCravingEngine:
         def __init__(self, store):
@@ -142,6 +161,14 @@ def test_v2_chat_contract(monkeypatch):
     assert body["avatar"]["expression"] == "clingy"
     assert body["avatar"]["voice_hint"] == "whisper"
     assert body["pending_approvals"][0]["tool_name"] == "send_email"
+    assert [event["event"] for event in published_events] == [
+        "message.received",
+        "response.started",
+        "approval.requested",
+        "message.created",
+        "message.completed",
+        "avatar.state",
+    ]
 
 
 def test_v2_approve_action(monkeypatch):
@@ -205,3 +232,55 @@ def test_v2_settings_patch(monkeypatch):
     assert body["api_version"] == "v2"
     assert body["settings"]["autonomy_level"] == "high"
     assert body["settings"]["router_timeout"] == 45
+
+
+def test_v2_recent_events(monkeypatch):
+    async def fake_recent(*, session_id=None, limit=20):
+        return [
+            {
+                "api_version": "v2",
+                "event_id": "evt-1",
+                "event": "message.completed",
+                "source": "chat",
+                "session_id": session_id,
+                "timestamp": "2026-01-03T12:00:01",
+                "payload": {"text": "hello"},
+            }
+        ]
+
+    monkeypatch.setattr(api_v2.event_bus, "get_recent", fake_recent)
+
+    response = client.get("/api/v2/events", params={"session_id": "session-chat", "limit": 1})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["api_version"] == "v2"
+    assert body["events"][0]["event"] == "message.completed"
+    assert body["events"][0]["payload"]["text"] == "hello"
+
+
+def test_realtime_event_bus_and_sse_format():
+    async def scenario():
+        bus = RealtimeEventBus()
+        subscriber_id, queue = await bus.subscribe(session_id="stream-session")
+        try:
+            envelope = await bus.publish(
+                "message.completed",
+                {"marker": "stream-test"},
+                session_id="stream-session",
+                source="chat",
+            )
+            received = await asyncio.wait_for(queue.get(), timeout=1.0)
+            return envelope, received
+        finally:
+            await bus.unsubscribe(subscriber_id)
+
+    envelope, received = asyncio.run(scenario())
+    assert received["event"] == "message.completed"
+    assert received["payload"]["marker"] == "stream-test"
+
+    formatted = format_sse_event(envelope)
+    assert "event: message.completed" in formatted
+    payload_line = next(line for line in formatted.splitlines() if line.startswith("data: "))
+    payload = json.loads(payload_line.split("data: ", 1)[1])
+    assert payload["payload"]["marker"] == "stream-test"
