@@ -1,0 +1,817 @@
+"use client";
+
+import { ChangeEvent, FormEvent, useEffect, useState, startTransition } from "react";
+
+import { AvatarSyncPanel } from "@/components/avatar-sync-panel";
+import { VoiceComposer } from "@/components/voice-composer";
+import {
+  approveAction,
+  createEventStream,
+  createSession,
+  denyAction,
+  fetchMediaSession,
+  listApprovals,
+  listMessages,
+  patchMediaSession,
+  sendChatMessageWithAttachments,
+  syncAvatar,
+} from "@/lib/api";
+import {
+  Approval,
+  AvatarCue,
+  AvatarSyncPayload,
+  ChatAttachment,
+  ChatAttachmentInput,
+  ChatResponse,
+  MediaSession,
+  Message,
+  RealtimeEvent,
+} from "@/lib/types";
+
+const SESSION_STORAGE_KEY = "joi-v2-session";
+
+type ChatClientProps = {
+  initialSessionId?: string | null;
+};
+
+type AttachmentDraft = ChatAttachmentInput & {
+  preview_url?: string;
+  preview_text?: string;
+};
+
+type DisplayMessage = Message & {
+  attachments?: ChatAttachment[];
+};
+
+type ApprovalField = {
+  label: string;
+  value: string;
+};
+
+type ApprovalPresentation = {
+  title: string;
+  summary: string;
+  riskLabel: string;
+  riskTone: "ok" | "warn";
+  fields: ApprovalField[];
+  preview?: string;
+};
+
+function formatTimestamp(value: string) {
+  try {
+    return new Date(value).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  } catch {
+    return value;
+  }
+}
+
+function humanizeKey(key: string) {
+  return key
+    .replace(/_/g, " ")
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+function valuePreview(value: unknown): string {
+  if (value == null) {
+    return "Not provided";
+  }
+  if (typeof value === "string") {
+    return value.length > 140 ? `${value.slice(0, 137)}...` : value;
+  }
+  if (typeof value === "number" || typeof value === "boolean") {
+    return String(value);
+  }
+  if (Array.isArray(value)) {
+    return value.map((entry) => valuePreview(entry)).join(", ");
+  }
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
+}
+
+function approvalPresentation(approval: Approval): ApprovalPresentation {
+  const args = approval.args ?? {};
+  const toolName = approval.tool_name;
+  const fieldEntries = Object.entries(args)
+    .filter(([key]) => !["body", "content", "html", "message"].includes(key))
+    .slice(0, 4)
+    .map(([key, value]) => ({ label: humanizeKey(key), value: valuePreview(value) }));
+
+  const longTextPreview =
+    [args.body, args.content, args.html, args.message]
+      .map((value) => (typeof value === "string" ? value.trim() : ""))
+      .find(Boolean) || undefined;
+
+  switch (toolName) {
+    case "send_email":
+      return {
+        title: "Send an email",
+        summary: `Joi wants permission to send an email${typeof args.to === "string" ? ` to ${args.to}` : ""}.`,
+        riskLabel: "external action",
+        riskTone: "warn",
+        fields: fieldEntries,
+        preview: longTextPreview,
+      };
+    case "create_calendar_event":
+      return {
+        title: "Create a calendar event",
+        summary: `Joi wants to add${typeof args.title === "string" ? ` "${args.title}"` : " a new event"} to your calendar.`,
+        riskLabel: "calendar write",
+        riskTone: "warn",
+        fields: fieldEntries,
+      };
+    case "write_file":
+    case "save_file":
+      return {
+        title: "Write a local file",
+        summary: `Joi wants permission to write${typeof args.path === "string" ? ` ${args.path}` : " a local file"}.`,
+        riskLabel: "filesystem write",
+        riskTone: "warn",
+        fields: fieldEntries,
+        preview: longTextPreview,
+      };
+    case "delete_file":
+    case "remove_file":
+      return {
+        title: "Delete a local file",
+        summary: `Joi wants permission to delete${typeof args.path === "string" ? ` ${args.path}` : " a local file"}.`,
+        riskLabel: "destructive",
+        riskTone: "warn",
+        fields: fieldEntries,
+      };
+    case "web_search":
+      return {
+        title: "Run a web search",
+        summary: `Joi wants to search the web${typeof args.query === "string" ? ` for "${args.query}"` : ""}.`,
+        riskLabel: "read only",
+        riskTone: "ok",
+        fields: fieldEntries,
+      };
+    default:
+      return {
+        title: humanizeKey(toolName),
+        summary: `Joi wants permission to run ${humanizeKey(toolName).toLowerCase()}.`,
+        riskLabel: "tool action",
+        riskTone: "warn",
+        fields: fieldEntries,
+        preview: longTextPreview,
+      };
+  }
+}
+
+async function fileToAttachmentDraft(file: File): Promise<AttachmentDraft> {
+  const data_url = await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(file);
+  });
+
+  const kind = file.type.startsWith("image/")
+    ? "image"
+    : file.type.startsWith("text/")
+      ? "text"
+      : "file";
+  const preview_text = kind === "text" ? (await file.text()).slice(0, 240) : undefined;
+
+  return {
+    id: `${file.name}-${file.lastModified}`,
+    kind,
+    name: file.name,
+    media_type: file.type || "application/octet-stream",
+    data_url,
+    size_bytes: file.size,
+    preview_url: kind === "image" ? data_url : undefined,
+    preview_text,
+  };
+}
+
+function toAttachmentResource(draft: AttachmentDraft): ChatAttachment {
+  return {
+    id: draft.id ?? draft.name,
+    kind: draft.kind,
+    name: draft.name,
+    media_type: draft.media_type,
+    size_bytes: draft.size_bytes ?? 0,
+    preview_text: draft.preview_text ?? null,
+  };
+}
+
+export function ChatClient({ initialSessionId }: ChatClientProps) {
+  const [sessionId, setSessionId] = useState<string | null>(initialSessionId ?? null);
+  const [messages, setMessages] = useState<DisplayMessage[]>([]);
+  const [events, setEvents] = useState<RealtimeEvent[]>([]);
+  const [approvals, setApprovals] = useState<Approval[]>([]);
+  const [selectedApprovalId, setSelectedApprovalId] = useState<string | null>(null);
+  const [draft, setDraft] = useState("");
+  const [attachments, setAttachments] = useState<AttachmentDraft[]>([]);
+  const [status, setStatus] = useState("Booting realtime shell");
+  const [provider, setProvider] = useState("pending");
+  const [streamingText, setStreamingText] = useState("");
+  const [avatarCue, setAvatarCue] = useState<AvatarCue | null>(null);
+  const [avatarSyncPayload, setAvatarSyncPayload] = useState<AvatarSyncPayload | null>(null);
+  const [mediaSession, setMediaSession] = useState<MediaSession | null>(null);
+  const [avatarSyncLoading, setAvatarSyncLoading] = useState(false);
+  const [isSending, setIsSending] = useState(false);
+
+  useEffect(() => {
+    const stored =
+      typeof window !== "undefined" ? window.sessionStorage.getItem(SESSION_STORAGE_KEY) : null;
+    if (!sessionId && stored) {
+      setSessionId(stored);
+      return;
+    }
+
+    if (!sessionId) {
+      createSession("Joi Web Session")
+        .then((result) => {
+          if (typeof window !== "undefined") {
+            window.sessionStorage.setItem(SESSION_STORAGE_KEY, result.session.id);
+          }
+          setSessionId(result.session.id);
+          setStatus("Session ready");
+        })
+        .catch((error: Error) => {
+          setStatus(`Session error: ${error.message}`);
+        });
+    }
+  }, [sessionId]);
+
+  useEffect(() => {
+    if (!sessionId) {
+      return;
+    }
+
+    void Promise.all([listMessages(sessionId), listApprovals(sessionId), fetchMediaSession(sessionId)])
+      .then(([messageResponse, approvalsResponse, mediaResponse]) => {
+        setMessages(messageResponse.messages);
+        setApprovals(approvalsResponse.approvals);
+        setMediaSession(mediaResponse.media_session);
+      })
+      .catch((error: Error) => {
+        setStatus(`Bootstrap error: ${error.message}`);
+      });
+  }, [sessionId]);
+
+  useEffect(() => {
+    if (!sessionId) {
+      return;
+    }
+
+    const source = createEventStream(sessionId, (event: RealtimeEvent) => {
+      startTransition(() => {
+        setEvents((current) => [event, ...current].slice(0, 30));
+      });
+
+      if (event.event === "response.started") {
+        setStreamingText("");
+        setStatus("Joi is composing a response");
+      }
+
+      if (event.event === "message.delta") {
+        const delta = typeof event.payload.delta === "string" ? event.payload.delta : "";
+        if (delta) {
+          setStreamingText((current) => `${current}${delta}`);
+          setStatus("Streaming assistant response");
+        }
+      }
+
+      if (event.event === "message.completed") {
+        const eventProvider = event.payload.provider as { selected?: string } | undefined;
+        if (eventProvider?.selected) {
+          setProvider(eventProvider.selected);
+        }
+      }
+
+      if (event.event === "approval.requested") {
+        const approval = event.payload.approval as Approval | undefined;
+        if (approval) {
+          setApprovals((current) => [approval, ...current.filter((item) => item.id !== approval.id)]);
+          setSelectedApprovalId(approval.id);
+        }
+        setStatus("Approval required");
+      }
+
+      if (event.event === "approval.resolved") {
+        const approval = event.payload.approval as Approval | undefined;
+        if (approval) {
+          setApprovals((current) => current.filter((item) => item.id !== approval.id));
+          setSelectedApprovalId((current) => (current === approval.id ? null : current));
+        }
+        setStatus("Approval resolved");
+      }
+
+      if (event.event === "avatar.state") {
+        const cue = event.payload.avatar as AvatarCue | undefined;
+        if (cue) {
+          setAvatarCue(cue);
+        }
+      }
+
+      if (event.event === "media.session.updated") {
+        const payload = event.payload.media_session as MediaSession | undefined;
+        if (payload) {
+          setMediaSession(payload);
+        }
+      }
+
+      if (event.event === "media.transcription.completed") {
+        const payload = event.payload.media_session as MediaSession | undefined;
+        if (payload) {
+          setMediaSession(payload);
+        }
+        setStatus("Voice transcription ready");
+      }
+
+      if (event.event === "media.transcription.failed") {
+        const payload = event.payload.media_session as MediaSession | undefined;
+        if (payload) {
+          setMediaSession(payload);
+        }
+        setStatus("Voice transcription failed");
+      }
+
+      if (event.event === "tts.ready") {
+        const payload = event.payload as Omit<AvatarSyncPayload, "api_version" | "session_id">;
+        if (payload.audio_url) {
+          setAvatarSyncPayload({
+            api_version: "v2",
+            session_id: sessionId,
+            audio_url: payload.audio_url,
+            phoneme_timeline: (payload.phoneme_timeline ?? []) as Array<[number, string]>,
+            sentiment: String(payload.sentiment ?? "neutral"),
+            delivery_style: String(payload.delivery_style ?? "normal"),
+          });
+          setAvatarSyncLoading(false);
+        }
+        const eventMediaSession = event.payload.media_session as MediaSession | undefined;
+        if (eventMediaSession) {
+          setMediaSession(eventMediaSession);
+        }
+      }
+    });
+    source.onerror = () => {
+      setStatus("Realtime stream interrupted");
+    };
+
+    return () => {
+      source.close();
+    };
+  }, [sessionId]);
+
+  async function handleAttachmentSelect(event: ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(event.target.files ?? []);
+    if (!files.length) {
+      return;
+    }
+
+    setStatus("Reading attachments");
+    try {
+      const drafts = await Promise.all(files.map(fileToAttachmentDraft));
+      setAttachments((current) => [...current, ...drafts]);
+      setStatus(`${files.length} attachment(s) ready`);
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Attachment read failed");
+    } finally {
+      event.target.value = "";
+    }
+  }
+
+  async function handleAvatarSync(messageId: number, text: string, cue: AvatarCue) {
+    if (!sessionId || !cue.should_speak || !text.trim()) {
+      return;
+    }
+
+    setAvatarCue(cue);
+    setAvatarSyncLoading(true);
+    try {
+      const payload = await syncAvatar(sessionId, text);
+      setAvatarSyncPayload(payload);
+      setStatus(`Avatar synced for message ${messageId}`);
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Avatar sync failed");
+    } finally {
+      setAvatarSyncLoading(false);
+    }
+  }
+
+  async function handlePlaybackStateChange(state: {
+    speakingState: "playing" | "idle";
+    playbackLatencyMs?: number;
+  }) {
+    if (!sessionId) {
+      return;
+    }
+
+    try {
+      const response = await patchMediaSession({
+        session_id: sessionId,
+        speaking_state: state.speakingState,
+        playback_latency_ms: state.playbackLatencyMs,
+      });
+      setMediaSession(response.media_session);
+    } catch {
+      // Ignore playback session sync failures and preserve local playback.
+    }
+  }
+
+  function handleVoiceTranscript(transcript: string) {
+    setDraft((current) => (current.trim() ? `${current.trim()} ${transcript}` : transcript));
+    setStatus("Voice transcript appended to draft");
+  }
+
+  function handleInterruptPlayback() {
+    setAvatarSyncPayload(null);
+    setAvatarSyncLoading(false);
+    setStatus("Voice playback interrupted by microphone capture");
+  }
+
+  async function onSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!sessionId || isSending || (!draft.trim() && attachments.length === 0)) {
+      return;
+    }
+
+    const text = draft.trim();
+    const optimisticUser: DisplayMessage = {
+      id: Date.now(),
+      session_id: sessionId,
+      role: "user",
+      content: text || (attachments.length === 1 ? `Shared attachment: ${attachments[0].name}` : `Shared ${attachments.length} attachments`),
+      timestamp: new Date().toISOString(),
+      attachments: attachments.map(toAttachmentResource),
+    };
+
+    startTransition(() => {
+      setMessages((current) => [...current, optimisticUser]);
+    });
+    setDraft("");
+    setStreamingText("");
+    setIsSending(true);
+    setStatus("Sending message");
+
+    try {
+      const response: ChatResponse = await sendChatMessageWithAttachments(
+        sessionId,
+        text,
+        attachments.map(({ preview_url, preview_text, ...attachment }) => attachment),
+      );
+
+      setProvider(response.provider.selected || "router");
+      setApprovals(response.pending_approvals);
+      startTransition(() => {
+        setMessages((current) => [
+          ...current.filter((message) => message.id !== optimisticUser.id),
+          { ...response.user_message, attachments: response.attachments },
+          response.assistant_message,
+        ]);
+      });
+      setAttachments([]);
+      setStreamingText("");
+      setStatus(response.pending_approvals.length ? "Awaiting approval" : "Response complete");
+      await handleAvatarSync(
+        response.assistant_message.id,
+        response.assistant_message.content,
+        response.avatar,
+      );
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Failed to send message");
+      startTransition(() => {
+        setMessages((current) => current.filter((message) => message.id !== optimisticUser.id));
+      });
+    } finally {
+      setIsSending(false);
+    }
+  }
+
+  async function handleApprovalAction(approvalId: string, decision: "approve" | "deny") {
+    setStatus(`${decision === "approve" ? "Approving" : "Denying"} action`);
+    try {
+      if (decision === "approve") {
+        await approveAction(approvalId);
+      } else {
+        await denyAction(approvalId);
+      }
+      setApprovals((current) => current.filter((approval) => approval.id !== approvalId));
+      setSelectedApprovalId((current) => (current === approvalId ? null : current));
+      setStatus(`Approval ${decision}d`);
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Approval action failed");
+    }
+  }
+
+  const selectedApproval =
+    approvals.find((approval) => approval.id === selectedApprovalId) ?? null;
+
+  return (
+    <div className="page-body">
+      <div className="chat-layout">
+        <section className="panel">
+          <div style={{ marginBottom: 18 }}>
+            <p className="eyebrow">Flagship Surface</p>
+            <h2>Realtime chat</h2>
+            <p className="panel-copy">
+              Partial text streaming, typed attachments, approvals, and avatar sync all ride on the
+              same FastAPI contract now.
+            </p>
+          </div>
+
+          <div className="message-list">
+            {messages.length === 0 ? (
+              <div className="empty-state">
+                The session is live. Send the first message to exercise the richer chat surface.
+              </div>
+            ) : (
+              messages.map((message) => (
+                <article key={`${message.id}-${message.timestamp}`} className="message-card" data-role={message.role}>
+                  <header>
+                    <span>{message.role}</span>
+                    <span>{formatTimestamp(message.timestamp)}</span>
+                  </header>
+                  <p>{message.content}</p>
+                  {message.attachments?.length ? (
+                    <div className="attachment-list">
+                      {message.attachments.map((attachment) => (
+                        <div className="attachment-card" key={attachment.id}>
+                          <strong>{attachment.name}</strong>
+                          <span>{attachment.media_type}</span>
+                          {attachment.preview_text ? <p>{attachment.preview_text}</p> : null}
+                        </div>
+                      ))}
+                    </div>
+                  ) : null}
+                </article>
+              ))
+            )}
+
+            {streamingText ? (
+              <article className="message-card" data-role="assistant">
+                <header>
+                  <span>assistant</span>
+                  <span>streaming</span>
+                </header>
+                <p>{streamingText}</p>
+              </article>
+            ) : null}
+          </div>
+
+          <form onSubmit={onSubmit} style={{ marginTop: 18 }}>
+            <label className="sr-only" htmlFor="chat-draft">
+              Message Joi
+            </label>
+            <textarea
+              id="chat-draft"
+              className="textarea"
+              placeholder="Tell Joi what you need, attach context, or ask for a plan."
+              value={draft}
+              onChange={(event) => setDraft(event.target.value)}
+            />
+
+            <div className="button-row">
+              <label className="button ghost" htmlFor="chat-attachments">
+                Add attachment
+              </label>
+              <input
+                id="chat-attachments"
+                className="sr-only"
+                type="file"
+                accept="image/*,text/plain"
+                multiple
+                onChange={handleAttachmentSelect}
+              />
+              <button className="button primary" disabled={!sessionId || isSending || (!draft.trim() && attachments.length === 0)} type="submit">
+                {isSending ? "Transmitting..." : "Send to Joi"}
+              </button>
+              <button
+                className="button ghost"
+                type="button"
+                onClick={() => {
+                  setMessages([]);
+                  setEvents([]);
+                  setApprovals([]);
+                  setAttachments([]);
+                  setStreamingText("");
+                  setMediaSession(null);
+                  setAvatarSyncPayload(null);
+                  setStatus("Local shell cleared");
+                }}
+              >
+                Clear local feed
+              </button>
+            </div>
+
+            <VoiceComposer
+              sessionId={sessionId}
+              mediaSession={mediaSession}
+              onMediaSession={setMediaSession}
+              onTranscript={handleVoiceTranscript}
+              onInterruptPlayback={handleInterruptPlayback}
+            />
+
+            {attachments.length ? (
+              <div className="attachment-draft-list">
+                {attachments.map((attachment) => (
+                  <div className="attachment-card" key={attachment.id ?? attachment.name}>
+                    <strong>{attachment.name}</strong>
+                    <span>{attachment.media_type}</span>
+                    {attachment.preview_url ? (
+                      <img alt={attachment.name} className="attachment-preview" src={attachment.preview_url} />
+                    ) : attachment.preview_text ? (
+                      <p>{attachment.preview_text}</p>
+                    ) : null}
+                    <button
+                      className="button ghost"
+                      type="button"
+                      onClick={() =>
+                        setAttachments((current) => current.filter((item) => item.id !== attachment.id))
+                      }
+                    >
+                      Remove
+                    </button>
+                  </div>
+                ))}
+              </div>
+            ) : null}
+          </form>
+        </section>
+
+        <aside className="grid">
+          <section className="panel hero-card">
+            <p className="eyebrow">Session State</p>
+            <h3>Live status</h3>
+            <div className="list">
+              <div className="list-row">
+                <div>
+                  <strong>Status</strong>
+                  <p>{status}</p>
+                </div>
+                <span className="badge ok">{sessionId ? "online" : "booting"}</span>
+              </div>
+              <div className="list-row">
+                <div>
+                  <strong>Provider</strong>
+                  <p>{provider}</p>
+                </div>
+                <span className="badge">{approvals.length} approvals</span>
+              </div>
+              <div className="list-row">
+                <div>
+                  <strong>Session</strong>
+                  <p>{sessionId ?? "creating..."}</p>
+                </div>
+                <span className="badge">{messages.length} messages</span>
+              </div>
+            </div>
+          </section>
+
+          <section className="panel">
+            <p className="eyebrow">Approvals</p>
+            <h3>Pending actions</h3>
+            <div className="list">
+              {approvals.length ? (
+                approvals.map((approval) => {
+                  const presentation = approvalPresentation(approval);
+                  return (
+                    <div className="approval-card" key={approval.id}>
+                      <div className="approval-card-header">
+                        <div>
+                          <span className="approval-card-kicker">Joi wants permission</span>
+                          <strong>{presentation.title}</strong>
+                        </div>
+                        <span className={`badge ${presentation.riskTone}`}>
+                          {presentation.riskLabel}
+                        </span>
+                      </div>
+                      <p>{presentation.summary}</p>
+                      {presentation.fields.length ? (
+                        <div className="approval-field-list">
+                          {presentation.fields.map((field) => (
+                            <div className="approval-field" key={`${approval.id}-${field.label}`}>
+                              <span>{field.label}</span>
+                              <strong>{field.value}</strong>
+                            </div>
+                          ))}
+                        </div>
+                      ) : null}
+                      <div className="button-row">
+                        <button
+                          className="button ghost"
+                          type="button"
+                          onClick={() => setSelectedApprovalId(approval.id)}
+                        >
+                          Review
+                        </button>
+                        <button
+                          className="button secondary"
+                          type="button"
+                          onClick={() => void handleApprovalAction(approval.id, "approve")}
+                        >
+                          Approve
+                        </button>
+                        <button
+                          className="button ghost"
+                          type="button"
+                          onClick={() => void handleApprovalAction(approval.id, "deny")}
+                        >
+                          Deny
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })
+              ) : (
+                <div className="empty-state">No pending approvals.</div>
+              )}
+            </div>
+          </section>
+
+          {selectedApproval ? (
+            <section className="panel approval-modal">
+              <div className="approval-card-header">
+                <div>
+                  <span className="approval-card-kicker">Permission review</span>
+                  <h3>{approvalPresentation(selectedApproval).title}</h3>
+                </div>
+                <button
+                  className="button ghost"
+                  type="button"
+                  onClick={() => setSelectedApprovalId(null)}
+                >
+                  Close
+                </button>
+              </div>
+              <p>{approvalPresentation(selectedApproval).summary}</p>
+              {approvalPresentation(selectedApproval).fields.length ? (
+                <div className="approval-field-list">
+                  {approvalPresentation(selectedApproval).fields.map((field) => (
+                    <div className="approval-field" key={`${selectedApproval.id}-modal-${field.label}`}>
+                      <span>{field.label}</span>
+                      <strong>{field.value}</strong>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+              {approvalPresentation(selectedApproval).preview ? (
+                <div className="approval-preview">
+                  <strong>Preview</strong>
+                  <p>{approvalPresentation(selectedApproval).preview}</p>
+                </div>
+              ) : null}
+              <details className="approval-raw">
+                <summary>Raw tool arguments</summary>
+                <pre>{JSON.stringify(selectedApproval.args, null, 2)}</pre>
+              </details>
+              <div className="button-row" style={{ marginTop: 18 }}>
+                <button
+                  className="button secondary"
+                  type="button"
+                  onClick={() => void handleApprovalAction(selectedApproval.id, "approve")}
+                >
+                  Approve
+                </button>
+                <button
+                  className="button ghost"
+                  type="button"
+                  onClick={() => void handleApprovalAction(selectedApproval.id, "deny")}
+                >
+                  Deny
+                </button>
+              </div>
+            </section>
+          ) : null}
+
+          <AvatarSyncPanel
+            cue={avatarCue}
+            loading={avatarSyncLoading}
+            sync={avatarSyncPayload}
+            onPlaybackStateChange={(state) => void handlePlaybackStateChange(state)}
+          />
+
+          <section className="panel">
+            <p className="eyebrow">Realtime Feed</p>
+            <h3>Event stream</h3>
+            <div className="event-list">
+              {events.length === 0 ? (
+                <div className="empty-state">
+                  Waiting for `message.delta`, `approval.*`, `avatar.*`, and `tts.ready` events.
+                </div>
+              ) : (
+                events.map((event) => (
+                  <article key={event.event_id} className="event-card">
+                    <header>
+                      <span>{event.event}</span>
+                      <span>{formatTimestamp(event.timestamp)}</span>
+                    </header>
+                    <pre>{JSON.stringify(event.payload, null, 2)}</pre>
+                  </article>
+                ))
+              )}
+            </div>
+          </section>
+        </aside>
+      </div>
+    </div>
+  );
+}

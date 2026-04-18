@@ -16,7 +16,7 @@ import struct
 import wave
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Callable, Dict, List
 
 from app.api.models import ChatMessage, ChatResponse, ToolCall
 from app.config import settings
@@ -57,6 +57,9 @@ class Agent:
         chat_history: List[ChatMessage],
         user_msg: str,
         session_id: str,
+        *,
+        on_token: Callable[[str], None] | None = None,
+        attachment_contexts: List[str] | None = None,
     ) -> ChatResponse:
         import time as _time
         _t0 = _time.perf_counter()
@@ -105,10 +108,12 @@ class Agent:
             memory_context=context.memory_context,
             chat_history=chat_history,
             user_msg=user_msg,
+            attachment_contexts=attachment_contexts or [],
             tool_calls=tool_calls,
             session_id=session_id,
             memory_store=self.memory_store,
             avg_mood=context.avg_mood,
+            on_token=on_token,
         )
         reply = reply_payload.text
 
@@ -191,25 +196,36 @@ class Agent:
                 wav_file.writeframes(audio_data)
             audio_bytes = wav_buffer.getvalue()
 
-        phoneme_timeline = self._text_to_phonemes(text)
+        # ── Infer delivery style from text and context ────────────────────
+        import re as _re
+        if whisper_mode:
+            delivery_style = "whisper"
+        elif _re.search(r"\.{2,}|[-–—]{2,}", text):
+            delivery_style = "hesitant"
+        elif _re.search(r"!", text) or sum(1 for w in text.split() if w.isupper() and len(w) > 1) >= 2:
+            delivery_style = "intense"
+        else:
+            delivery_style = "normal"
 
-        # ── Step 4: Scale timeline to actual audio duration ───────────────
-        USE_AUDIO_SCALING = True  # Safety flag — set False to disable
-        if USE_AUDIO_SCALING:
-            try:
-                with wave.open(io.BytesIO(audio_bytes), "rb") as wf:
-                    audio_duration = wf.getnframes() / float(wf.getframerate())
-                if phoneme_timeline and len(phoneme_timeline) > 1:
-                    raw_end = phoneme_timeline[-1][0]
-                    if raw_end > 0 and audio_duration > 0:
-                        scale = (audio_duration * 0.92) / raw_end
-                        scale = max(0.75, min(scale, 1.25))  # Safety clamp
-                        phoneme_timeline = [
-                            (round(t * scale, 3), ph) for t, ph in phoneme_timeline
-                        ]
-            except Exception:
-                pass  # If WAV parsing fails, use raw timeline
-        # Sentiment from DB
+        phoneme_timeline = self._text_to_phonemes(text, delivery_style)
+
+        # ── Scale timeline to actual audio duration ───────────────────────
+        # Wider clamp (±45%) handles slow/fast TTS voices and whisper mode.
+        try:
+            with wave.open(io.BytesIO(audio_bytes), "rb") as wf:
+                audio_duration = wf.getnframes() / float(wf.getframerate())
+            if phoneme_timeline and len(phoneme_timeline) > 1:
+                raw_end = phoneme_timeline[-1][0]
+                if raw_end > 0 and audio_duration > 0:
+                    scale = (audio_duration * 0.97) / raw_end
+                    scale = max(0.55, min(scale, 1.55))
+                    phoneme_timeline = [
+                        (round(t * scale, 3), ph) for t, ph in phoneme_timeline
+                    ]
+        except Exception:
+            pass  # WAV parse failure: use raw timeline
+
+        # ── Sentiment from DB ─────────────────────────────────────────────
         recent_moods = self.memory_store.get_recent_moods(session_id, 1)
         if recent_moods:
             mood_value = recent_moods[0].mood
@@ -222,100 +238,230 @@ class Agent:
         else:
             sentiment = "neutral"
 
+        # Stressed sentiment nudges delivery timing even when not inferred above
+        if delivery_style == "normal" and sentiment in ("stress", "negative", "concern"):
+            delivery_style = "stressed"
+
         return {
             "audio_url": f"data:audio/wav;base64,{base64.b64encode(audio_bytes).decode()}",
             "phoneme_timeline": phoneme_timeline,
             "sentiment": sentiment,
+            "delivery_style": delivery_style,
         }
 
-    def _text_to_phonemes(self, text: str):
-        """Map text -> viseme timeline using English pronunciation heuristics."""
-        CHAR_TO_VISEME = {
-            "a": "A", "à": "A", "á": "A",
-            "e": "E", "è": "E", "é": "E", "i": "E", "î": "E", "y": "E",
-            "o": "O", "ò": "O", "ó": "O",
-            "u": "U", "ù": "U", "ú": "U", "w": "U",
-            "m": "MB", "b": "MB", "p": "MB",
-            "f": "FV", "v": "FV",
-            "l": "L", "r": "R",
-            "s": "S", "z": "S",
-            "k": "K", "c": "K", "g": "K", "q": "K",
-            "t": "rest", "d": "rest", "n": "rest" # Consonants often closed/neutral
-        }
-        VOWEL_DURATION = 0.16     # Step 3: hold vowels longer for natural feel
-        CONSONANT_DURATION = 0.07  # Step 3: snap consonants faster
-        WORD_GAP = 0.08
+    # ─────────────────────────────────────────────────────────────────────
+    # G2P v2 — syllable-based timeline with full digraph table and
+    # delivery-style timing modulation.
+    # ─────────────────────────────────────────────────────────────────────
 
-        timeline = []
+    # Ordered pattern table: (grapheme_string, [viseme_labels]).
+    # Matched greedy left-to-right longest-first per starting character.
+    _G2P_PATTERNS = [
+        # ── 4-char patterns ────────────────────────────────────────────
+        ("tion", ["S", "U", "rest"]),
+        ("sion", ["S", "U", "rest"]),
+        ("ight", ["A"]),
+        ("ould", ["U"]),
+        ("ough", ["O"]),
+        # ── 3-char patterns ────────────────────────────────────────────
+        ("tch", ["K"]),
+        ("dge", ["rest"]),
+        ("sch", ["S"]),
+        ("thr", ["TH", "R"]),
+        ("str", ["S", "R"]),
+        ("spr", ["S", "R"]),
+        ("igh", ["A"]),
+        ("nce", ["rest", "S"]),
+        ("ear", ["E", "R"]),
+        ("oor", ["U", "R"]),
+        ("our", ["O", "R"]),
+        ("air", ["A", "R"]),
+        ("are", ["A", "R"]),
+        ("ore", ["O", "R"]),
+        ("ing", ["E", "rest"]),
+        ("ang", ["A", "rest"]),
+        ("ong", ["O", "rest"]),
+        ("nge", ["rest"]),
+        # ── 2-char patterns ────────────────────────────────────────────
+        ("th", ["TH"]),
+        ("sh", ["S"]),
+        ("ch", ["K"]),
+        ("ph", ["FV"]),
+        ("wh", ["U"]),
+        ("ck", ["K"]),
+        ("ng", ["rest"]),
+        ("nk", ["K"]),
+        ("wr", ["R"]),
+        ("kn", ["rest"]),
+        ("mb", ["MB"]),
+        ("mp", ["MB"]),
+        ("qu", ["K", "U"]),
+        ("oo", ["U"]),
+        ("ou", ["O"]),
+        ("ow", ["O"]),
+        ("aw", ["O"]),
+        ("au", ["O"]),
+        ("oi", ["O"]),
+        ("oy", ["O"]),
+        ("oa", ["O"]),
+        ("oe", ["O"]),
+        ("ue", ["U"]),
+        ("ui", ["U"]),
+        ("ee", ["E"]),
+        ("ea", ["E"]),
+        ("ie", ["E"]),
+        ("ei", ["E"]),
+        ("ai", ["A"]),
+        ("ay", ["A"]),
+        ("ey", ["E"]),
+        ("ew", ["U"]),
+        ("tz", ["S"]),
+        # ── Single-char vowels ─────────────────────────────────────────
+        ("a", ["A"]), ("e", ["E"]), ("i", ["E"]), ("o", ["O"]),
+        ("u", ["U"]), ("y", ["E"]),
+        # ── Single-char consonants ─────────────────────────────────────
+        ("b", ["MB"]), ("c", ["K"]),  ("d", ["rest"]), ("f", ["FV"]),
+        ("g", ["K"]),  ("h", ["rest"]),("j", ["rest"]), ("k", ["K"]),
+        ("l", ["L"]),  ("m", ["MB"]), ("n", ["rest"]), ("p", ["MB"]),
+        ("q", ["K"]),  ("r", ["R"]),  ("s", ["S"]),   ("t", ["rest"]),
+        ("v", ["FV"]), ("w", ["U"]),  ("x", ["K", "S"]), ("z", ["S"]),
+    ]
+
+    # Build per-first-char lookup at class load time (longest match first)
+    _G2P_LOOKUP: Dict[str, List] = {}
+    for _pat, _vis in _G2P_PATTERNS:
+        _G2P_LOOKUP.setdefault(_pat[0], []).append((len(_pat), _pat, _vis))
+    for _c in _G2P_LOOKUP:
+        _G2P_LOOKUP[_c].sort(key=lambda x: -x[0])
+
+    @staticmethod
+    def _syllable_count(word: str) -> int:
+        """Count vowel groups as a syllable approximation."""
+        count, in_vowel = 0, False
+        for ch in word:
+            if ch in "aeiouy":
+                if not in_vowel:
+                    count += 1
+                in_vowel = True
+            else:
+                in_vowel = False
+        # Silent trailing 'e' doesn't form its own syllable
+        if word.endswith("e") and len(word) > 2 and count > 1:
+            count -= 1
+        return max(1, count)
+
+    def _text_to_phonemes(self, text: str, delivery_style: str = "normal") -> list:
+        """
+        Improved G2P: full digraph/trigraph table, punctuation pauses,
+        syllable-based word timing, and delivery-style modulation.
+        """
+        import re
+
+        # Per-style timing multipliers: (vowel, consonant, gap)
+        _STYLE = {
+            "whisper":  (1.40, 1.50, 1.60),
+            "intense":  (0.85, 0.72, 0.68),
+            "hesitant": (1.20, 1.00, 1.80),
+            "stressed": (1.10, 1.00, 1.20),
+            "normal":   (1.00, 1.00, 1.00),
+        }
+        vm, cm, gm = _STYLE.get(delivery_style, _STYLE["normal"])
+
+        BASE_VOWEL   = 0.13 * vm
+        BASE_CONS    = 0.06 * cm
+        WORD_GAP     = 0.09 * gm
+        COMMA_PAUSE  = 0.14 * gm
+        SENT_PAUSE   = 0.22 * gm
+        HESIT_PAUSE  = 0.20 * gm
+        SYL_DUR      = 0.21  # target seconds per syllable
+
+        VOWEL_SET = {"A", "E", "O", "U", "Oh"}
+        lookup = self._G2P_LOOKUP
+
+        # ── Tokenise: normalise ellipsis/dashes to HESIT token ────────────
+        text = re.sub(r"\.{2,}", " HESIT ", text)
+        text = re.sub(r"[-–—]{2,}", " HESIT ", text)
+        tokens = re.findall(r"[A-Za-z']+|[.,!?;:]|HESIT", text)
+
+        # Count actual words (skip punctuation tokens) for gap logic
+        n_words = sum(1 for t in tokens
+                      if t not in (",", ".", "!", "?", ";", ":", "HESIT"))
+        word_idx = 0
+
+        timeline: list = []
         t = 0.0
 
-        words = text.split()
-        if not words:
-            return [(0.0, "rest")]
-
-        for word_idx, word in enumerate(words):
-            clean = "".join(c for c in word.lower() if c.isalpha())
-            if not clean:
-                t += WORD_GAP
+        for tok in tokens:
+            # ── Punctuation / hesitation pauses ───────────────────────────
+            if tok == "HESIT":
+                timeline.append((round(t, 3), "rest"))
+                t += HESIT_PAUSE
+                continue
+            if tok == ",":
+                timeline.append((round(t, 3), "rest"))
+                t += COMMA_PAUSE
+                continue
+            if tok in (".", "!", "?", ";", ":"):
+                timeline.append((round(t, 3), "rest"))
+                t += SENT_PAUSE
                 continue
 
+            # ── Word ──────────────────────────────────────────────────────
+            clean = re.sub(r"[^a-z]", "", tok.lower())
+            if not clean:
+                word_idx += 1
+                continue
+
+            # Build relative phoneme sequence for this word
+            rel: list = []   # (relative_time, viseme)
+            wt = 0.0
             i = 0
             while i < len(clean):
-                char = clean[i]
-                viseme = CHAR_TO_VISEME.get(char)
+                ch = clean[i]
+                matched = False
+                if ch in lookup:
+                    for plen, pat, visemes in lookup[ch]:
+                        if clean[i:i + plen] == pat:
+                            for v in visemes:
+                                dur = BASE_VOWEL if v in VOWEL_SET else BASE_CONS
+                                rel.append((round(wt, 3), v))
+                                wt += dur
+                            i += plen
+                            matched = True
+                            break
+                if not matched:
+                    rel.append((round(wt, 3), "rest"))
+                    wt += BASE_CONS
+                    i += 1
 
-                if i + 1 < len(clean):
-                    digraph = clean[i : i + 2]
-                    if digraph in ("th"):
-                        timeline.append((round(t, 3), "TH"))
-                        t += CONSONANT_DURATION
-                        i += 2
-                        continue
-                    elif digraph in ("sh", "ch"):
-                        timeline.append((round(t, 3), "S"))
-                        t += CONSONANT_DURATION
-                        i += 2
-                        continue
-                    elif digraph in ("mb", "mp"):
-                         timeline.append((round(t, 3), "MB"))
-                         t += CONSONANT_DURATION
-                         i += 2
-                         continue
-                    elif digraph in ("ou", "oo"):
-                        timeline.append((round(t, 3), "O"))
-                        t += VOWEL_DURATION
-                        i += 2
-                        continue
-                    elif digraph in ("ee", "ea", "ie"):
-                        timeline.append((round(t, 3), "E"))
-                        t += VOWEL_DURATION
-                        i += 2
-                        continue
-                    elif digraph in ("ai", "ay"):
-                        timeline.append((round(t, 3), "A"))
-                        t += VOWEL_DURATION
-                        i += 2
-                        continue
-                
-                if viseme:
-                    duration = (
-                        VOWEL_DURATION
-                        if viseme in ("A", "E", "O", "U")
-                        else CONSONANT_DURATION
-                    )
-                    timeline.append((round(t, 3), viseme))
-                    t += duration
-                else:
-                    timeline.append((round(t, 3), "rest"))
-                    t += CONSONANT_DURATION
+            if not rel:
+                word_idx += 1
+                continue
 
-                i += 1
+            # Scale relative times so word fits syllable-based target duration
+            n_syl = self._syllable_count(clean)
+            target = n_syl * SYL_DUR
+            if delivery_style == "whisper":
+                target *= 1.35
+            elif delivery_style == "intense":
+                target *= 0.82
+            scale = max(0.55, min((target / wt) if wt > 0 else 1.0, 1.65))
 
-            if word_idx < len(words) - 1:
+            for rel_t, vis in rel:
+                timeline.append((round(t + rel_t * scale, 3), vis))
+            t += target
+
+            # Inter-word gap (not after the final word)
+            if word_idx < n_words - 1:
                 timeline.append((round(t, 3), "rest"))
                 t += WORD_GAP
 
+            word_idx += 1
+
         timeline.append((round(t, 3), "rest"))
+
+        if not timeline:
+            return [(0.0, "rest")]
 
         # Deduplicate consecutive identical visemes
         deduped = [timeline[0]]
