@@ -475,3 +475,35 @@ class PlannerGenerateResponse(V2ResponseBase):
     model: str = ""
     blocks: List[PlannerBlockResource] = Field(default_factory=list)
     snapshot: PlannerSnapshotResource
+
+
+class PerceptionPolicyResource(BaseModel):
+    camera_enabled: bool = True
+    retain_expressions: bool = False
+    retain_snapshots: bool = False
+    retention_days: int = 0
+    last_updated: Optional[str] = None
+
+
+class PerceptionPolicyResponse(V2ResponseBase):
+    policy: PerceptionPolicyResource
+
+
+class PerceptionPolicyPatchRequest(BaseModel):
+    camera_enabled: Optional[bool] = None
+    retain_expressions: Optional[bool] = None
+    retain_snapshots: Optional[bool] = None
+    retention_days: Optional[int] = None
+
+
+class VisionAnalyzeRequest(BaseModel):
+    session_id: str
+    data_url: str
+    context_hint: Optional[str] = None
+
+
+class VisionAnalyzeResponse(V2ResponseBase):
+    session_id: str
+    description: str
+    tags: List[str] = Field(default_factory=list)
+    captured_at: str

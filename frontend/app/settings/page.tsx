@@ -1,10 +1,14 @@
+import { PerceptionPolicyForm } from "@/components/perception-policy-form";
 import { SettingsForm } from "@/components/settings-form";
-import { fetchSettings } from "@/lib/api";
+import { fetchPerceptionPolicy, fetchSettings } from "@/lib/api";
 
 export const dynamic = "force-dynamic";
 
 export default async function SettingsPage() {
-  const settingsResponse = await fetchSettings();
+  const [settingsResponse, policyResponse] = await Promise.all([
+    fetchSettings(),
+    fetchPerceptionPolicy(),
+  ]);
 
   return (
     <>
@@ -30,11 +34,18 @@ export default async function SettingsPage() {
             <span>Airgap</span>
             <strong>{settingsResponse.settings.airgap ? "On" : "Off"}</strong>
           </div>
+          <div className="status-card">
+            <span>Camera</span>
+            <strong>{policyResponse.policy.camera_enabled ? "On" : "Off"}</strong>
+          </div>
         </div>
       </header>
 
       <div className="page-body">
         <SettingsForm settings={settingsResponse.settings} />
+        <div style={{ marginTop: 32 }}>
+          <PerceptionPolicyForm policy={policyResponse.policy} />
+        </div>
       </div>
     </>
   );

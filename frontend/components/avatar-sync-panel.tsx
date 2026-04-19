@@ -15,6 +15,7 @@ type AvatarSyncPanelProps = {
   cue: AvatarCue | null;
   sync: AvatarSyncPayload | null;
   loading: boolean;
+  perceptionExpression?: string | null;
   onPlaybackStateChange?: (state: {
     speakingState: "playing" | "idle";
     playbackLatencyMs?: number;
@@ -25,6 +26,7 @@ export function AvatarSyncPanel({
   cue,
   sync,
   loading,
+  perceptionExpression,
   onPlaybackStateChange,
 }: AvatarSyncPanelProps) {
   const audioRef    = useRef<HTMLAudioElement | null>(null);
@@ -81,7 +83,8 @@ export function AvatarSyncPanel({
     };
   }, [onPlaybackStateChange]);
 
-  const expression = sync?.sentiment ?? cue?.expression ?? "neutral";
+  // Priority: active TTS sentiment > perception expression > avatar cue > neutral
+  const expression = sync?.sentiment ?? perceptionExpression ?? cue?.expression ?? "neutral";
 
   return (
     <section className="panel hero-card">

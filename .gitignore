@@ -24,8 +24,14 @@ wheels/
 
 # Virtual Environment
 .venv/
+.venv312/
 venv/
 ENV/
+
+# Node / Next.js
+frontend/node_modules/
+frontend/.next/
+!frontend/lib/
 
 # Environment Variables
 .env

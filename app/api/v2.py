@@ -17,7 +17,7 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 
 from app.api.realtime import format_sse_event
-from app.api.state import agent, approval_manager, event_bus, media_sessions, memory_store, runtime_settings
+from app.api.state import agent, approval_manager, event_bus, media_sessions, memory_store, perception_policy, runtime_settings
 from app.api.models import (
     ActivityLog,
     CbtExercise,
@@ -94,6 +94,11 @@ from app.api.v2_models import (
     UserProfileResource,
     V2ChatRequest,
     V2ChatResponse,
+    PerceptionPolicyPatchRequest,
+    PerceptionPolicyResource,
+    PerceptionPolicyResponse,
+    VisionAnalyzeRequest,
+    VisionAnalyzeResponse,
 )
 from app.orchestrator.day_planner import build_planner_snapshot, generate_day_plan
 from app.orchestrator.craving_engine import CravingEngine
@@ -920,6 +925,86 @@ async def avatar_sync(request: AvatarSyncRequest):
         source="avatar",
     )
     return response
+
+
+def _perception_policy_resource(policy: dict) -> PerceptionPolicyResource:
+    return PerceptionPolicyResource(
+        camera_enabled=policy.get("camera_enabled", True),
+        retain_expressions=policy.get("retain_expressions", False),
+        retain_snapshots=policy.get("retain_snapshots", False),
+        retention_days=policy.get("retention_days", 0),
+        last_updated=policy.get("last_updated"),
+    )
+
+
+@router.get("/perception/policy", response_model=PerceptionPolicyResponse)
+async def get_perception_policy():
+    return PerceptionPolicyResponse(policy=_perception_policy_resource(perception_policy.get()))
+
+
+@router.patch("/perception/policy", response_model=PerceptionPolicyResponse)
+async def patch_perception_policy(request: PerceptionPolicyPatchRequest):
+    patch = request.model_dump(exclude_none=True)
+    if not patch:
+        raise HTTPException(status_code=400, detail="No fields provided")
+    try:
+        updated = perception_policy.update(patch)
+    except KeyError as exc:
+        raise HTTPException(status_code=400, detail=f"Unknown policy field: {exc}") from exc
+    await event_bus.publish(
+        "settings.updated",
+        {"scope": "perception_policy", "policy": updated},
+        source="settings",
+    )
+    return PerceptionPolicyResponse(policy=_perception_policy_resource(updated))
+
+
+@router.post("/vision/analyze", response_model=VisionAnalyzeResponse)
+async def analyze_vision_snapshot(request: VisionAnalyzeRequest):
+    try:
+        from PIL import Image
+        _, raw_bytes = _decode_data_url(request.data_url)
+        image = Image.open(io.BytesIO(raw_bytes)).convert("RGB")
+        description = vision_clip.describe_image(image)
+    except Exception as exc:
+        raise HTTPException(status_code=422, detail=f"Image processing failed: {exc}") from exc
+
+    # Extract simple word-level tags from the description
+    stop_words = {"a", "an", "the", "is", "of", "in", "on", "at", "to", "and", "with", "are"}
+    tags = [
+        word.strip(".,").lower()
+        for word in description.split()
+        if len(word) > 4 and word.lower() not in stop_words
+    ][:6]
+
+    captured_at = datetime.utcnow().isoformat() + "Z"
+
+    # Persist to memory only when the user has opted in via retention policy
+    policy = perception_policy.get()
+    if policy.get("retain_snapshots"):
+        await memory_store.add_memory_async(
+            "perception",
+            f"Visual scene captured: {description}",
+            ["snapshot", "visual", "perception"],
+        )
+
+    await event_bus.publish(
+        "perception.snapshot",
+        {
+            "description": description,
+            "tags": tags,
+            "captured_at": captured_at,
+        },
+        session_id=request.session_id,
+        source="perception",
+    )
+
+    return VisionAnalyzeResponse(
+        session_id=request.session_id,
+        description=description,
+        tags=tags,
+        captured_at=captured_at,
+    )
 
 
 @router.get("/profile", response_model=ProfileResponse)

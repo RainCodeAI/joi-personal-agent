@@ -1,8 +1,9 @@
 "use client";
 
-import { ChangeEvent, FormEvent, useEffect, useState, startTransition } from "react";
+import { ChangeEvent, FormEvent, useCallback, useEffect, useRef, useState, startTransition } from "react";
 
 import { AvatarSyncPanel } from "@/components/avatar-sync-panel";
+import { PerceptionEngine } from "@/components/perception-engine";
 import { VoiceComposer } from "@/components/voice-composer";
 import {
   approveAction,
@@ -25,7 +26,10 @@ import {
   ChatResponse,
   MediaSession,
   Message,
+  PerceptionSignal,
+  PerceptionState,
   RealtimeEvent,
+  SnapshotAnalysis,
 } from "@/lib/types";
 
 const SESSION_STORAGE_KEY = "joi-v2-session";
@@ -215,6 +219,78 @@ export function ChatClient({ initialSessionId }: ChatClientProps) {
   const [mediaSession, setMediaSession] = useState<MediaSession | null>(null);
   const [avatarSyncLoading, setAvatarSyncLoading] = useState(false);
   const [isSending, setIsSending] = useState(false);
+  const [perceptionState, setPerceptionState] = useState<PerceptionState>({
+    userPresent: false,
+    faceVisible: false,
+    leanedIn: false,
+    currentExpression: null,
+    lastSignal: null,
+    updatedAt: 0,
+  });
+  const [perceptionExpression, setPerceptionExpression] = useState<string | null>(null);
+  const [lastSnapshotAnalysis, setLastSnapshotAnalysis] = useState<SnapshotAnalysis | null>(null);
+  const lookAwayResetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const handlePerceptionSignal = useCallback((signal: PerceptionSignal) => {
+    startTransition(() => {
+      setPerceptionState((prev) => {
+        const presenceSignals = new Set(["user_present", "face_visible", "returned_to_frame"]);
+        return {
+          userPresent: presenceSignals.has(signal.signal)
+            ? true
+            : signal.signal === "looked_away"
+              ? false
+              : prev.userPresent,
+          faceVisible: presenceSignals.has(signal.signal)
+            ? true
+            : signal.signal === "looked_away"
+              ? false
+              : prev.faceVisible,
+          leanedIn: signal.signal === "leaned_in"
+            ? true
+            : signal.signal === "leaned_back"
+              ? false
+              : prev.leanedIn,
+          currentExpression:
+            signal.signal === "expression_smile"    ? "smile"    :
+            signal.signal === "expression_stress"   ? "stress"   :
+            signal.signal === "expression_surprise" ? "surprise" :
+            signal.signal === "expression_neutral"  ? "neutral"  :
+            prev.currentExpression,
+          lastSignal: signal,
+          updatedAt: signal.timestamp,
+        };
+      });
+    });
+
+    // Map perception signals to avatar expression overrides
+    if (signal.signal === "expression_smile") {
+      setPerceptionExpression("smirk");
+    } else if (signal.signal === "expression_stress") {
+      setPerceptionExpression("concern");
+    } else if (signal.signal === "expression_surprise") {
+      setPerceptionExpression("shock");
+    } else if (signal.signal === "expression_neutral") {
+      setPerceptionExpression(null);
+    } else if (signal.signal === "looked_away") {
+      // Show Joi looking away — auto-restore after 4s
+      setPerceptionExpression("missing");
+      if (lookAwayResetTimerRef.current) clearTimeout(lookAwayResetTimerRef.current);
+      lookAwayResetTimerRef.current = setTimeout(() => {
+        setPerceptionExpression(null);
+      }, 4000);
+    } else if (signal.signal === "returned_to_frame") {
+      if (lookAwayResetTimerRef.current) clearTimeout(lookAwayResetTimerRef.current);
+      setPerceptionExpression(null);
+    } else if (signal.signal === "snapshot_analyzed" && signal.payload) {
+      setLastSnapshotAnalysis({
+        description: String(signal.payload.description ?? ""),
+        tags: Array.isArray(signal.payload.tags) ? (signal.payload.tags as string[]) : [],
+        capturedAt: String(signal.payload.capturedAt ?? ""),
+        previewDataUrl: "",
+      });
+    }
+  }, []);
 
   useEffect(() => {
     const stored =
@@ -638,6 +714,8 @@ export function ChatClient({ initialSessionId }: ChatClientProps) {
         </section>
 
         <aside className="grid">
+          <PerceptionEngine sessionId={sessionId} onSignal={handlePerceptionSignal} />
+
           <section className="panel hero-card">
             <p className="eyebrow">Session State</p>
             <h3>Live status</h3>
@@ -663,8 +741,50 @@ export function ChatClient({ initialSessionId }: ChatClientProps) {
                 </div>
                 <span className="badge">{messages.length} messages</span>
               </div>
+              <div className="list-row">
+                <div>
+                  <strong>Presence</strong>
+                  <p>
+                    {perceptionState.userPresent
+                      ? (perceptionState.currentExpression ?? "neutral")
+                      : (perceptionState.lastSignal ? "away" : "not sensing")}
+                  </p>
+                </div>
+                <span className={`badge ${perceptionState.userPresent ? "ok" : ""}`}>
+                  {perceptionState.userPresent
+                    ? perceptionState.leanedIn
+                      ? "leaned in"
+                      : "present"
+                    : "away"}
+                </span>
+              </div>
             </div>
           </section>
+
+          {lastSnapshotAnalysis ? (
+            <section className="panel">
+              <p className="eyebrow">Scene Analysis</p>
+              <h3>Last snapshot</h3>
+              <p style={{ fontSize: "0.82rem", color: "var(--color-muted)", margin: "6px 0 8px" }}>
+                {lastSnapshotAnalysis.description}
+              </p>
+              {lastSnapshotAnalysis.tags.length > 0 ? (
+                <div className="voice-badges">
+                  {lastSnapshotAnalysis.tags.map((tag) => (
+                    <span className="badge" key={tag}>{tag}</span>
+                  ))}
+                </div>
+              ) : null}
+              <button
+                className="button ghost"
+                type="button"
+                style={{ marginTop: 10, fontSize: "0.72rem" }}
+                onClick={() => setLastSnapshotAnalysis(null)}
+              >
+                Dismiss
+              </button>
+            </section>
+          ) : null}
 
           <section className="panel">
             <p className="eyebrow">Approvals</p>
@@ -786,6 +906,7 @@ export function ChatClient({ initialSessionId }: ChatClientProps) {
             cue={avatarCue}
             loading={avatarSyncLoading}
             sync={avatarSyncPayload}
+            perceptionExpression={perceptionExpression}
             onPlaybackStateChange={(state) => void handlePlaybackStateChange(state)}
           />
 
