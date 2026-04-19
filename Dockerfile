@@ -1,46 +1,47 @@
-# Multi-stage build for Joi Personal Agent
-
-# Stage 1: Builder
-FROM python:3.11-slim as builder
+# Stage 1: build dependencies
+FROM python:3.12-slim AS builder
 
 WORKDIR /app
 
-# Install build dependencies
+ENV PYTHONUNBUFFERED=1
+
 RUN apt-get update && apt-get install -y \
     build-essential \
     libpq-dev \
     gcc \
-    && rm -rf /var/lib/apt/lists/*
+ && rm -rf /var/lib/apt/lists/*
 
-# Install Python dependencies
 COPY requirements.txt .
 RUN pip install --user --no-cache-dir -r requirements.txt
 
-# Stage 2: Runtime
-FROM python:3.11-slim as runtime
+# Stage 2: runtime
+FROM python:3.12-slim AS runtime
 
 WORKDIR /app
 
-# Install runtime dependencies
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONPATH=/app \
+    PATH=/home/joi/.local/bin:$PATH
+
 RUN apt-get update && apt-get install -y \
     libpq5 \
     ffmpeg \
     espeak \
     libespeak1 \
-    && rm -rf /var/lib/apt/lists/*
+ && rm -rf /var/lib/apt/lists/* \
+ && adduser --disabled-password --gecos '' joi
 
-# Copy installed packages from builder
-COPY --from=builder /root/.local /root/.local
-ENV PATH=/root/.local/bin:$PATH
+COPY --from=builder /root/.local /home/joi/.local
 
-# Copy application code
-COPY . .
+# Copy application code (deps already installed — this layer changes more often)
+COPY --chown=joi:joi . .
 
-# Expose Streamlit port
-EXPOSE 8501
+USER joi
 
-# Healthcheck
-HEALTHCHECK CMD curl --fail http://localhost:8501/_stcore/health || exit 1
+EXPOSE 8000
 
-# Default command
-CMD ["streamlit", "run", "app/ui/app.py", "--server.port=8501", "--server.address=0.0.0.0"]
+# Healthcheck delegated to docker-compose; kept here as a fallback
+HEALTHCHECK --interval=15s --timeout=5s --start-period=20s --retries=3 \
+  CMD python -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/health').status==200 else 1)"
+
+CMD ["uvicorn", "app.api.main:app", "--host", "0.0.0.0", "--port", "8000"]

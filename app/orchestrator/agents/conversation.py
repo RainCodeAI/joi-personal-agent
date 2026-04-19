@@ -7,13 +7,16 @@ Chat Completions API, and appending CRM / health-copilot nudges.
 from __future__ import annotations
 
 import json
+import logging
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, TYPE_CHECKING
+from typing import Any, Callable, Dict, List, TYPE_CHECKING
 
 from app.config import settings
 from services.ai_router import route_request
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from app.memory.store import MemoryStore
@@ -44,10 +47,12 @@ class ConversationAgent:
         memory_context: str,
         chat_history: List[ChatMessage],
         user_msg: str,
+        attachment_contexts: List[str],
         tool_calls: List[ToolCall],
         session_id: str,
         memory_store: MemoryStore,
         avg_mood: float = 5.0,
+        on_token: Callable[[str], None] | None = None,
     ) -> str:
         """Backward-compatible text-only reply."""
         return self.generate_reply_payload(
@@ -55,10 +60,12 @@ class ConversationAgent:
             memory_context=memory_context,
             chat_history=chat_history,
             user_msg=user_msg,
+            attachment_contexts=attachment_contexts,
             tool_calls=tool_calls,
             session_id=session_id,
             memory_store=memory_store,
             avg_mood=avg_mood,
+            on_token=on_token,
         ).text
 
     def generate_reply_payload(
@@ -67,10 +74,12 @@ class ConversationAgent:
         memory_context: str,
         chat_history: List[ChatMessage],
         user_msg: str,
+        attachment_contexts: List[str],
         tool_calls: List[ToolCall],
         session_id: str,
         memory_store: MemoryStore,
         avg_mood: float = 5.0,
+        on_token: Callable[[str], None] | None = None,
     ) -> ConversationReply:
         """Assemble the prompt, call the LLM, and enrich the response."""
 
@@ -124,7 +133,12 @@ class ConversationAgent:
             role = "user" if msg.role == "user" else "assistant"
             messages.append({"role": role, "content": msg.content})
         # Add current user message
-        messages.append({"role": "user", "content": user_msg})
+        messages.append(
+            {
+                "role": "user",
+                "content": self._build_user_turn(user_msg, attachment_contexts),
+            }
+        )
 
         # ── LLM inference via OpenAI ──────────────────────────────────────
         log_entry: Dict[str, Any] = {
@@ -139,6 +153,7 @@ class ConversationAgent:
                 {
                     "mood": "supportive" if avg_mood < 5 else "playful",
                 },
+                on_token=on_token,
             )
             reply = routed["response"].strip()
             log_entry["provider"] = routed["model_used"]
@@ -186,8 +201,7 @@ class ConversationAgent:
             )
             return completion.choices[0].message.content.strip()
         except Exception as e:
-            msg = f"Error generating proactive message: {e}"
-            print(msg)
+            logger.warning("generate_proactive_message failed: %s", e)
             return ""
 
     # ── persona filter (delegated) ────────────────────────────────────────
@@ -219,6 +233,17 @@ class ConversationAgent:
             content = msg.get("content", "")
             parts.append(f"[{role}]\n{content}")
         return "\n\n".join(parts)
+
+    @staticmethod
+    def _build_user_turn(user_msg: str, attachment_contexts: List[str]) -> str:
+        parts: List[str] = []
+        stripped = user_msg.strip()
+        if stripped:
+            parts.append(f"[TEXT]\n{stripped}")
+        for context in attachment_contexts:
+            if context.strip():
+                parts.append(f"[ATTACHMENT]\n{context.strip()}")
+        return "\n\n".join(parts) if parts else user_msg
 
     @staticmethod
     def _append_crm_nudge(

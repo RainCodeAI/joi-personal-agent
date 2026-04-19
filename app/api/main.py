@@ -1,3 +1,6 @@
+import logging
+
+import httpx
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -13,7 +16,10 @@ from app.api.models import (
 )
 from app.api.state import agent, memory_store
 from app.api.v2 import router as v2_router
+from app.config import settings
+from app.db import engine as db_engine
 
+logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Joi API", version="1.0.0")
 
@@ -29,9 +35,39 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
+def _check_ollama() -> dict:
+    try:
+        with httpx.Client(timeout=1.5) as client:
+            r = client.get(f"{settings.ollama_host}/api/version")
+            r.raise_for_status()
+            return {"available": True}
+    except Exception as exc:
+        return {"available": False, "error": str(exc)}
+
+
 @app.get("/health")
 async def health():
-    return {"status": "ok"}
+    db_ok = db_engine is not None
+    ollama = _check_ollama()
+    openai_configured = bool(settings.openai_api_key)
+
+    providers = {
+        "ollama": ollama,
+        "openai": {"available": openai_configured, "note": "key_present" if openai_configured else "key_missing"},
+    }
+
+    any_provider_up = ollama["available"] or openai_configured
+    status = "ok" if (db_ok and any_provider_up) else "degraded"
+
+    if status == "degraded":
+        logger.warning("Health check degraded: db_ok=%s any_provider_up=%s", db_ok, any_provider_up)
+
+    return {
+        "status": status,
+        "database": {"available": db_ok},
+        "providers": providers,
+    }
 
 
 @app.post("/chat", response_model=ChatResponse)

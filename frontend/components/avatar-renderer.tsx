@@ -119,6 +119,10 @@ type SceneProps = {
 
 const ALL_URLS = [...FACE_URLS, ...MOUTH_URLS];
 
+// Kick off texture preloading before the component mounts so they're GPU-ready
+// when the Canvas first renders. useLoader.preload is idempotent.
+useLoader.preload(THREE.TextureLoader, ALL_URLS);
+
 function HologramScene({ expression, deliveryStyle, sync, audioRef }: SceneProps) {
   const { viewport } = useThree();
 

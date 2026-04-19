@@ -65,13 +65,11 @@ class MemoryRetrieverAgent:
             # Rough proxy for relationship level based on contact/milestones (future improvement)
             relationship_level = "Access Level 5 (Companion)"
 
-        # Calculate idle time
+        # Calculate idle time using the already-fetched chat_history (avoids a second DB read)
         idle_hours = 0.0
         try:
-            history = memory_store.get_chat_history(session_id)
-            if history and len(history) >= 2:
-                # history[-1] is *this* user message (just added), history[-2] is previous.
-                last_ts = history[-2].timestamp
+            if chat_history:
+                last_ts = chat_history[-1].timestamp
                 if last_ts:
                     diff = datetime.utcnow() - last_ts
                     idle_hours = round(diff.total_seconds() / 3600, 1)

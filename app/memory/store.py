@@ -40,6 +40,8 @@ def create_db_and_tables():
         Base.metadata.create_all(engine)
         _db_initialized = True
 
+_EMBED_CACHE_MAX = 256
+
 class MemoryStore:
     _executor = ThreadPoolExecutor(max_workers=2)
 
@@ -48,83 +50,85 @@ class MemoryStore:
         self.expected_dim = settings.embed_dim
         self.ollama_host = settings.ollama_host
         self.router_timeout = settings.router_timeout
+        self._embed_cache: Dict[str, List[float]] = {}
 
         try:
             import chromadb
             self.chroma_client = chromadb.PersistentClient(path=str(settings.chroma_path_abs))
-            # Disable default embedding function (avoids local ML dependency)
             self.collection = self.chroma_client.get_or_create_collection(
                 name=settings.chroma_collection,
                 embedding_function=None
             )
-            
-            # Validate collection dimension on init
             coll_meta = self.collection.metadata
             stored_dim = int(coll_meta.get("embed_dim", 0))
-            if stored_dim != self.expected_dim:
-                print(f"Warning: Collection dim {stored_dim} != expected {self.expected_dim}")
-            
-            # Optional: Remove dummy if present
+            if stored_dim and stored_dim != self.expected_dim:
+                logging.warning("Collection dim %d != expected %d", stored_dim, self.expected_dim)
             try:
                 self.collection.delete(ids=["dummy_init"])
-            except:
+            except Exception:
                 pass
         except Exception as e:
-            print(f"ChromaDB component failed (running in SQL-only mode): {e}")
+            logging.warning("ChromaDB component failed (running in SQL-only mode): %s", e)
             self.chroma_client = None
             self.collection = None
 
-        self.embedder = None  # Lazy-load for embeddings
+        # Warm up the embedder in background so first request isn't slow
+        self.embedder = None
+        self._executor.submit(self._warmup_embedder)
 
-    def embed_text(self, text: str) -> List[float]:
+    def _warmup_embedder(self) -> None:
         try:
-             # Lazy import for speed
-            from sentence_transformers import SentenceTransformer
+            self._load_embedder()
+            logging.info("Embedder warm-up complete")
+        except Exception as exc:
+            logging.warning("Embedder warm-up failed: %s", exc)
+
+    def _load_embedder(self):
+        """Load the SentenceTransformer model if not already loaded."""
+        if self.embedder is not None:
+            return self.embedder
+        try:
+            from sentence_transformers import SentenceTransformer as ST
         except ImportError:
-            # Fallback to Cloud Embeddings (OpenAI) if local ML is missing
-            from openai import OpenAI
-            
+            from openai import OpenAI as _OAI
+
             logging.warning("Local ML missing. Switching to Cloud Embeddings (OpenAI).")
-            
+
             class CloudEmbedding:
-                def __init__(self, model_name, device=None):
-                    self.client = OpenAI(api_key=settings.openai_api_key)
-                    self.model = "text-embedding-3-small"
+                def __init__(self):
+                    self.client = _OAI(api_key=settings.openai_api_key)
                     self.dimensions = settings.embed_dim
-                    
+
                 def encode(self, text, *args, **kwargs):
+                    if not text or not isinstance(text, str):
+                        return np.zeros(self.dimensions, dtype=np.float32)
                     try:
-                        # Ensure text is string and not empty
-                        if not text or not isinstance(text, str):
-                            return np.zeros(self.get_sentence_embedding_dimension(), dtype=np.float32)
-                        
-                        response = self.client.embeddings.create(
+                        resp = self.client.embeddings.create(
                             input=text,
-                            model=self.model,
-                            dimensions=self.dimensions
+                            model="text-embedding-3-small",
+                            dimensions=self.dimensions,
                         )
-                        return np.array(response.data[0].embedding, dtype=np.float32)
+                        return np.array(resp.data[0].embedding, dtype=np.float32)
                     except Exception as e:
-                        print(f"Cloud embedding failed: {e}")
-                        return np.zeros(self.get_sentence_embedding_dimension(), dtype=np.float32)
+                        logging.warning("Cloud embedding failed: %s", e)
+                        return np.zeros(self.dimensions, dtype=np.float32)
 
                 def get_sentence_embedding_dimension(self):
                     return self.dimensions
 
-            # Patch the unavailable class with our Cloud implementation
-            SentenceTransformer = CloudEmbedding
+            ST = CloudEmbedding  # type: ignore[assignment]
 
-        if self.embedder is None:
-            model_name = "sentence-transformers/all-mpnet-base-v2"  # 768-dim, quality; swap to "all-MiniLM-L6-v2" (384-dim, 2x faster) if perf lags
-            if torch.cuda.is_available():
-                device = 'cuda'
-            elif torch.backends.mps.is_available():
-                device = 'mps'
-            else:
-                device = 'cpu'
-            print(f"Loading SentenceTransformer on device: {device}")
-            self.embedder = SentenceTransformer(model_name, device=device)
-        
+        model_name = "sentence-transformers/all-mpnet-base-v2"
+        device = "cuda" if torch.cuda.is_available() else ("mps" if torch.backends.mps.is_available() else "cpu")
+        logging.info("Loading SentenceTransformer on device: %s", device)
+        self.embedder = ST(model_name, device=device)
+        return self.embedder
+
+    def embed_text(self, text: str) -> List[float]:
+        if text in self._embed_cache:
+            return self._embed_cache[text]
+
+        self._load_embedder()
         try:
             emb = self.embedder.encode(text, convert_to_tensor=False)
             if emb.ndim == 2:
@@ -135,10 +139,14 @@ class MemoryStore:
                 raise ValueError(f"Unexpected embedding shape: {emb.shape}")
             if len(embedding) != self.expected_dim:
                 raise ValueError(f"Embedding dim {len(embedding)} != expected {self.expected_dim}")
-            # print("Embedding from SentenceTransformer")  # Log for debug
-            return embedding
         except Exception as e:
             raise Exception(f"Local embedding failed: {str(e)}. Check torch/MPS setup.")
+
+        # Evict oldest entry when cache is full
+        if len(self._embed_cache) >= _EMBED_CACHE_MAX:
+            self._embed_cache.pop(next(iter(self._embed_cache)))
+        self._embed_cache[text] = embedding
+        return embedding
 
     async def embed_text_async(self, text: str) -> List[float]:
         """Non-blocking wrapper — offloads SentenceTransformer encode to thread pool."""
@@ -171,6 +179,14 @@ class MemoryStore:
             if entities:
                 self.infer_relationships(entities, text)
 
+    def _extract_and_infer(self, text: str) -> None:
+        try:
+            entities = self.extract_entities(text)
+            if entities:
+                self.infer_relationships(entities, text)
+        except Exception as exc:
+            logging.warning("Background entity extraction failed: %s", exc)
+
     def extract_entities(self, text: str) -> List[Dict[str, str]]:
         prompt = f"""
 Extract named entities from the following text. Return a JSON array of objects, each with "name" and "type". Types: person, place, organization, concept. If no entities, return [].
@@ -195,7 +211,7 @@ JSON:
                 entities = json.loads(data["message"]["content"])
                 return entities if isinstance(entities, list) else []
         except Exception as e:
-            print(f"NER failed: {e}")
+            logging.warning("NER failed: %s", e)
             return []
 
     def add_entity(self, name: str, entity_type: str, description: str = ""):
@@ -255,13 +271,15 @@ JSON:
 
     def graph_rag_search(self, query: str, k: int = 5) -> List[Dict[str, Any]]:
         """3-stage Graph RAG: vector search + entity graph expansion + merge/re-rank."""
+        # Compute embedding once and reuse across both stages
+        query_embedding = self.embed_text(query)
+
         # Stage 1: Baseline vector search (always runs)
-        vector_results = self.search_embeddings(query, k * 2)
+        vector_results = self.search_embeddings(query, k * 2, _precomputed_embedding=query_embedding)
         for r in vector_results:
             r["source"] = "vector"
 
         # Stage 2: Entity-aware graph expansion
-        query_embedding = self.embed_text(query)
         graph_results = []
         try:
             with SQLSession(engine) as session:
@@ -306,7 +324,7 @@ JSON:
                                 m["matched_entity"] = name
                                 graph_results.append(m)
         except Exception as e:
-            print(f"Graph expansion failed (falling back to vector): {e}")
+            logging.warning("Graph expansion failed (falling back to vector): %s", e)
 
         # Stage 3: Merge, deduplicate, re-rank
         seen = set()
@@ -356,11 +374,9 @@ JSON:
                     ids=[str(memory.id)]
                 )
 
-        # Extract entities for user inputs
+        # Fire-and-forget entity extraction — kept off the chat hot path
         if mem_type == "user_input":
-            entities = self.extract_entities(text)
-            if entities:
-                self.infer_relationships(entities, text)
+            self._executor.submit(self._extract_and_infer, text)
 
     def add_summary(self, context_id: str, summary: str):
         self.add_memory("summary", summary, ["summary", context_id])
@@ -370,10 +386,31 @@ JSON:
             statement = select(Memory).where(Memory.tags.contains(f'"{context_id}"')).order_by(Memory.created_at.desc()).limit(limit)
             return session.execute(statement).scalars().all()
 
-    def search_embeddings(self, query: str, k: int = 5, filter_type: str = None, memory_type: str = None) -> List[Dict[str, Any]]:
-        query_embedding = self.embed_text(query)  # sync for now
-        # For pgvector, do async search
-        # But for now, keep Chroma
+    def get_recent_memories(
+        self,
+        limit: int = 20,
+        *,
+        mem_type: str | None = None,
+        memory_type: str | None = None,
+    ) -> List[Memory]:
+        with SQLSession(engine) as session:
+            statement = select(Memory)
+            if mem_type is not None:
+                statement = statement.where(Memory.type == mem_type)
+            if memory_type is not None:
+                statement = statement.where(Memory.memory_type == memory_type)
+            statement = statement.order_by(Memory.created_at.desc()).limit(limit)
+            return session.execute(statement).scalars().all()
+
+    def search_embeddings(
+        self,
+        query: str,
+        k: int = 5,
+        filter_type: str = None,
+        memory_type: str = None,
+        _precomputed_embedding: List[float] | None = None,
+    ) -> List[Dict[str, Any]]:
+        query_embedding = _precomputed_embedding if _precomputed_embedding is not None else self.embed_text(query)
         where_clause = {}
         if filter_type:
             where_clause["type"] = filter_type
@@ -451,8 +488,10 @@ JSON:
 
     def save_user_profile(self, profile: UserProfile):
         with SQLSession(engine) as session:
-            session.merge(profile)
+            merged = session.merge(profile)
             session.commit()
+            session.refresh(merged)
+            return merged
 
     def add_feedback(self, feedback: Feedback):
         with SQLSession(engine) as session:
@@ -486,6 +525,8 @@ JSON:
         with SQLSession(engine) as session:
             session.add(mood_entry)
             session.commit()
+            session.refresh(mood_entry)
+            return mood_entry
 
     def get_recent_moods(self, user_id: str, limit: int = 7) -> List[MoodEntry]:
         with SQLSession(engine) as session:
@@ -496,6 +537,8 @@ JSON:
         with SQLSession(engine) as session:
             session.add(habit)
             session.commit()
+            session.refresh(habit)
+            return habit
 
     def get_habits(self, user_id: str) -> List[Habit]:
         with SQLSession(engine) as session:
@@ -509,6 +552,8 @@ JSON:
                 habit.streak = streak
                 habit.last_done = last_done
                 session.commit()
+                session.refresh(habit)
+            return habit
 
     def add_decision(self, decision: Decision):
         with SQLSession(engine) as session:
@@ -524,6 +569,8 @@ JSON:
         with SQLSession(engine) as session:
             session.add(goal)
             session.commit()
+            session.refresh(goal)
+            return goal
 
     def get_personal_goals(self, user_id: str) -> List[PersonalGoal]:
         with SQLSession(engine) as session:
@@ -536,11 +583,15 @@ JSON:
             if goal:
                 goal.status = status
                 session.commit()
+                session.refresh(goal)
+            return goal
 
     def add_activity_log(self, activity: ActivityLog):
         with SQLSession(engine) as session:
             session.add(activity)
             session.commit()
+            session.refresh(activity)
+            return activity
 
     def get_recent_activities(self, user_id: str, limit: int = 10) -> List[ActivityLog]:
         with SQLSession(engine) as session:
@@ -588,6 +639,8 @@ JSON:
         with SQLSession(engine) as session:
             session.add(exercise)
             session.commit()
+            session.refresh(exercise)
+            return exercise
 
     def get_cbt_exercises(self, user_id: str) -> List[CbtExercise]:
         with SQLSession(engine) as session:
@@ -600,6 +653,8 @@ JSON:
             if exercise:
                 exercise.completed_count += 1
                 session.commit()
+                session.refresh(exercise)
+            return exercise
 
     def suggest_cbt_exercise(self, user_id: str, mood_level: int) -> Optional[CbtExercise]:
         exercises = self.get_cbt_exercises(user_id)
@@ -759,6 +814,11 @@ JSON:
             session.commit()
             session.refresh(contact)
             return contact
+
+    def get_contacts(self, user_id: str = "default", limit: int = 50) -> List[Contact]:
+        with SQLSession(engine) as session:
+            statement = select(Contact).where(Contact.user_id == user_id).order_by(Contact.last_contact.desc()).limit(limit)
+            return session.execute(statement).scalars().all()
 
     def get_overdue_contacts(self, days: int = 14, user_id: str = "default", min_mood: int = None):
         overdue_date = date.today() - timedelta(days=days)
