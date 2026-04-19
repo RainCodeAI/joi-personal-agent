@@ -6,6 +6,24 @@ function readBoolean(value: unknown) {
   return typeof value === "boolean" ? value : false;
 }
 
+function DetailRows({ value }: { value: unknown }) {
+  if (value === null || value === undefined) return <span className="diag-value">—</span>;
+  if (typeof value !== "object" || Array.isArray(value))
+    return <span className="diag-value">{String(value)}</span>;
+  const entries = Object.entries(value as Record<string, unknown>);
+  if (entries.length === 0) return <span className="diag-value">—</span>;
+  return (
+    <div className="diag-rows">
+      {entries.map(([k, v]) => (
+        <div className="diag-row" key={k}>
+          <span className="diag-key">{k}</span>
+          <span className="diag-value">{String(v)}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export default async function DiagnosticsPage() {
   const diagnostics = await fetchDiagnostics().catch(() => ({
     status: "error",
@@ -21,14 +39,7 @@ export default async function DiagnosticsPage() {
   return (
     <>
       <header className="page-header">
-        <div>
-          <p className="eyebrow">Phase 2.1</p>
-          <h1 className="page-title">Diagnostics</h1>
-          <p className="page-copy">
-            Runtime truth panel for providers, storage mode, and media capability status.
-          </p>
-        </div>
-
+        <span className="page-breadcrumb-label">Diagnostics</span>
         <div className="status-strip">
           <div className="status-card">
             <span>Status</span>
@@ -54,10 +65,10 @@ export default async function DiagnosticsPage() {
               <div className="list-row" key={name}>
                 <div>
                   <strong>{name}</strong>
-                  <p>{JSON.stringify(details)}</p>
+                  <DetailRows value={details} />
                 </div>
-                <span className={`badge ${readBoolean(details["available"]) ? "ok" : "warn"}`}>
-                  {readBoolean(details["available"]) ? "up" : "check"}
+                <span className={`badge ${readBoolean((details as Record<string, unknown>)["available"]) ? "ok" : "warn"}`}>
+                  {readBoolean((details as Record<string, unknown>)["available"]) ? "up" : "check"}
                 </span>
               </div>
             ))}
@@ -72,7 +83,7 @@ export default async function DiagnosticsPage() {
               <div className="list-row" key={name}>
                 <div>
                   <strong>{name}</strong>
-                  <p>{String(value)}</p>
+                  <DetailRows value={value} />
                 </div>
               </div>
             ))}
@@ -87,7 +98,7 @@ export default async function DiagnosticsPage() {
               <div className="list-row" key={name}>
                 <div>
                   <strong>{name}</strong>
-                  <p>{JSON.stringify(details)}</p>
+                  <DetailRows value={details} />
                 </div>
               </div>
             ))}

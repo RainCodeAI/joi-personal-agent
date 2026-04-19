@@ -10,13 +10,7 @@ export default async function MemoryPage() {
   return (
     <>
       <header className="page-header">
-        <div>
-          <p className="eyebrow">Phase 2.1</p>
-          <h1 className="page-title">Memory Surface</h1>
-          <p className="page-copy">
-            Vector and graph-backed recall now routes through FastAPI rather than a Streamlit page.
-          </p>
-        </div>
+        <span className="page-breadcrumb-label">Memory</span>
         <div className="status-strip">
           <div className="status-card">
             <span>Recent Items</span>

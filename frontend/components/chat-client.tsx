@@ -230,6 +230,7 @@ export function ChatClient({ initialSessionId }: ChatClientProps) {
   const [perceptionExpression, setPerceptionExpression] = useState<string | null>(null);
   const [lastSnapshotAnalysis, setLastSnapshotAnalysis] = useState<SnapshotAnalysis | null>(null);
   const lookAwayResetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const bottomRef = useRef<HTMLDivElement | null>(null);
 
   const handlePerceptionSignal = useCallback((signal: PerceptionSignal) => {
     startTransition(() => {
@@ -428,14 +429,15 @@ export function ChatClient({ initialSessionId }: ChatClientProps) {
         }
       }
     });
-    source.onerror = () => {
-      setStatus("Realtime stream interrupted");
-    };
 
     return () => {
       source.close();
     };
   }, [sessionId]);
+
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: messages.length > 0 ? "smooth" : "auto", block: "end" });
+  }, [messages, streamingText]);
 
   async function handleAttachmentSelect(event: ChangeEvent<HTMLInputElement>) {
     const files = Array.from(event.target.files ?? []);
@@ -580,73 +582,94 @@ export function ChatClient({ initialSessionId }: ChatClientProps) {
 
   const selectedApproval =
     approvals.find((approval) => approval.id === selectedApprovalId) ?? null;
+  const showPromptSuggestions =
+    messages.length === 0 && streamingText.length === 0 && !draft.trim() && attachments.length === 0;
 
   return (
-    <div className="page-body">
+    <div className="page-body chat-page-body">
       <div className="chat-layout">
-        <section className="panel">
-          <div style={{ marginBottom: 18 }}>
-            <p className="eyebrow">Flagship Surface</p>
-            <h2>Realtime chat</h2>
+        <section className="panel chat-main-panel">
+          <div className="chat-panel-header">
+            <h2>Conversation</h2>
             <p className="panel-copy">
-              Partial text streaming, typed attachments, approvals, and avatar sync all ride on the
-              same FastAPI contract now.
+              Ask for a plan, drop in context, or keep the realtime thread moving.
             </p>
           </div>
 
           <div className="message-list">
-            {messages.length === 0 ? (
-              <div className="empty-state">
-                The session is live. Send the first message to exercise the richer chat surface.
+            {showPromptSuggestions ? (
+              <div className="prompt-suggestions">
+                <p className="prompt-suggestions-label">Start a conversation</p>
+                <div className="prompt-chips">
+                  {[
+                    "What's on my calendar today?",
+                    "Summarise my recent notes",
+                    "Set a reminder for me",
+                    "How are you feeling?",
+                  ].map((suggestion) => (
+                    <button
+                      key={suggestion}
+                      className="prompt-chip"
+                      type="button"
+                      onClick={() => setDraft(suggestion)}
+                    >
+                      {suggestion}
+                    </button>
+                  ))}
+                </div>
               </div>
-            ) : (
-              messages.map((message) => (
-                <article key={`${message.id}-${message.timestamp}`} className="message-card" data-role={message.role}>
-                  <header>
-                    <span>{message.role}</span>
-                    <span>{formatTimestamp(message.timestamp)}</span>
-                  </header>
-                  <p>{message.content}</p>
-                  {message.attachments?.length ? (
-                    <div className="attachment-list">
-                      {message.attachments.map((attachment) => (
-                        <div className="attachment-card" key={attachment.id}>
-                          <strong>{attachment.name}</strong>
-                          <span>{attachment.media_type}</span>
-                          {attachment.preview_text ? <p>{attachment.preview_text}</p> : null}
-                        </div>
-                      ))}
-                    </div>
-                  ) : null}
-                </article>
-              ))
-            )}
+            ) : null}
+
+            {messages.map((message) => (
+              <article key={`${message.id}-${message.timestamp}`} className="message-card" data-role={message.role}>
+                <header>
+                  <span>{message.role}</span>
+                  <span>{formatTimestamp(message.timestamp)}</span>
+                </header>
+                <p>{message.content}</p>
+                {message.attachments?.length ? (
+                  <div className="attachment-list">
+                    {message.attachments.map((attachment) => (
+                      <div className="attachment-card" key={attachment.id}>
+                        <strong>{attachment.name}</strong>
+                        <span>{attachment.media_type}</span>
+                        {attachment.preview_text ? <p>{attachment.preview_text}</p> : null}
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
+              </article>
+            ))}
 
             {streamingText ? (
-              <article className="message-card" data-role="assistant">
-                <header>
-                  <span>assistant</span>
-                  <span>streaming</span>
-                </header>
+              <div className="streaming-indicator" aria-live="polite">
+                <span className="streaming-label">Joi is responding</span>
+                <span className="typing-dots" aria-hidden="true">
+                  <span />
+                  <span />
+                  <span />
+                </span>
                 <p>{streamingText}</p>
-              </article>
+              </div>
             ) : null}
+
+            <div ref={bottomRef} />
           </div>
 
-          <form onSubmit={onSubmit} style={{ marginTop: 18 }}>
+          <form className="chat-composer" onSubmit={onSubmit}>
             <label className="sr-only" htmlFor="chat-draft">
               Message Joi
             </label>
             <textarea
               id="chat-draft"
-              className="textarea"
+              className="textarea chat-textarea"
               placeholder="Tell Joi what you need, attach context, or ask for a plan."
               value={draft}
               onChange={(event) => setDraft(event.target.value)}
             />
 
-            <div className="button-row">
-              <label className="button ghost" htmlFor="chat-attachments">
+            <div className="button-row composer-actions">
+              <label className="button secondary" htmlFor="chat-attachments">
                 Add attachment
               </label>
               <input
@@ -661,7 +684,7 @@ export function ChatClient({ initialSessionId }: ChatClientProps) {
                 {isSending ? "Transmitting..." : "Send to Joi"}
               </button>
               <button
-                className="button ghost"
+                className="button tertiary"
                 type="button"
                 onClick={() => {
                   setMessages([]);
@@ -713,12 +736,21 @@ export function ChatClient({ initialSessionId }: ChatClientProps) {
           </form>
         </section>
 
-        <aside className="grid">
-          <PerceptionEngine sessionId={sessionId} onSignal={handlePerceptionSignal} />
+        <aside className="chat-sidebar">
+          <section className="panel joi-status-panel">
+            <div className="aside-panel-header">
+              <p className="eyebrow">Joi status</p>
+              <h3>Live presence</h3>
+            </div>
 
-          <section className="panel hero-card">
-            <p className="eyebrow">Session State</p>
-            <h3>Live status</h3>
+            <AvatarSyncPanel
+              cue={avatarCue}
+              loading={avatarSyncLoading}
+              sync={avatarSyncPayload}
+              perceptionExpression={perceptionExpression}
+              onPlaybackStateChange={(state) => void handlePlaybackStateChange(state)}
+            />
+
             <div className="list">
               <div className="list-row">
                 <div>
@@ -732,204 +764,212 @@ export function ChatClient({ initialSessionId }: ChatClientProps) {
                   <strong>Provider</strong>
                   <p>{provider}</p>
                 </div>
-                <span className="badge">{approvals.length} approvals</span>
-              </div>
-              <div className="list-row">
-                <div>
-                  <strong>Session</strong>
-                  <p>{sessionId ?? "creating..."}</p>
-                </div>
                 <span className="badge">{messages.length} messages</span>
               </div>
-              <div className="list-row">
-                <div>
-                  <strong>Presence</strong>
-                  <p>
+            </div>
+            <details className="status-details">
+              <summary>More</summary>
+              <div className="list status-details-list">
+                <div className="list-row">
+                  <div>
+                    <strong>Session</strong>
+                    <p>{sessionId ?? "creating..."}</p>
+                  </div>
+                </div>
+                <div className="list-row">
+                  <div>
+                    <strong>Presence</strong>
+                    <p>
+                      {perceptionState.userPresent
+                        ? (perceptionState.currentExpression ?? "neutral")
+                        : (perceptionState.lastSignal ? "away" : "not sensing")}
+                    </p>
+                  </div>
+                  <span className={`badge ${perceptionState.userPresent ? "ok" : ""}`}>
                     {perceptionState.userPresent
-                      ? (perceptionState.currentExpression ?? "neutral")
-                      : (perceptionState.lastSignal ? "away" : "not sensing")}
-                  </p>
+                      ? perceptionState.leanedIn ? "leaned in" : "present"
+                      : "away"}
+                  </span>
                 </div>
-                <span className={`badge ${perceptionState.userPresent ? "ok" : ""}`}>
-                  {perceptionState.userPresent
-                    ? perceptionState.leanedIn
-                      ? "leaned in"
-                      : "present"
-                    : "away"}
-                </span>
               </div>
-            </div>
+            </details>
+
+            {approvals.length > 0 && (
+              <section className="joi-approvals">
+                <div className="aside-section-head">
+                  <p className="eyebrow">Approvals</p>
+                  <h3>Pending actions</h3>
+                </div>
+                <div className="list">
+                  {approvals.map((approval) => {
+                    const presentation = approvalPresentation(approval);
+                    return (
+                      <div className="approval-card" key={approval.id}>
+                        <div className="approval-card-header">
+                          <div>
+                            <span className="approval-card-kicker">Joi wants permission</span>
+                            <strong>{presentation.title}</strong>
+                          </div>
+                          <span className={`badge ${presentation.riskTone}`}>
+                            {presentation.riskLabel}
+                          </span>
+                        </div>
+                        <p>{presentation.summary}</p>
+                        {presentation.fields.length ? (
+                          <div className="approval-field-list">
+                            {presentation.fields.map((field) => (
+                              <div className="approval-field" key={`${approval.id}-${field.label}`}>
+                                <span>{field.label}</span>
+                                <strong>{field.value}</strong>
+                              </div>
+                            ))}
+                          </div>
+                        ) : null}
+                        <div className="button-row">
+                          <button
+                            className="button ghost"
+                            type="button"
+                            onClick={() => setSelectedApprovalId(approval.id)}
+                          >
+                            Review
+                          </button>
+                          <button
+                            className="button secondary"
+                            type="button"
+                            onClick={() => void handleApprovalAction(approval.id, "approve")}
+                          >
+                            Approve
+                          </button>
+                          <button
+                            className="button ghost"
+                            type="button"
+                            onClick={() => void handleApprovalAction(approval.id, "deny")}
+                          >
+                            Deny
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </section>
+            )}
+
+            {selectedApproval ? (
+              <section className="approval-modal">
+                <div className="approval-card-header">
+                  <div>
+                    <span className="approval-card-kicker">Permission review</span>
+                    <h3>{approvalPresentation(selectedApproval).title}</h3>
+                  </div>
+                  <button
+                    className="button ghost"
+                    type="button"
+                    onClick={() => setSelectedApprovalId(null)}
+                  >
+                    Close
+                  </button>
+                </div>
+                <p>{approvalPresentation(selectedApproval).summary}</p>
+                {approvalPresentation(selectedApproval).fields.length ? (
+                  <div className="approval-field-list">
+                    {approvalPresentation(selectedApproval).fields.map((field) => (
+                      <div className="approval-field" key={`${selectedApproval.id}-modal-${field.label}`}>
+                        <span>{field.label}</span>
+                        <strong>{field.value}</strong>
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
+                {approvalPresentation(selectedApproval).preview ? (
+                  <div className="approval-preview">
+                    <strong>Preview</strong>
+                    <p>{approvalPresentation(selectedApproval).preview}</p>
+                  </div>
+                ) : null}
+                <details className="approval-raw">
+                  <summary>Raw tool arguments</summary>
+                  <pre>{JSON.stringify(selectedApproval.args, null, 2)}</pre>
+                </details>
+                <div className="button-row" style={{ marginTop: 18 }}>
+                  <button
+                    className="button secondary"
+                    type="button"
+                    onClick={() => void handleApprovalAction(selectedApproval.id, "approve")}
+                  >
+                    Approve
+                  </button>
+                  <button
+                    className="button ghost"
+                    type="button"
+                    onClick={() => void handleApprovalAction(selectedApproval.id, "deny")}
+                  >
+                    Deny
+                  </button>
+                </div>
+              </section>
+            ) : null}
           </section>
 
-          {lastSnapshotAnalysis ? (
-            <section className="panel">
-              <p className="eyebrow">Scene Analysis</p>
-              <h3>Last snapshot</h3>
-              <p style={{ fontSize: "0.82rem", color: "var(--color-muted)", margin: "6px 0 8px" }}>
-                {lastSnapshotAnalysis.description}
-              </p>
-              {lastSnapshotAnalysis.tags.length > 0 ? (
-                <div className="voice-badges">
-                  {lastSnapshotAnalysis.tags.map((tag) => (
-                    <span className="badge" key={tag}>{tag}</span>
-                  ))}
-                </div>
-              ) : null}
-              <button
-                className="button ghost"
-                type="button"
-                style={{ marginTop: 10, fontSize: "0.72rem" }}
-                onClick={() => setLastSnapshotAnalysis(null)}
-              >
-                Dismiss
-              </button>
-            </section>
-          ) : null}
-
-          <section className="panel">
-            <p className="eyebrow">Approvals</p>
-            <h3>Pending actions</h3>
-            <div className="list">
-              {approvals.length ? (
-                approvals.map((approval) => {
-                  const presentation = approvalPresentation(approval);
-                  return (
-                    <div className="approval-card" key={approval.id}>
-                      <div className="approval-card-header">
-                        <div>
-                          <span className="approval-card-kicker">Joi wants permission</span>
-                          <strong>{presentation.title}</strong>
-                        </div>
-                        <span className={`badge ${presentation.riskTone}`}>
-                          {presentation.riskLabel}
-                        </span>
-                      </div>
-                      <p>{presentation.summary}</p>
-                      {presentation.fields.length ? (
-                        <div className="approval-field-list">
-                          {presentation.fields.map((field) => (
-                            <div className="approval-field" key={`${approval.id}-${field.label}`}>
-                              <span>{field.label}</span>
-                              <strong>{field.value}</strong>
-                            </div>
-                          ))}
-                        </div>
-                      ) : null}
-                      <div className="button-row">
-                        <button
-                          className="button ghost"
-                          type="button"
-                          onClick={() => setSelectedApprovalId(approval.id)}
-                        >
-                          Review
-                        </button>
-                        <button
-                          className="button secondary"
-                          type="button"
-                          onClick={() => void handleApprovalAction(approval.id, "approve")}
-                        >
-                          Approve
-                        </button>
-                        <button
-                          className="button ghost"
-                          type="button"
-                          onClick={() => void handleApprovalAction(approval.id, "deny")}
-                        >
-                          Deny
-                        </button>
-                      </div>
-                    </div>
-                  );
-                })
-              ) : (
-                <div className="empty-state">No pending approvals.</div>
-              )}
+          <section className="panel chat-feed-panel">
+            <div className="aside-panel-header">
+              <p className="eyebrow">Feed</p>
+              <h3>Signals and diagnostics</h3>
             </div>
-          </section>
 
-          {selectedApproval ? (
-            <section className="panel approval-modal">
-              <div className="approval-card-header">
-                <div>
-                  <span className="approval-card-kicker">Permission review</span>
-                  <h3>{approvalPresentation(selectedApproval).title}</h3>
-                </div>
+            {lastSnapshotAnalysis ? (
+              <section className="feed-section">
+                <p className="eyebrow">Scene analysis</p>
+                <h3>Last snapshot</h3>
+                <p className="feed-copy">
+                  {lastSnapshotAnalysis.description}
+                </p>
+                {lastSnapshotAnalysis.tags.length > 0 ? (
+                  <div className="voice-badges">
+                    {lastSnapshotAnalysis.tags.map((tag) => (
+                      <span className="badge" key={tag}>{tag}</span>
+                    ))}
+                  </div>
+                ) : null}
                 <button
-                  className="button ghost"
+                  className="button tertiary feed-dismiss"
                   type="button"
-                  onClick={() => setSelectedApprovalId(null)}
+                  onClick={() => setLastSnapshotAnalysis(null)}
                 >
-                  Close
+                  Dismiss
                 </button>
+              </section>
+            ) : null}
+
+            <details className="aside-accordion">
+              <summary>
+                <span>Presence sensing</span>
+              </summary>
+              <div className="aside-accordion-body">
+                <PerceptionEngine sessionId={sessionId} onSignal={handlePerceptionSignal} />
               </div>
-              <p>{approvalPresentation(selectedApproval).summary}</p>
-              {approvalPresentation(selectedApproval).fields.length ? (
-                <div className="approval-field-list">
-                  {approvalPresentation(selectedApproval).fields.map((field) => (
-                    <div className="approval-field" key={`${selectedApproval.id}-modal-${field.label}`}>
-                      <span>{field.label}</span>
-                      <strong>{field.value}</strong>
-                    </div>
-                  ))}
-                </div>
-              ) : null}
-              {approvalPresentation(selectedApproval).preview ? (
-                <div className="approval-preview">
-                  <strong>Preview</strong>
-                  <p>{approvalPresentation(selectedApproval).preview}</p>
-                </div>
-              ) : null}
-              <details className="approval-raw">
-                <summary>Raw tool arguments</summary>
-                <pre>{JSON.stringify(selectedApproval.args, null, 2)}</pre>
-              </details>
-              <div className="button-row" style={{ marginTop: 18 }}>
-                <button
-                  className="button secondary"
-                  type="button"
-                  onClick={() => void handleApprovalAction(selectedApproval.id, "approve")}
-                >
-                  Approve
-                </button>
-                <button
-                  className="button ghost"
-                  type="button"
-                  onClick={() => void handleApprovalAction(selectedApproval.id, "deny")}
-                >
-                  Deny
-                </button>
+            </details>
+
+            <details className="aside-accordion">
+              <summary>
+                <span>Event stream {events.length > 0 ? `(${events.length})` : ""}</span>
+              </summary>
+              <div className="event-list aside-accordion-body">
+                {events.length === 0 ? (
+                  <div className="empty-state">No events yet.</div>
+                ) : (
+                  events.map((event) => (
+                    <article key={event.event_id} className="event-card">
+                      <header>
+                        <span>{event.event}</span>
+                        <span>{formatTimestamp(event.timestamp)}</span>
+                      </header>
+                      <pre>{JSON.stringify(event.payload, null, 2)}</pre>
+                    </article>
+                  ))
+                )}
               </div>
-            </section>
-          ) : null}
-
-          <AvatarSyncPanel
-            cue={avatarCue}
-            loading={avatarSyncLoading}
-            sync={avatarSyncPayload}
-            perceptionExpression={perceptionExpression}
-            onPlaybackStateChange={(state) => void handlePlaybackStateChange(state)}
-          />
-
-          <section className="panel">
-            <p className="eyebrow">Realtime Feed</p>
-            <h3>Event stream</h3>
-            <div className="event-list">
-              {events.length === 0 ? (
-                <div className="empty-state">
-                  Waiting for `message.delta`, `approval.*`, `avatar.*`, and `tts.ready` events.
-                </div>
-              ) : (
-                events.map((event) => (
-                  <article key={event.event_id} className="event-card">
-                    <header>
-                      <span>{event.event}</span>
-                      <span>{formatTimestamp(event.timestamp)}</span>
-                    </header>
-                    <pre>{JSON.stringify(event.payload, null, 2)}</pre>
-                  </article>
-                ))
-              )}
-            </div>
+            </details>
           </section>
         </aside>
       </div>

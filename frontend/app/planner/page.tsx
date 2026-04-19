@@ -29,15 +29,7 @@ export default async function PlannerPage() {
   return (
     <>
       <header className="page-header">
-        <div>
-          <p className="eyebrow">Phase 2.1</p>
-          <h1 className="page-title">Planner Surface</h1>
-          <p className="page-copy">
-            Planning context now comes from dedicated backend APIs instead of a page-local Ollama
-            call.
-          </p>
-        </div>
-
+        <span className="page-breadcrumb-label">Planner</span>
         <div className="status-strip">
           <div className="status-card">
             <span>Latest Mood</span>

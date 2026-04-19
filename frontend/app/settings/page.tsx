@@ -13,14 +13,7 @@ export default async function SettingsPage() {
   return (
     <>
       <header className="page-header">
-        <div>
-          <p className="eyebrow">Phase 2.1</p>
-          <h1 className="page-title">Settings</h1>
-          <p className="page-copy">
-            Mutable runtime controls exposed through the backend contract for the migration window.
-          </p>
-        </div>
-
+        <span className="page-breadcrumb-label">Settings</span>
         <div className="status-strip">
           <div className="status-card">
             <span>Autonomy</span>

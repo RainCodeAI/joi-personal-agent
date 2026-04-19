@@ -1,43 +1,68 @@
-import { ReactNode } from "react";
+"use client";
+
+import { ReactNode, useEffect, useState } from "react";
 
 import { NavLink } from "@/components/nav-link";
 
 const NAV_ITEMS = [
-  { href: "/chat", label: "Chat", copy: "Realtime conversation and presence." },
-  { href: "/memory", label: "Memory", copy: "Search, recall, and semantic traces." },
-  { href: "/planner", label: "Planner", copy: "Context-aware day shaping." },
+  { href: "/chat",        label: "Chat",        copy: "Realtime conversation and presence." },
+  { href: "/memory",      label: "Memory",      copy: "Search, recall, and semantic traces." },
+  { href: "/planner",     label: "Planner",     copy: "Context-aware day shaping." },
   { href: "/diagnostics", label: "Diagnostics", copy: "Provider, storage, and runtime truth." },
-  { href: "/settings", label: "Settings", copy: "Mutable runtime controls." },
-  { href: "/profile", label: "Profile", copy: "User context, habits, goals, and care loops." },
+  { href: "/settings",    label: "Settings",    copy: "Mutable runtime controls." },
+  { href: "/profile",     label: "Profile",     copy: "User context, habits, goals, and care loops." },
 ];
 
 export function AppShell({ children }: { children: ReactNode }) {
+  const [collapsed, setCollapsed] = useState(false);
+
+  useEffect(() => {
+    try {
+      setCollapsed(localStorage.getItem("joi-nav-collapsed") === "true");
+    } catch {
+      // localStorage unavailable
+    }
+  }, []);
+
+  function toggle() {
+    setCollapsed((prev) => {
+      const next = !prev;
+      try { localStorage.setItem("joi-nav-collapsed", String(next)); } catch { /* ignore */ }
+      return next;
+    });
+  }
+
   return (
-    <div className="app-shell">
+    <div className={`app-shell${collapsed ? " nav-collapsed" : ""}`}>
       <aside className="app-nav">
-        <div className="brand-chip">Joi v2 Surface</div>
-        <h1 className="brand-title">Joi</h1>
-        <p className="brand-copy">
-          Blade Runner-inspired control surface for chat, memory, planning, diagnostics, and
-          avatar-state orchestration.
-        </p>
+        <div className="brand-chip">
+          {collapsed ? "J" : "Joi v2 Surface"}
+        </div>
+
+        {!collapsed && (
+          <>
+            <h1 className="brand-title">Joi</h1>
+            <p className="brand-copy">
+              Blade Runner-inspired control surface for chat, memory, planning, diagnostics, and
+              avatar-state orchestration.
+            </p>
+          </>
+        )}
 
         <nav className="nav-group" aria-label="Primary">
           {NAV_ITEMS.map((item) => (
-            <NavLink key={item.href} {...item} />
+            <NavLink key={item.href} {...item} collapsed={collapsed} />
           ))}
         </nav>
 
-        <div style={{ marginTop: 28 }} className="panel hero-card">
-          <p className="eyebrow">Migration Window</p>
-          <strong style={{ display: "block", marginBottom: 8, fontFamily: "var(--font-display)" }}>
-            Streamlit is now a fallback client.
-          </strong>
-          <p className="meta-copy" style={{ margin: 0 }}>
-            The web shell is wired directly to FastAPI contracts so the UI stops owning product
-            logic.
-          </p>
-        </div>
+        <button
+          className="nav-collapse-btn"
+          onClick={toggle}
+          title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+          aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+        >
+          {collapsed ? "›" : "‹"}
+        </button>
       </aside>
 
       <main className="content-shell">
