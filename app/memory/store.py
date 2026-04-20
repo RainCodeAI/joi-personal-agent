@@ -12,17 +12,13 @@ from app.api.models import UserProfile, Feedback, Milestone, ChatMessage, ChatSe
 from sqlalchemy import select, create_engine, text as sa_text
 from sqlalchemy.orm import Session as SQLSession
 import numpy as np
-import torch
 try:
     from sentence_transformers import SentenceTransformer
-except ImportError:
-    logging.warning("Could not import sentence_transformers. Using MockSentenceTransformer.")
-    class SentenceTransformer:
-        def __init__(self, model_name):
-            self.get_sentence_embedding_dimension = lambda: 768
-        def encode(self, text, *args, **kwargs):
-            # Return zero vector of dimension 768
-            return np.zeros(768, dtype=np.float32)
+    _ST_AVAILABLE = True
+except Exception:
+    logging.warning("sentence_transformers unavailable (torch DLL or import error) — will use cloud embeddings fallback.")
+    SentenceTransformer = None  # type: ignore[assignment,misc]
+    _ST_AVAILABLE = False
 
 # Database setup
 engine = create_engine(settings.database_url or f"sqlite:///{settings.db_path}")
@@ -87,9 +83,9 @@ class MemoryStore:
         """Load the SentenceTransformer model if not already loaded."""
         if self.embedder is not None:
             return self.embedder
-        try:
-            from sentence_transformers import SentenceTransformer as ST
-        except ImportError:
+        if _ST_AVAILABLE:
+            ST = SentenceTransformer
+        else:
             from openai import OpenAI as _OAI
 
             logging.warning("Local ML missing. Switching to Cloud Embeddings (OpenAI).")
@@ -116,10 +112,15 @@ class MemoryStore:
                 def get_sentence_embedding_dimension(self):
                     return self.dimensions
 
-            ST = CloudEmbedding  # type: ignore[assignment]
+            self.embedder = CloudEmbedding()
+            return self.embedder
 
         model_name = "sentence-transformers/all-mpnet-base-v2"
-        device = "cuda" if torch.cuda.is_available() else ("mps" if torch.backends.mps.is_available() else "cpu")
+        try:
+            import torch as _torch
+            device = "cuda" if _torch.cuda.is_available() else ("mps" if _torch.backends.mps.is_available() else "cpu")
+        except Exception:
+            device = "cpu"
         logging.info("Loading SentenceTransformer on device: %s", device)
         self.embedder = ST(model_name, device=device)
         return self.embedder

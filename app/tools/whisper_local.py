@@ -1,7 +1,14 @@
-import whisper
-import torch
+import logging
 import os
 from functools import lru_cache
+
+try:
+    import whisper
+    import torch as _torch
+    _WHISPER_AVAILABLE = True
+except Exception:
+    logging.warning("whisper_local: torch/whisper unavailable — local transcription disabled")
+    _WHISPER_AVAILABLE = False
 
 class WhisperTranscriber:
     _instance = None
@@ -15,14 +22,15 @@ class WhisperTranscriber:
 
     def load_model(self):
         if self.model is None:
-            print(f"Loading Whisper model '{self.model_size}'...")
-            device = "cuda" if torch.cuda.is_available() else "cpu"
-            print(f"Using device: {device}")
+            if not _WHISPER_AVAILABLE:
+                return
+            logging.info("Loading Whisper model '%s'...", self.model_size)
+            device = "cuda" if _torch.cuda.is_available() else "cpu"
             try:
                 self.model = whisper.load_model(self.model_size, device=device)
-                print("Whisper model loaded.")
+                logging.info("Whisper model loaded on %s", device)
             except Exception as e:
-                print(f"Failed to load Whisper model: {e}")
+                logging.warning("Failed to load Whisper model: %s", e)
                 self.model = None
 
     def transcribe(self, audio_path: str) -> str:
@@ -36,7 +44,7 @@ class WhisperTranscriber:
             result = self.model.transcribe(audio_path)
             return result["text"].strip()
         except Exception as e:
-            print(f"Whisper transcription error: {e}")
+            logging.warning("Whisper transcription error: %s", e)
             return None
 
 # Global instance

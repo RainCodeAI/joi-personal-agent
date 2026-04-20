@@ -76,10 +76,15 @@ export function AvatarSyncPanel({
   }, [onPlaybackStateChange]);
 
   const expression = sync?.sentiment ?? perceptionExpression ?? cue?.expression ?? "neutral";
+  const stageState = loading ? "syncing" : sync ? "voice-linked" : "stabilized";
 
   return (
     <div className="avatar-panel">
       <div className="avatar-stage">
+        <div className="avatar-stage-head">
+          <span className="avatar-stage-kicker">Projection chamber</span>
+          <span className={`avatar-stage-status ${loading ? "warn" : "ok"}`}>{stageState}</span>
+        </div>
         <div className="avatar-hologram-wrap">
           <AvatarRenderer
             expression={expression}
@@ -94,6 +99,10 @@ export function AvatarSyncPanel({
               {loading ? "syncing" : "ready"}
             </span>
           </div>
+        </div>
+        <div className="avatar-stage-base">
+          <span className="avatar-stage-name">Joi</span>
+          <span className="avatar-stage-copy">3D asset prototype staged inside the live projection chamber</span>
         </div>
       </div>
 

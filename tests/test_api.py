@@ -9,6 +9,7 @@ from app.api.main import app
 from app.api.models import ChatResponse
 from app.api.realtime import RealtimeEventBus, format_sse_event
 from app.api import v2 as api_v2
+from app.api.v2_models import ChatAttachmentResource
 from app.api import diagnostics as diagnostics_api
 from app.orchestrator.security.approval import ApprovalStatus, PendingApproval
 
@@ -133,7 +134,7 @@ def test_v2_chat_contract(monkeypatch):
     monkeypatch.setattr(
         api_v2.agent,
         "reply",
-        lambda history, text, session_id: ChatResponse(
+        lambda history, text, session_id, on_token=None, attachment_contexts=None: ChatResponse(
             text="I can do that once you approve it.",
             session_id=session_id,
             tool_calls=[
@@ -212,6 +213,154 @@ def test_v2_chat_contract(monkeypatch):
     ]
 
 
+def test_v2_chat_with_attachments_and_deltas(monkeypatch):
+    fake_session = SimpleNamespace(
+        id="session-chat",
+        user_id="default",
+        title="Session chat",
+        created_at=datetime(2026, 1, 3, 12, 0, 0),
+        updated_at=datetime(2026, 1, 3, 12, 1, 0),
+    )
+    persisted_messages = [
+        SimpleNamespace(
+            id=20,
+            session_id="session-chat",
+            role="user",
+            content="[Attachments]\n- Image attachment 'scene.png' described as: a city skyline",
+            timestamp=datetime(2026, 1, 3, 12, 0, 0),
+        ),
+        SimpleNamespace(
+            id=21,
+            session_id="session-chat",
+            role="assistant",
+            content="I see the skyline. It feels cinematic.",
+            timestamp=datetime(2026, 1, 3, 12, 0, 1),
+        ),
+    ]
+
+    def fake_history(session_id):
+        return persisted_messages if fake_history.calls else []
+
+    fake_history.calls = 0
+
+    def history_wrapper(session_id):
+        result = fake_history(session_id)
+        fake_history.calls += 1
+        return result
+
+    monkeypatch.setattr(api_v2.memory_store, "get_chat_history", history_wrapper)
+    monkeypatch.setattr(api_v2.memory_store, "get_session", lambda session_id: fake_session)
+    streamed_chunks = []
+    captured = {}
+
+    def fake_reply(history, text, session_id, on_token=None, attachment_contexts=None):
+        captured["text"] = text
+        captured["attachment_contexts"] = attachment_contexts
+        if on_token is not None:
+            on_token("I see the ")
+            streamed_chunks.append("I see the ")
+            on_token("skyline.")
+            streamed_chunks.append("skyline.")
+        return ChatResponse(
+            text="I see the skyline. It feels cinematic.",
+            session_id=session_id,
+            tool_calls=[],
+            craving_score=40.0,
+            is_dramatic_return=False,
+            provider="ollama",
+            route=["ollama"],
+            errors=[],
+            user_message_id=20,
+            assistant_message_id=21,
+            assistant_timestamp="2026-01-03T12:00:01",
+        )
+
+    monkeypatch.setattr(
+        api_v2.agent,
+        "reply",
+        fake_reply,
+    )
+
+    published_events = []
+
+    async def fake_publish(event, payload, session_id=None, source="system"):
+        envelope = {
+            "api_version": "v2",
+            "event_id": f"evt-{len(published_events)+1}",
+            "event": event,
+            "source": source,
+            "session_id": session_id,
+            "timestamp": "2026-01-03T12:00:01",
+            "payload": payload,
+        }
+        published_events.append(envelope)
+        return envelope
+
+    monkeypatch.setattr(api_v2.event_bus, "publish", fake_publish)
+    monkeypatch.setattr(
+        api_v2,
+        "_attachment_context",
+        lambda attachment: (
+            ChatAttachmentResource(
+                id="att-1",
+                kind="image",
+                name=attachment.name,
+                media_type=attachment.media_type,
+                size_bytes=128,
+                preview_text="a city skyline",
+            ),
+            "Image attachment 'scene.png' described as: a city skyline",
+        ),
+    )
+
+    class FakeCravingEngine:
+        def __init__(self, store):
+            self.store = store
+
+        def get_craving_expression(self, session_id):
+            return "neutral"
+
+    monkeypatch.setattr(api_v2, "CravingEngine", FakeCravingEngine)
+
+    response = client.post(
+        "/api/v2/chat",
+        json={
+            "session_id": "session-chat",
+            "text": "",
+            "attachments": [
+                {
+                    "id": "draft-1",
+                    "kind": "image",
+                    "name": "scene.png",
+                    "media_type": "image/png",
+                    "data_url": "data:image/png;base64,ZmFrZQ==",
+                    "size_bytes": 128,
+                }
+            ],
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["attachments"][0]["name"] == "scene.png"
+    assert body["user_message"]["content"] == "Shared attachment: scene.png"
+    assert captured["text"] == "Shared attachment: scene.png"
+    assert captured["attachment_contexts"] == ["Image attachment 'scene.png' described as: a city skyline"]
+    assert streamed_chunks == ["I see the ", "skyline."]
+    assert [event["event"] for event in published_events] == [
+        "message.received",
+        "response.started",
+        "message.delta",
+        "message.delta",
+        "message.created",
+        "message.completed",
+        "avatar.state",
+    ]
+    assert published_events[2]["payload"]["content"] == "I see the "
+    assert published_events[3]["payload"]["content"] == "I see the skyline."
+    assert published_events[0]["payload"]["attachments"][0]["name"] == "scene.png"
+
+
 def test_v2_approve_action(monkeypatch):
     approved = PendingApproval(
         id="approval-2",
@@ -240,6 +389,127 @@ def test_v2_approve_action(monkeypatch):
     body = response.json()
     assert body["approval"]["status"] == "approved"
     assert body["tool_result"]["result"]["status"] == "Email sent"
+
+
+def test_v2_media_session_contract(monkeypatch):
+    class FakeMediaSessions:
+        def __init__(self):
+            self.state = {
+                "session_id": "session-chat",
+                "mic_state": "idle",
+                "speaking_state": "idle",
+                "capture_source": "browser",
+                "last_transcript": "",
+                "recognition_latency_ms": None,
+                "playback_latency_ms": None,
+                "interruption_count": 0,
+                "last_error": None,
+                "updated_at": "2026-01-03T12:00:01",
+            }
+
+        def get(self, session_id):
+            return dict(self.state, session_id=session_id)
+
+        def update(self, session_id, **patch):
+            self.state.update({"session_id": session_id, **patch, "updated_at": "2026-01-03T12:00:02"})
+            return dict(self.state)
+
+    published_events = []
+
+    async def fake_publish(event, payload, session_id=None, source="system"):
+        published_events.append((event, payload, session_id, source))
+        return {
+            "api_version": "v2",
+            "event_id": "evt-media-1",
+            "event": event,
+            "source": source,
+            "session_id": session_id,
+            "timestamp": "2026-01-03T12:00:02",
+            "payload": payload,
+        }
+
+    monkeypatch.setattr(api_v2, "media_sessions", FakeMediaSessions())
+    monkeypatch.setattr(api_v2.event_bus, "publish", fake_publish)
+
+    response = client.patch(
+        "/api/v2/media/session",
+        json={
+            "session_id": "session-chat",
+            "mic_state": "recording",
+            "speaking_state": "interrupted",
+            "interrupted": True,
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["media_session"]["mic_state"] == "recording"
+    assert body["media_session"]["speaking_state"] == "interrupted"
+    assert body["media_session"]["interruption_count"] == 1
+    assert published_events[0][0] == "media.session.updated"
+
+
+def test_v2_media_transcribe_contract(monkeypatch):
+    class FakeMediaSessions:
+        def __init__(self):
+            self.state = {
+                "session_id": "session-chat",
+                "mic_state": "idle",
+                "speaking_state": "idle",
+                "capture_source": "browser",
+                "last_transcript": "",
+                "recognition_latency_ms": None,
+                "playback_latency_ms": None,
+                "interruption_count": 0,
+                "last_error": None,
+                "updated_at": "2026-01-03T12:00:01",
+            }
+
+        def get(self, session_id):
+            return dict(self.state, session_id=session_id)
+
+        def update(self, session_id, **patch):
+            self.state.update({"session_id": session_id, **patch, "updated_at": "2026-01-03T12:00:03"})
+            return dict(self.state)
+
+    published_events = []
+
+    async def fake_publish(event, payload, session_id=None, source="system"):
+        published_events.append(event)
+        return {
+            "api_version": "v2",
+            "event_id": f"evt-{len(published_events)}",
+            "event": event,
+            "source": source,
+            "session_id": session_id,
+            "timestamp": "2026-01-03T12:00:03",
+            "payload": payload,
+        }
+
+    monkeypatch.setattr(api_v2, "media_sessions", FakeMediaSessions())
+    monkeypatch.setattr(api_v2, "_transcribe_browser_audio", lambda raw_bytes, media_type: "voice drafted reply")
+    monkeypatch.setattr(api_v2.event_bus, "publish", fake_publish)
+
+    response = client.post(
+        "/api/v2/media/transcribe",
+        json={
+            "session_id": "session-chat",
+            "media_type": "audio/wav",
+            "data_url": "data:audio/wav;base64,ZmFrZQ==",
+            "duration_ms": 840,
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["transcript"] == "voice drafted reply"
+    assert body["media_session"]["mic_state"] == "idle"
+    assert body["media_session"]["recognition_latency_ms"] is not None
+    assert published_events == [
+        "media.session.updated",
+        "media.session.updated",
+        "media.transcription.completed",
+    ]
 
 
 def test_v2_settings_patch(monkeypatch):
@@ -298,6 +568,219 @@ def test_v2_recent_events(monkeypatch):
     assert body["api_version"] == "v2"
     assert body["events"][0]["event"] == "message.completed"
     assert body["events"][0]["payload"]["text"] == "hello"
+
+
+def test_v2_memory_search(monkeypatch):
+    monkeypatch.setattr(
+        api_v2.memory_store,
+        "graph_rag_search",
+        lambda query, k=5: [
+            {
+                "text": "Met Bob at the cafe",
+                "metadata": {"type": "user_input"},
+                "distance": 0.12,
+                "source": "graph",
+                "matched_entity": "Bob",
+            }
+        ],
+    )
+
+    response = client.get("/api/v2/memory/search", params={"query": "bob", "mode": "graph"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["api_version"] == "v2"
+    assert body["query"] == "bob"
+    assert body["items"][0]["matched_entity"] == "Bob"
+    assert body["items"][0]["source"] == "graph"
+
+
+def test_v2_profile_contract(monkeypatch):
+    monkeypatch.setattr(
+        api_v2.memory_store,
+        "get_user_profile",
+        lambda user_id: SimpleNamespace(
+            user_id=user_id,
+            name="Rain",
+            email="rain@example.com",
+            birthday="1990-01-01",
+            hobbies="coding, music",
+            relationships="close friends",
+            notes="night owl",
+            therapeutic_mode=True,
+            personality="Curious",
+            humor_level=8,
+        ),
+    )
+    monkeypatch.setattr(
+        api_v2.memory_store,
+        "get_recent_moods",
+        lambda user_id, limit=14: [
+            SimpleNamespace(id=1, user_id=user_id, date=datetime(2026, 1, 4, 10, 0, 0), mood=7)
+        ],
+    )
+    monkeypatch.setattr(
+        api_v2.memory_store,
+        "get_habits",
+        lambda user_id: [SimpleNamespace(id=2, user_id=user_id, name="Workout", streak=4, last_done=datetime(2026, 1, 3, 8, 0, 0))],
+    )
+    monkeypatch.setattr(
+        api_v2.memory_store,
+        "get_personal_goals",
+        lambda user_id: [SimpleNamespace(id=3, user_id=user_id, name="Ship v2", description="Launch the rewrite", linked_habit_id=None, linked_decision_id=None, status="active")],
+    )
+    monkeypatch.setattr(
+        api_v2.memory_store,
+        "get_decisions",
+        lambda user_id: [SimpleNamespace(id=4, user_id=user_id, question="Rewrite UI?", pros="Better UX", cons="More work", outcome="Yes")],
+    )
+    monkeypatch.setattr(
+        api_v2.memory_store,
+        "get_cbt_exercises",
+        lambda user_id: [SimpleNamespace(id=5, user_id=user_id, name="Gratitude", description="List wins", completed_count=2)],
+    )
+    monkeypatch.setattr(
+        api_v2.memory_store,
+        "get_recent_activities",
+        lambda user_id, limit=10: [SimpleNamespace(id=6, user_id=user_id, app="VS Code", duration=3600, timestamp=datetime(2026, 1, 4, 11, 0, 0))],
+    )
+    monkeypatch.setattr(
+        api_v2.memory_store,
+        "get_recent_sleeps",
+        lambda user_id, limit=10: [SimpleNamespace(id=7, user_id=user_id, date=datetime(2026, 1, 4).date(), hours_slept=7.5, quality=8)],
+    )
+    monkeypatch.setattr(
+        api_v2.memory_store,
+        "get_recent_transactions",
+        lambda user_id, limit=10: [SimpleNamespace(id=8, user_id=user_id, date=datetime(2026, 1, 4).date(), amount=-12.5, category="food")],
+    )
+    monkeypatch.setattr(
+        api_v2.memory_store,
+        "get_contacts",
+        lambda user_id, limit=50: [SimpleNamespace(id=9, user_id=user_id, name="Bob", last_contact=datetime(2026, 1, 2).date(), strength=7, entity_id=None)],
+    )
+
+    response = client.get("/api/v2/profile", params={"user_id": "default"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["api_version"] == "v2"
+    assert body["profile"]["name"] == "Rain"
+    assert body["moods"][0]["mood"] == 7
+    assert body["habits"][0]["name"] == "Workout"
+    assert body["goals"][0]["name"] == "Ship v2"
+    assert body["contacts"][0]["name"] == "Bob"
+
+
+def test_v2_profile_patch(monkeypatch):
+    state = {
+        "profile": SimpleNamespace(
+            user_id="default",
+            name="Rain",
+            email="rain@example.com",
+            birthday=None,
+            hobbies=None,
+            relationships=None,
+            notes=None,
+            therapeutic_mode=False,
+            personality="Curious",
+            humor_level=5,
+        )
+    }
+
+    def fake_get_user_profile(user_id):
+        return state["profile"]
+
+    def fake_save_user_profile(profile):
+        state["profile"] = profile
+        return profile
+
+    monkeypatch.setattr(api_v2.memory_store, "get_user_profile", fake_get_user_profile)
+    monkeypatch.setattr(api_v2.memory_store, "save_user_profile", fake_save_user_profile)
+    monkeypatch.setattr(api_v2.memory_store, "get_recent_moods", lambda user_id, limit=14: [])
+    monkeypatch.setattr(api_v2.memory_store, "get_habits", lambda user_id: [])
+    monkeypatch.setattr(api_v2.memory_store, "get_personal_goals", lambda user_id: [])
+    monkeypatch.setattr(api_v2.memory_store, "get_decisions", lambda user_id: [])
+    monkeypatch.setattr(api_v2.memory_store, "get_cbt_exercises", lambda user_id: [])
+    monkeypatch.setattr(api_v2.memory_store, "get_recent_activities", lambda user_id, limit=10: [])
+    monkeypatch.setattr(api_v2.memory_store, "get_recent_sleeps", lambda user_id, limit=10: [])
+    monkeypatch.setattr(api_v2.memory_store, "get_recent_transactions", lambda user_id, limit=10: [])
+    monkeypatch.setattr(api_v2.memory_store, "get_contacts", lambda user_id, limit=50: [])
+
+    response = client.patch("/api/v2/profile", params={"user_id": "default"}, json={"name": "Rain C", "humor_level": 9})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["profile"]["name"] == "Rain C"
+    assert body["profile"]["humor_level"] == 9
+
+
+def test_v2_create_contact(monkeypatch):
+    monkeypatch.setattr(
+        api_v2.memory_store,
+        "add_contact",
+        lambda name, last_contact=None, strength=5, entity_id=None, user_id="default": SimpleNamespace(
+            id=11,
+            user_id=user_id,
+            name=name,
+            last_contact=last_contact or datetime(2026, 1, 4).date(),
+            strength=strength,
+            entity_id=entity_id,
+        ),
+    )
+
+    response = client.post(
+        "/api/v2/profile/contacts",
+        json={"user_id": "default", "name": "Alice", "last_contact": "2026-01-04", "strength": 8},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["api_version"] == "v2"
+    assert body["contact"]["name"] == "Alice"
+    assert body["contact"]["strength"] == 8
+
+
+def test_v2_planner_generate(monkeypatch):
+    monkeypatch.setattr(
+        api_v2,
+        "generate_day_plan",
+        lambda memory_store, user_id, key_tasks, focus_areas, energy_level: {
+            "provider": "ollama",
+            "model": "gpt-4o-mini",
+            "blocks": [
+                {"time": "8:00-9:00", "activity": "Morning reset"},
+                {"time": "9:00-11:00", "activity": "Build Next.js shell"},
+            ],
+            "snapshot": {
+                "user_id": user_id,
+                "latest_mood": 6,
+                "mood_trend": {"direction": "up"},
+                "health_correlation": {"sleep_delta": -0.5},
+                "overdue_contacts": [{"name": "Bob", "days_overdue": 14, "strength": 7}],
+                "goals": [SimpleNamespace(name="Ship v2", status="active")],
+                "habits": [SimpleNamespace(name="Workout")],
+            },
+        },
+    )
+
+    response = client.post(
+        "/api/v2/planner/generate",
+        json={
+            "user_id": "default",
+            "key_tasks": ["Build Next.js shell"],
+            "focus_areas": ["Work"],
+            "energy_level": 7,
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["api_version"] == "v2"
+    assert body["provider"] == "ollama"
+    assert body["blocks"][0]["time"] == "8:00-9:00"
+    assert body["snapshot"]["active_goals"] == ["Ship v2"]
+    assert body["snapshot"]["habits"] == ["Workout"]
 
 
 def test_realtime_event_bus_and_sse_format():

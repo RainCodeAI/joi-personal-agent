@@ -12,28 +12,39 @@ except ImportError:
 class VoiceTools:
     def __init__(self):
         self.enabled = False
-        if sr is None or pyttsx3 is None:
+        self.stt_enabled = sr is not None
+        self.local_tts_enabled = pyttsx3 is not None
+        self.recognizer = sr.Recognizer() if sr is not None else None
+        self.microphone = None
+        self.tts_engine = None
+
+        if sr is None and pyttsx3 is None:
             return
 
         try:
-            self.recognizer = sr.Recognizer()
-            self.microphone = sr.Microphone()
-            self.tts_engine = pyttsx3.init()
-            
-            # Polish: Set default voice (female-ish if avail), rate/volume
-            voices = self.tts_engine.getProperty('voices')
-            if voices:
-                self.tts_engine.setProperty('voice', voices[0].id)
-            self.tts_engine.setProperty('rate', 150)
-            self.tts_engine.setProperty('volume', 0.9)
-            self.enabled = True
+            if self.stt_enabled:
+                self.microphone = sr.Microphone()
+            if self.local_tts_enabled:
+                self.tts_engine = pyttsx3.init()
+
+                # Polish: Set default voice (female-ish if avail), rate/volume
+                voices = self.tts_engine.getProperty('voices')
+                if voices:
+                    self.tts_engine.setProperty('voice', voices[0].id)
+                self.tts_engine.setProperty('rate', 150)
+                self.tts_engine.setProperty('volume', 0.9)
+            self.enabled = self.stt_enabled or self.local_tts_enabled
         except Exception as e:
             print(f"Voice initialization failed: {e}")
-            self.enabled = False
+            if self.microphone is None:
+                self.stt_enabled = False
+            if self.tts_engine is None:
+                self.local_tts_enabled = False
+            self.enabled = self.stt_enabled or self.local_tts_enabled
     
     def speech_to_text(self):
         """Capture mic, transcribe via Google STT. Returns str or None."""
-        if not self.enabled:
+        if not self.stt_enabled or self.recognizer is None or self.microphone is None:
             st.error("Voice tools are not initialized. Check server logs.")
             return None
 
@@ -62,9 +73,6 @@ class VoiceTools:
     
     def transcribe_audio_file(self, file_path: str) -> str:
         """Transcribe a WAV file using Google STT or Local Whisper."""
-        if not self.enabled:
-            return None
-            
         import os
         stt_engine = os.getenv("STT_ENGINE", "google").lower()
         
@@ -78,6 +86,8 @@ class VoiceTools:
                 # Fallback to Google below
         
         # Google STT (Default)
+        if not self.stt_enabled or self.recognizer is None:
+            return None
         try:
             with sr.AudioFile(file_path) as source:
                 # Read entire file
@@ -92,7 +102,7 @@ class VoiceTools:
 
     def text_to_speech(self, text):
         """Speak text via ElevenLabs (if avail) or pyttsx3."""
-        if not self.enabled or not text:
+        if not text:
             return
         
         # Try ElevenLabs first
@@ -168,7 +178,7 @@ class VoiceTools:
             pass
 
         # ── Option 3: pyttsx3 (local fallback) ────────────────────────────
-        if not self.enabled:
+        if not self.local_tts_enabled or self.tts_engine is None:
             return None
 
         try:

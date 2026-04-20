@@ -1,24 +1,32 @@
-from PIL import Image
-import torch
-from transformers import pipeline
+import logging
 
-# Global cache for the pipeline
+try:
+    from PIL import Image
+    from transformers import pipeline
+    _VISION_AVAILABLE = True
+except Exception:
+    logging.warning("vision_clip: transformers/torch unavailable — image description disabled")
+    _VISION_AVAILABLE = False
+
 _caption_pipeline = None
 
 def get_pipeline():
     global _caption_pipeline
+    if not _VISION_AVAILABLE:
+        return None
     if _caption_pipeline is None:
-        print("Lazy loading vision model...")
-        # "image-to-text" defaults to a high-quality captioning model (often BLIP or Git)
-        # We specify model explicitly to ensure consistency if needed, but default is usually fine.
-        # "Salesforce/blip-image-captioning-base" is a good balance of speed/quality.
+        logging.info("Lazy loading vision captioning model...")
         _caption_pipeline = pipeline("image-to-text", model="Salesforce/blip-image-captioning-base")
     return _caption_pipeline
 
 def describe_image(image_input) -> str:
     """Generate a text description from a file path or PIL image."""
+    if not _VISION_AVAILABLE:
+        return "Vision model unavailable (torch not loaded)."
     try:
         pipe = get_pipeline()
+        if pipe is None:
+            return "Vision pipeline unavailable."
         if hasattr(image_input, "convert") and not isinstance(image_input, (str, bytes)):
             image = image_input.convert('RGB')
         else:
