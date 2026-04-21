@@ -75,7 +75,9 @@ export function AvatarSyncPanel({
     };
   }, [onPlaybackStateChange]);
 
-  const expression = sync?.sentiment ?? perceptionExpression ?? cue?.expression ?? "neutral";
+  const expression = playing
+    ? sync?.sentiment ?? perceptionExpression ?? cue?.expression ?? "neutral"
+    : perceptionExpression ?? sync?.sentiment ?? cue?.expression ?? "neutral";
   const stageState = loading ? "syncing" : sync ? "voice-linked" : "stabilized";
 
   return (

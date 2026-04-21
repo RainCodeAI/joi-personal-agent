@@ -211,7 +211,7 @@ export function ChatClient({ initialSessionId }: ChatClientProps) {
   const [selectedApprovalId, setSelectedApprovalId] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
   const [attachments, setAttachments] = useState<AttachmentDraft[]>([]);
-  const [status, setStatus] = useState("Booting realtime shell");
+  const [status, setStatus] = useState("Connecting session");
   const [provider, setProvider] = useState("pending");
   const [streamingText, setStreamingText] = useState("");
   const [avatarCue, setAvatarCue] = useState<AvatarCue | null>(null);
