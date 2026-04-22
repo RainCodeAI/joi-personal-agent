@@ -56,6 +56,21 @@ export type ProviderInfo = {
   errors: Array<Record<string, unknown>>;
 };
 
+export type BackendHealth = {
+  status: "ok" | "degraded";
+  database: {
+    available: boolean;
+  };
+  providers: Record<
+    string,
+    {
+      available: boolean;
+      note?: string;
+      error?: string;
+    }
+  >;
+};
+
 export type AvatarCue = {
   expression: string;
   voice_hint: string;

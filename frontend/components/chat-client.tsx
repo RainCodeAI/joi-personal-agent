@@ -10,6 +10,7 @@ import {
   createEventStream,
   createSession,
   denyAction,
+  fetchBackendHealth,
   fetchMediaSession,
   listApprovals,
   listMessages,
@@ -21,6 +22,7 @@ import {
   Approval,
   AvatarCue,
   AvatarSyncPayload,
+  BackendHealth,
   ChatAttachment,
   ChatAttachmentInput,
   ChatResponse,
@@ -37,6 +39,8 @@ const SESSION_STORAGE_KEY = "joi-v2-session";
 type ChatClientProps = {
   initialSessionId?: string | null;
 };
+
+type BackendStatus = "checking" | "online" | "degraded" | "offline";
 
 type AttachmentDraft = ChatAttachmentInput & {
   preview_url?: string;
@@ -96,11 +100,42 @@ function valuePreview(value: unknown): string {
 }
 
 function apiErrorMessage(error: Error): string {
-  if (error.message === "Failed to fetch") {
+  if (
+    error.message === "Failed to fetch" ||
+    error.message.includes("NetworkError") ||
+    error.message.includes("timed out")
+  ) {
     return "Backend offline: start the FastAPI service on 127.0.0.1:8000";
   }
 
   return error.message;
+}
+
+function backendStatusCopy(status: BackendStatus, health: BackendHealth | null): string {
+  if (status === "checking") {
+    return "Checking backend";
+  }
+
+  if (status === "offline") {
+    return "Backend offline: start the FastAPI service on 127.0.0.1:8000";
+  }
+
+  if (status === "degraded") {
+    const unavailable = Object.entries(health?.providers ?? {})
+      .filter(([, provider]) => !provider.available)
+      .map(([name]) => name);
+    return unavailable.length
+      ? `Backend degraded: ${unavailable.join(", ")} unavailable`
+      : "Backend degraded";
+  }
+
+  return "Backend online";
+}
+
+function backendBadgeClass(status: BackendStatus): string {
+  if (status === "online") return "ok";
+  if (status === "checking") return "";
+  return "warn";
 }
 
 function approvalPresentation(approval: Approval): ApprovalPresentation {
@@ -219,7 +254,9 @@ export function ChatClient({ initialSessionId }: ChatClientProps) {
   const [selectedApprovalId, setSelectedApprovalId] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
   const [attachments, setAttachments] = useState<AttachmentDraft[]>([]);
-  const [status, setStatus] = useState("Connecting session");
+  const [status, setStatus] = useState("Checking backend");
+  const [backendStatus, setBackendStatus] = useState<BackendStatus>("checking");
+  const [backendHealth, setBackendHealth] = useState<BackendHealth | null>(null);
   const [provider, setProvider] = useState("pending");
   const [streamingText, setStreamingText] = useState("");
   const [avatarCue, setAvatarCue] = useState<AvatarCue | null>(null);
@@ -302,10 +339,46 @@ export function ChatClient({ initialSessionId }: ChatClientProps) {
   }, []);
 
   useEffect(() => {
+    let active = true;
+
+    async function probeBackend() {
+      try {
+        const health = await fetchBackendHealth();
+        if (!active) return;
+        const nextStatus: BackendStatus = health.status === "ok" ? "online" : "degraded";
+        setBackendHealth(health);
+        setBackendStatus(nextStatus);
+        setStatus((current) =>
+          current === "Checking backend" || current.startsWith("Backend offline")
+            ? backendStatusCopy(nextStatus, health)
+            : current,
+        );
+      } catch {
+        if (!active) return;
+        setBackendHealth(null);
+        setBackendStatus("offline");
+        setStatus(backendStatusCopy("offline", null));
+      }
+    }
+
+    void probeBackend();
+    const timer = window.setInterval(() => void probeBackend(), 15_000);
+
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
+  }, []);
+
+  useEffect(() => {
     const stored =
       typeof window !== "undefined" ? window.sessionStorage.getItem(SESSION_STORAGE_KEY) : null;
     if (!sessionId && stored) {
       setSessionId(stored);
+      return;
+    }
+
+    if (backendStatus === "checking" || backendStatus === "offline") {
       return;
     }
 
@@ -320,12 +393,13 @@ export function ChatClient({ initialSessionId }: ChatClientProps) {
         })
         .catch((error: Error) => {
           setStatus(apiErrorMessage(error));
+          setBackendStatus("offline");
         });
     }
-  }, [sessionId]);
+  }, [backendStatus, sessionId]);
 
   useEffect(() => {
-    if (!sessionId) {
+    if (!sessionId || backendStatus === "checking" || backendStatus === "offline") {
       return;
     }
 
@@ -338,7 +412,7 @@ export function ChatClient({ initialSessionId }: ChatClientProps) {
       .catch((error: Error) => {
         setStatus(`Bootstrap error: ${apiErrorMessage(error)}`);
       });
-  }, [sessionId]);
+  }, [backendStatus, sessionId]);
 
   useEffect(() => {
     if (!sessionId) {
@@ -765,8 +839,8 @@ export function ChatClient({ initialSessionId }: ChatClientProps) {
                   <strong>Status</strong>
                   <p>{status}</p>
                 </div>
-                <span className={`badge ${sessionId ? "ok" : "warn"}`}>
-                  {sessionId ? "online" : "offline"}
+                <span className={`badge ${backendBadgeClass(backendStatus)}`}>
+                  {backendStatus}
                 </span>
               </div>
               <div className="list-row">
@@ -783,8 +857,25 @@ export function ChatClient({ initialSessionId }: ChatClientProps) {
                 <div className="list-row">
                   <div>
                     <strong>Session</strong>
-                    <p>{sessionId ?? "creating..."}</p>
+                    <p>
+                      {backendStatus === "offline"
+                        ? "waiting for backend"
+                        : sessionId ?? "creating..."}
+                    </p>
                   </div>
+                </div>
+                <div className="list-row">
+                  <div>
+                    <strong>Backend</strong>
+                    <p>
+                      {backendHealth
+                        ? `db ${backendHealth.database.available ? "ready" : "unavailable"}`
+                        : "not connected"}
+                    </p>
+                  </div>
+                  <span className={`badge ${backendBadgeClass(backendStatus)}`}>
+                    {backendStatus}
+                  </span>
                 </div>
                 <div className="list-row">
                   <div>

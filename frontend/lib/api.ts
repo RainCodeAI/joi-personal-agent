@@ -1,6 +1,7 @@
 import {
   Approval,
   AvatarSyncPayload,
+  BackendHealth,
   ChatAttachmentInput,
   ChatResponse,
   DiagnosticsResponse,
@@ -25,6 +26,7 @@ const API_BASE_URL =
 const REQUEST_TIMEOUT_MS = 35_000;
 const RETRY_ATTEMPTS = 3;
 const RETRY_BASE_DELAY_MS = 1_000;
+const HEALTH_TIMEOUT_MS = 1_800;
 
 function toUrl(path: string) {
   return `${API_BASE_URL}${path}`;
@@ -90,6 +92,26 @@ export async function createSession(title?: string) {
     method: "POST",
     body: JSON.stringify({ title }),
   });
+}
+
+export async function fetchBackendHealth() {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), HEALTH_TIMEOUT_MS);
+
+  try {
+    const response = await fetch(toUrl("/health"), {
+      cache: "no-store",
+      signal: controller.signal,
+    });
+
+    if (!response.ok) {
+      throw new Error(`Health check failed: ${response.status}`);
+    }
+
+    return response.json() as Promise<BackendHealth>;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 export async function sendChatMessage(sessionId: string, text: string) {
