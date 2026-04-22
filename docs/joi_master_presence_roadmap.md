@@ -138,6 +138,13 @@ Why third:
 
 Floating mode is the bridge between "app" and "ambient presence" before physical hardware enters the room.
 
+Status as of 2026-04-21:
+
+- Mini presence mode is implemented and committed in `fc855dd4 Add mini presence mode`.
+- The `Mini` toggle moves the avatar panel into a docked bottom-right compact panel through a body portal, with a `Full` return control.
+- The current mini framing needs a follow-up pass: the attached screenshot from 2026-04-21 shows the full chamber view zoomed too far into Joi's face/head in the status panel.
+- Next visual task: tune the full and compact avatar camera/framing constants so full mode shows a stable upper/full-body chamber view, while mini mode shows a readable bust or half-body presence without cropping the face.
+
 ### Phase 4 - Voice-First Access
 
 Goal: reduce friction from typing to speaking.
@@ -238,11 +245,12 @@ The hardware should extend a stable Joi runtime, not compensate for an unstable 
 
 Recommended next sequence:
 
-1. Commit the current avatar framing/audit/material pass once visually approved.
-2. Add a short avatar tuning checklist for the next visual pass.
-3. Create the ESP32 firmware skeleton only after hardware work resumes.
-4. Add a backend MQTT bridge behind a feature flag.
-5. Start with LED-only state output before ultrasonic sensing.
+1. Fix the avatar framing regression from the 2026-04-21 mini presence sprint: full status panel is too zoomed into Joi's face/head, and mini/full framing should be tuned together.
+2. After framing is stable, continue with voice-first access: push-to-talk/hotkey path, STT, spoken response, and interrupt/stop speaking control.
+3. Add a short avatar tuning checklist for the next visual pass.
+4. Create the ESP32 firmware skeleton only after hardware work resumes.
+5. Add a backend MQTT bridge behind a feature flag.
+6. Start with LED-only state output before ultrasonic sensing.
 
 ## Success Definition
 
