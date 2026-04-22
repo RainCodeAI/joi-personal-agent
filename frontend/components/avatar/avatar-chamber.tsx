@@ -94,6 +94,7 @@ export function HologramScene({
   sync,
   audioRef,
   assetKind,
+  compact,
 }: AvatarSceneProps) {
   const ringRef = useRef<THREE.Group>(null);
   const haloMatRef = useRef<THREE.MeshBasicMaterial>(null);
@@ -123,7 +124,7 @@ export function HologramScene({
 
   return (
     <>
-      <CameraRig assetKind={assetKind} />
+      <CameraRig assetKind={assetKind} compact={compact} />
       <AvatarLighting colors={colors} assetKind={assetKind} />
 
       <mesh position={[0, 0, -3.2]}>

@@ -10,6 +10,7 @@ export type AvatarModelProps = {
   sync: AvatarSyncPayload | null;
   audioRef: RefObject<HTMLAudioElement | null>;
   assetKind: AvatarAssetKind;
+  compact?: boolean;
 };
 
 export type AvatarSceneProps = AvatarModelProps;
@@ -19,6 +20,7 @@ export type AvatarRendererProps = {
   sync: AvatarSyncPayload | null;
   audioRef: RefObject<HTMLAudioElement | null>;
   playing: boolean;
+  compact?: boolean;
 };
 
 export type AvatarLoadState = "loading" | "ready" | "fallback" | "error";

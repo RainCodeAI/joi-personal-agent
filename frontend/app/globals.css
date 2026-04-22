@@ -1151,6 +1151,14 @@ textarea {
   gap: 14px;
 }
 
+.avatar-panel-compact {
+  position: fixed;
+  right: 24px;
+  bottom: 24px;
+  z-index: 70;
+  width: min(300px, calc(100vw - 32px));
+}
+
 .avatar-stage {
   position: relative;
   display: grid;
@@ -1205,6 +1213,12 @@ textarea {
   gap: 12px;
 }
 
+.avatar-stage-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .avatar-stage-kicker,
 .avatar-stage-status {
   font-size: 0.68rem;
@@ -1233,6 +1247,14 @@ textarea {
 .avatar-stage-status.warn {
   color: var(--amber);
   border-color: rgba(255, 179, 107, 0.24);
+}
+
+.avatar-mode-toggle {
+  padding: 6px 10px;
+  color: var(--text);
+  font-size: 0.68rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
 
 .avatar-hologram-wrap {
@@ -1367,6 +1389,72 @@ textarea {
 
 .avatar-audio {
   width: 100%;
+}
+
+.avatar-panel-compact .avatar-stage {
+  gap: 10px;
+  padding: 12px;
+  border-radius: 18px;
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.03),
+    0 24px 80px rgba(0, 0, 0, 0.44);
+}
+
+.avatar-panel-compact .avatar-stage::after {
+  inset: 8px;
+  border-radius: 14px;
+}
+
+.avatar-panel-compact .avatar-stage-head,
+.avatar-panel-compact .avatar-stage-base {
+  gap: 8px;
+}
+
+.avatar-panel-compact .avatar-stage-kicker {
+  max-width: 120px;
+}
+
+.avatar-panel-compact .avatar-stage-status {
+  display: none;
+}
+
+.avatar-panel-compact .avatar-hologram-wrap,
+.avatar-panel-compact .avatar-hologram {
+  border-radius: 16px;
+}
+
+.avatar-panel-compact .avatar-hologram {
+  aspect-ratio: 4 / 5;
+}
+
+.avatar-panel-compact .avatar-hologram canvas {
+  filter: saturate(1.16) contrast(1.04) brightness(1);
+}
+
+.avatar-panel-compact .avatar-badges-overlay {
+  bottom: 10px;
+  gap: 6px;
+}
+
+.avatar-panel-compact .avatar-badge {
+  max-width: 78px;
+  overflow: hidden;
+  padding: 5px 8px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.avatar-panel-compact .avatar-stage-base {
+  padding-top: 0;
+}
+
+.avatar-panel-compact .avatar-stage-name {
+  font-size: 0.82rem;
+}
+
+.avatar-panel-compact .avatar-stage-copy {
+  max-width: 118px;
+  font-size: 0.66rem;
 }
 
 .viseme-details {
@@ -1587,6 +1675,21 @@ textarea {
 
   .avatar-stage-copy {
     text-align: left;
+  }
+
+  .avatar-panel-compact {
+    right: 16px;
+    bottom: 16px;
+  }
+
+  .avatar-panel-compact .avatar-stage-head,
+  .avatar-panel-compact .avatar-stage-base {
+    align-items: center;
+    flex-direction: row;
+  }
+
+  .avatar-panel-compact .avatar-stage-copy {
+    text-align: right;
   }
 }
 

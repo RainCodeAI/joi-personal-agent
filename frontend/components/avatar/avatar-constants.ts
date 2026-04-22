@@ -24,6 +24,11 @@ export const VRM_CAMERA_POSITION = new THREE.Vector3(0, 1.7, 2.72);
 export const GLB_CAMERA_POSITION = new THREE.Vector3(0, 1.48, 2.88);
 export const VRM_CAMERA_FOV = 22.5;
 export const GLB_CAMERA_FOV = 25.5;
+export const COMPACT_VISIBLE_LOOK_AT = new THREE.Vector3(0, 2.25, 0);
+export const VRM_COMPACT_CAMERA_POSITION = new THREE.Vector3(0, 2.36, 5.2);
+export const GLB_COMPACT_CAMERA_POSITION = new THREE.Vector3(0, 2.12, 5.1);
+export const VRM_COMPACT_CAMERA_FOV = 30;
+export const GLB_COMPACT_CAMERA_FOV = 31;
 export const GLB_Y_ROTATION = -Math.PI / 2;
 export const VRM_Y_ROTATION = 0;
 

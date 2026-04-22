@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import dynamic from "next/dynamic";
+import { createPortal } from "react-dom";
 
 import { AvatarCue, AvatarSyncPayload } from "@/lib/types";
 import type { VrmAuditOutput } from "@/components/avatar/avatar-audit";
@@ -15,7 +16,9 @@ type AvatarSyncPanelProps = {
   cue: AvatarCue | null;
   sync: AvatarSyncPayload | null;
   loading: boolean;
+  compact?: boolean;
   perceptionExpression?: string | null;
+  onToggleCompact?: () => void;
   onPlaybackStateChange?: (state: {
     speakingState: "playing" | "idle";
     playbackLatencyMs?: number;
@@ -26,7 +29,9 @@ export function AvatarSyncPanel({
   cue,
   sync,
   loading,
+  compact = false,
   perceptionExpression,
+  onToggleCompact,
   onPlaybackStateChange,
 }: AvatarSyncPanelProps) {
   const audioRef   = useRef<HTMLAudioElement | null>(null);
@@ -34,6 +39,7 @@ export function AvatarSyncPanel({
   const [playing, setPlaying] = useState(false);
   const [audit, setAudit] = useState<VrmAuditOutput | null>(null);
   const [auditCopied, setAuditCopied] = useState(false);
+  const [portalTarget, setPortalTarget] = useState<HTMLElement | null>(null);
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -50,6 +56,10 @@ export function AvatarSyncPanel({
 
     window.addEventListener("joi-vrm-audit", handleAudit);
     return () => window.removeEventListener("joi-vrm-audit", handleAudit);
+  }, []);
+
+  useEffect(() => {
+    setPortalTarget(document.body);
   }, []);
 
   useEffect(() => {
@@ -113,12 +123,24 @@ export function AvatarSyncPanel({
     window.setTimeout(() => setAuditCopied(false), 1600);
   }
 
-  return (
-    <div className="avatar-panel">
+  const panel = (
+    <div className={`avatar-panel${compact ? " avatar-panel-compact" : ""}`}>
       <div className="avatar-stage">
         <div className="avatar-stage-head">
           <span className="avatar-stage-kicker">Projection chamber</span>
-          <span className={`avatar-stage-status ${loading ? "warn" : "ok"}`}>{stageState}</span>
+          <div className="avatar-stage-controls">
+            <span className={`avatar-stage-status ${loading ? "warn" : "ok"}`}>{stageState}</span>
+            {onToggleCompact ? (
+              <button
+                className="button ghost avatar-mode-toggle"
+                type="button"
+                onClick={onToggleCompact}
+                aria-label={compact ? "Restore full presence panel" : "Open mini presence mode"}
+              >
+                {compact ? "Full" : "Mini"}
+              </button>
+            ) : null}
+          </div>
         </div>
         <div className="avatar-hologram-wrap">
           <AvatarRenderer
@@ -126,6 +148,7 @@ export function AvatarSyncPanel({
             sync={sync}
             audioRef={audioRef}
             playing={playing}
+            compact={compact}
           />
           <div className="avatar-badges-overlay">
             <span className="badge avatar-badge">{cue?.voice_hint ?? "default"}</span>
@@ -137,72 +160,80 @@ export function AvatarSyncPanel({
         </div>
         <div className="avatar-stage-base">
           <span className="avatar-stage-name">Joi</span>
-          <span className="avatar-stage-copy">3D asset prototype staged inside the live projection chamber</span>
+          <span className="avatar-stage-copy">
+            {compact ? "Ambient presence mode" : "3D asset prototype staged inside the live projection chamber"}
+          </span>
         </div>
       </div>
 
       {sync ? (
         <>
           <audio
-            className="avatar-audio"
-            controls
+            className={`avatar-audio${compact ? " sr-only" : ""}`}
+            controls={!compact}
             ref={audioRef}
             src={sync.audio_url}
           />
-          <details className="viseme-details">
-            <summary>Phoneme track ({sync.phoneme_timeline.length} frames)</summary>
-            <div className="viseme-track">
-              {sync.phoneme_timeline.slice(0, 18).map(([time, label], index) => (
-                <div className="viseme-chip" key={`${time}-${label}-${index}`}>
-                  <strong>{label}</strong>
-                  <span>{(time as number).toFixed(2)}s</span>
-                </div>
-              ))}
-            </div>
-          </details>
+          {!compact ? (
+            <details className="viseme-details">
+              <summary>Phoneme track ({sync.phoneme_timeline.length} frames)</summary>
+              <div className="viseme-track">
+                {sync.phoneme_timeline.slice(0, 18).map(([time, label], index) => (
+                  <div className="viseme-chip" key={`${time}-${label}-${index}`}>
+                    <strong>{label}</strong>
+                    <span>{(time as number).toFixed(2)}s</span>
+                  </div>
+                ))}
+              </div>
+            </details>
+          ) : null}
         </>
       ) : null}
 
-      <details className="avatar-audit-details">
-        <summary>VRM audit ({auditSummary})</summary>
-        {audit ? (
-          <div className="avatar-audit-grid">
-            <div>
-              <span>Presets</span>
-              <strong>{audit.expressions.presets.length}</strong>
+      {!compact ? (
+        <details className="avatar-audit-details">
+          <summary>VRM audit ({auditSummary})</summary>
+          {audit ? (
+            <div className="avatar-audit-grid">
+              <div>
+                <span>Presets</span>
+                <strong>{audit.expressions.presets.length}</strong>
+              </div>
+              <div>
+                <span>Custom</span>
+                <strong>{audit.expressions.custom.length}</strong>
+              </div>
+              <div>
+                <span>Spring bones</span>
+                <strong>{audit.capabilities.hasSpringBones ? "yes" : "no"}</strong>
+              </div>
+              <div>
+                <span>Look at</span>
+                <strong>{audit.capabilities.hasLookAt ? "yes" : "no"}</strong>
+              </div>
+              <div className="avatar-audit-wide">
+                <span>License</span>
+                <strong>{String(audit.license.licenseName ?? audit.license.licenseUrl ?? "not declared")}</strong>
+              </div>
+              <div className="avatar-audit-wide">
+                <span>Custom expressions</span>
+                <strong>{audit.expressions.custom.slice(0, 6).join(", ") || "none"}</strong>
+              </div>
+              <button
+                className="button ghost avatar-audit-copy"
+                type="button"
+                onClick={handleCopyAudit}
+              >
+                {auditCopied ? "Copied" : "Copy audit JSON"}
+              </button>
             </div>
-            <div>
-              <span>Custom</span>
-              <strong>{audit.expressions.custom.length}</strong>
-            </div>
-            <div>
-              <span>Spring bones</span>
-              <strong>{audit.capabilities.hasSpringBones ? "yes" : "no"}</strong>
-            </div>
-            <div>
-              <span>Look at</span>
-              <strong>{audit.capabilities.hasLookAt ? "yes" : "no"}</strong>
-            </div>
-            <div className="avatar-audit-wide">
-              <span>License</span>
-              <strong>{String(audit.license.licenseName ?? audit.license.licenseUrl ?? "not declared")}</strong>
-            </div>
-            <div className="avatar-audit-wide">
-              <span>Custom expressions</span>
-              <strong>{audit.expressions.custom.slice(0, 6).join(", ") || "none"}</strong>
-            </div>
-            <button
-              className="button ghost avatar-audit-copy"
-              type="button"
-              onClick={handleCopyAudit}
-            >
-              {auditCopied ? "Copied" : "Copy audit JSON"}
-            </button>
-          </div>
-        ) : (
-          <p className="avatar-audit-empty">Audit appears after the VRM model loads.</p>
-        )}
-      </details>
+          ) : (
+            <p className="avatar-audit-empty">Audit appears after the VRM model loads.</p>
+          )}
+        </details>
+      ) : null}
     </div>
   );
+
+  return compact && portalTarget ? createPortal(panel, portalTarget) : panel;
 }

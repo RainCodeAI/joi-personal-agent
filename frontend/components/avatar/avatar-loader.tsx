@@ -104,6 +104,11 @@ function VrmBust({ expression, deliveryStyle, playing, sync, audioRef }: AvatarM
     }
 
     const model = vrm.scene;
+    model.position.set(0, 0, 0);
+    model.scale.setScalar(1);
+    model.rotation.set(0, 0, 0);
+    model.updateMatrixWorld(true);
+
     const bounds = new THREE.Box3().setFromObject(model);
     const size = bounds.getSize(new THREE.Vector3());
     const center = bounds.getCenter(new THREE.Vector3());
@@ -112,6 +117,7 @@ function VrmBust({ expression, deliveryStyle, playing, sync, audioRef }: AvatarM
     model.scale.setScalar(scale);
     model.position.set(-center.x * scale, -bounds.min.y * scale + VRM_FLOOR_OFFSET, -center.z * scale);
     model.rotation.set(0, 0, 0);
+    model.updateMatrixWorld(true);
     prepareModelMaterials(model);
   }, [vrm]);
 
@@ -171,6 +177,11 @@ function StaticGlbBust({ deliveryStyle, playing }: AvatarModelProps) {
   const rigRef = useRef<THREE.Group>(null);
 
   useLayoutEffect(() => {
+    model.position.set(0, 0, 0);
+    model.scale.setScalar(1);
+    model.rotation.set(0, 0, 0);
+    model.updateMatrixWorld(true);
+
     const bounds = new THREE.Box3().setFromObject(model);
     const size = bounds.getSize(new THREE.Vector3());
     const center = bounds.getCenter(new THREE.Vector3());
@@ -178,6 +189,7 @@ function StaticGlbBust({ deliveryStyle, playing }: AvatarModelProps) {
 
     model.position.set(-center.x, -center.y + GLB_VERTICAL_OFFSET, -center.z);
     model.scale.setScalar(scale);
+    model.updateMatrixWorld(true);
     prepareModelMaterials(model, true);
   }, [model]);
 

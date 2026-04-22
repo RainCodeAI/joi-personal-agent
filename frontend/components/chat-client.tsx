@@ -41,6 +41,7 @@ type ChatClientProps = {
 };
 
 type BackendStatus = "checking" | "online" | "degraded" | "offline";
+type PresenceMode = "full" | "mini";
 
 type AttachmentDraft = ChatAttachmentInput & {
   preview_url?: string;
@@ -261,6 +262,7 @@ export function ChatClient({ initialSessionId }: ChatClientProps) {
   const [streamingText, setStreamingText] = useState("");
   const [avatarCue, setAvatarCue] = useState<AvatarCue | null>(null);
   const [avatarSyncPayload, setAvatarSyncPayload] = useState<AvatarSyncPayload | null>(null);
+  const [presenceMode, setPresenceMode] = useState<PresenceMode>("full");
   const [mediaSession, setMediaSession] = useState<MediaSession | null>(null);
   const [avatarSyncLoading, setAvatarSyncLoading] = useState(false);
   const [isSending, setIsSending] = useState(false);
@@ -829,7 +831,11 @@ export function ChatClient({ initialSessionId }: ChatClientProps) {
               cue={avatarCue}
               loading={avatarSyncLoading}
               sync={avatarSyncPayload}
+              compact={presenceMode === "mini"}
               perceptionExpression={perceptionExpression}
+              onToggleCompact={() =>
+                setPresenceMode((mode) => (mode === "mini" ? "full" : "mini"))
+              }
               onPlaybackStateChange={(state) => void handlePlaybackStateChange(state)}
             />
 

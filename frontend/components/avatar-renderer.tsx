@@ -7,8 +7,12 @@ import {
   ACTIVE_AVATAR_ASSET,
   GLB_CAMERA_FOV,
   GLB_CAMERA_POSITION,
+  GLB_COMPACT_CAMERA_FOV,
+  GLB_COMPACT_CAMERA_POSITION,
   type AvatarAssetKind,
   isVrmAsset,
+  VRM_COMPACT_CAMERA_FOV,
+  VRM_COMPACT_CAMERA_POSITION,
   VRM_CAMERA_FOV,
   VRM_CAMERA_POSITION,
 } from "@/components/avatar/avatar-constants";
@@ -56,12 +60,17 @@ class AvatarErrorBoundary extends Component<AvatarErrorBoundaryProps, AvatarErro
   }
 }
 
-export function AvatarRenderer({ expression, sync, audioRef, playing }: AvatarRendererProps) {
+export function AvatarRenderer({ expression, sync, audioRef, playing, compact = false }: AvatarRendererProps) {
   const deliveryStyle = sync?.delivery_style ?? "normal";
   const [assetKind, setAssetKind] = useState<AvatarAssetKind>(ACTIVE_AVATAR_ASSET);
   const [renderError, setRenderError] = useState<Error | null>(null);
   const isVrm = isVrmAsset(assetKind);
-  const cameraPosition = isVrm ? VRM_CAMERA_POSITION : GLB_CAMERA_POSITION;
+  const cameraPosition = compact
+    ? (isVrm ? VRM_COMPACT_CAMERA_POSITION : GLB_COMPACT_CAMERA_POSITION)
+    : (isVrm ? VRM_CAMERA_POSITION : GLB_CAMERA_POSITION);
+  const cameraFov = compact
+    ? (isVrm ? VRM_COMPACT_CAMERA_FOV : GLB_COMPACT_CAMERA_FOV)
+    : (isVrm ? VRM_CAMERA_FOV : GLB_CAMERA_FOV);
 
   const handleRenderError = useCallback(
     (error: Error) => {
@@ -91,7 +100,7 @@ export function AvatarRenderer({ expression, sync, audioRef, playing }: AvatarRe
     <div className={`avatar-hologram${playing ? " speaking" : ""}`}>
       <Canvas
         camera={{
-          fov: isVrm ? VRM_CAMERA_FOV : GLB_CAMERA_FOV,
+          fov: cameraFov,
           position: [cameraPosition.x, cameraPosition.y, cameraPosition.z],
           near: 0.1,
           far: 100,
@@ -108,6 +117,7 @@ export function AvatarRenderer({ expression, sync, audioRef, playing }: AvatarRe
               sync={sync}
               audioRef={audioRef}
               assetKind={assetKind}
+              compact={compact}
             />
           </Suspense>
         </AvatarErrorBoundary>

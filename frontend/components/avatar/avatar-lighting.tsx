@@ -14,13 +14,18 @@ import { BlendFunction } from "postprocessing";
 
 import {
   CA_OFFSET,
+  COMPACT_VISIBLE_LOOK_AT,
   GLB_CAMERA_FOV,
   GLB_CAMERA_POSITION,
+  GLB_COMPACT_CAMERA_FOV,
+  GLB_COMPACT_CAMERA_POSITION,
   type AvatarAssetKind,
   isVrmAsset,
   VISIBLE_LOOK_AT,
   VRM_CAMERA_FOV,
   VRM_CAMERA_POSITION,
+  VRM_COMPACT_CAMERA_FOV,
+  VRM_COMPACT_CAMERA_POSITION,
 } from "./avatar-constants";
 
 type AvatarLightingProps = {
@@ -28,24 +33,30 @@ type AvatarLightingProps = {
   assetKind: AvatarAssetKind;
 };
 
-export function CameraRig({ assetKind }: { assetKind: AvatarAssetKind }) {
+export function CameraRig({ assetKind, compact = false }: { assetKind: AvatarAssetKind; compact?: boolean }) {
   const { camera, gl } = useThree();
   const isVrm = isVrmAsset(assetKind);
-  const cameraPosition = isVrm ? VRM_CAMERA_POSITION : GLB_CAMERA_POSITION;
+  const cameraPosition = compact
+    ? (isVrm ? VRM_COMPACT_CAMERA_POSITION : GLB_COMPACT_CAMERA_POSITION)
+    : (isVrm ? VRM_CAMERA_POSITION : GLB_CAMERA_POSITION);
+  const cameraFov = compact
+    ? (isVrm ? VRM_COMPACT_CAMERA_FOV : GLB_COMPACT_CAMERA_FOV)
+    : (isVrm ? VRM_CAMERA_FOV : GLB_CAMERA_FOV);
+  const lookAtTarget = compact ? COMPACT_VISIBLE_LOOK_AT : VISIBLE_LOOK_AT;
 
   useEffect(() => {
     gl.toneMapping = THREE.ACESFilmicToneMapping;
     gl.toneMappingExposure = isVrm ? 0.72 : 0.82;
     camera.position.copy(cameraPosition);
     if (camera instanceof THREE.PerspectiveCamera) {
-      camera.fov = isVrm ? VRM_CAMERA_FOV : GLB_CAMERA_FOV;
+      camera.fov = cameraFov;
     }
-    camera.lookAt(VISIBLE_LOOK_AT);
+    camera.lookAt(lookAtTarget);
     camera.updateProjectionMatrix();
-  }, [camera, cameraPosition, gl, isVrm]);
+  }, [camera, cameraFov, cameraPosition, gl, isVrm, lookAtTarget]);
 
   useFrame(() => {
-    camera.lookAt(VISIBLE_LOOK_AT);
+    camera.lookAt(lookAtTarget);
   });
 
   return null;
