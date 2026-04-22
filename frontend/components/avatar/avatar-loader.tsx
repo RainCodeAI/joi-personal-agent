@@ -8,6 +8,7 @@ import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { VRM, VRMLoaderPlugin } from "@pixiv/three-vrm";
 
 import {
+  GLB_BUST_GROUP_OFFSET,
   GLB_MODEL_URL,
   GLB_TARGET_HEIGHT,
   GLB_VERTICAL_OFFSET,
@@ -191,8 +192,10 @@ function StaticGlbBust({ deliveryStyle, playing }: AvatarModelProps) {
     const breathing = Math.sin(elapsed * 0.86) * 0.038 * motionScale;
     const settle = Math.sin(elapsed * 0.26) * 0.024 * motionScale;
 
-    rigRef.current.position.y = -0.22 + breathing;
-    rigRef.current.position.x = Math.sin(elapsed * 0.21) * 0.045 * motionScale;
+    rigRef.current.position.y = GLB_BUST_GROUP_OFFSET.y - 0.22 + breathing;
+    rigRef.current.position.x =
+      GLB_BUST_GROUP_OFFSET.x + Math.sin(elapsed * 0.21) * 0.045 * motionScale;
+    rigRef.current.position.z = GLB_BUST_GROUP_OFFSET.z;
     rigRef.current.rotation.y =
       GLB_Y_ROTATION - 0.08 + Math.sin(elapsed * 0.23) * 0.06 * motionScale;
     rigRef.current.rotation.x = -0.02 + Math.sin(elapsed * 0.33) * 0.014 * motionScale;

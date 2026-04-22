@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 
 import { AvatarCue, AvatarSyncPayload } from "@/lib/types";
+import type { VrmAuditOutput } from "@/components/avatar/avatar-audit";
 
 const AvatarRenderer = dynamic(
   () => import("@/components/avatar-renderer").then((m) => m.AvatarRenderer),
@@ -31,6 +32,25 @@ export function AvatarSyncPanel({
   const audioRef   = useRef<HTMLAudioElement | null>(null);
   const readyAtRef = useRef<number | null>(null);
   const [playing, setPlaying] = useState(false);
+  const [audit, setAudit] = useState<VrmAuditOutput | null>(null);
+  const [auditCopied, setAuditCopied] = useState(false);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    if (window.__JOI_VRM_AUDIT__) {
+      setAudit(window.__JOI_VRM_AUDIT__);
+    }
+
+    const handleAudit = (event: Event) => {
+      setAudit((event as CustomEvent<VrmAuditOutput>).detail);
+    };
+
+    window.addEventListener("joi-vrm-audit", handleAudit);
+    return () => window.removeEventListener("joi-vrm-audit", handleAudit);
+  }, []);
 
   useEffect(() => {
     setPlaying(false);
@@ -79,6 +99,19 @@ export function AvatarSyncPanel({
     ? sync?.sentiment ?? perceptionExpression ?? cue?.expression ?? "neutral"
     : perceptionExpression ?? sync?.sentiment ?? cue?.expression ?? "neutral";
   const stageState = loading ? "syncing" : sync ? "voice-linked" : "stabilized";
+  const auditSummary = audit
+    ? `${audit.expressions.all.length} expressions / ${audit.bones.length} bones`
+    : "pending";
+
+  async function handleCopyAudit() {
+    if (!audit || typeof navigator === "undefined" || !navigator.clipboard) {
+      return;
+    }
+
+    await navigator.clipboard.writeText(JSON.stringify(audit, null, 2));
+    setAuditCopied(true);
+    window.setTimeout(() => setAuditCopied(false), 1600);
+  }
 
   return (
     <div className="avatar-panel">
@@ -129,6 +162,47 @@ export function AvatarSyncPanel({
           </details>
         </>
       ) : null}
+
+      <details className="avatar-audit-details">
+        <summary>VRM audit ({auditSummary})</summary>
+        {audit ? (
+          <div className="avatar-audit-grid">
+            <div>
+              <span>Presets</span>
+              <strong>{audit.expressions.presets.length}</strong>
+            </div>
+            <div>
+              <span>Custom</span>
+              <strong>{audit.expressions.custom.length}</strong>
+            </div>
+            <div>
+              <span>Spring bones</span>
+              <strong>{audit.capabilities.hasSpringBones ? "yes" : "no"}</strong>
+            </div>
+            <div>
+              <span>Look at</span>
+              <strong>{audit.capabilities.hasLookAt ? "yes" : "no"}</strong>
+            </div>
+            <div className="avatar-audit-wide">
+              <span>License</span>
+              <strong>{String(audit.license.licenseName ?? audit.license.licenseUrl ?? "not declared")}</strong>
+            </div>
+            <div className="avatar-audit-wide">
+              <span>Custom expressions</span>
+              <strong>{audit.expressions.custom.slice(0, 6).join(", ") || "none"}</strong>
+            </div>
+            <button
+              className="button ghost avatar-audit-copy"
+              type="button"
+              onClick={handleCopyAudit}
+            >
+              {auditCopied ? "Copied" : "Copy audit JSON"}
+            </button>
+          </div>
+        ) : (
+          <p className="avatar-audit-empty">Audit appears after the VRM model loads.</p>
+        )}
+      </details>
     </div>
   );
 }

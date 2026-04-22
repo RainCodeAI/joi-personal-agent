@@ -154,6 +154,7 @@ export function auditVrm(vrm: VRM): VrmAuditOutput {
 
   if (typeof window !== "undefined") {
     window.__JOI_VRM_AUDIT__ = audit;
+    window.dispatchEvent(new CustomEvent<VrmAuditOutput>("joi-vrm-audit", { detail: audit }));
   }
 
   console.groupCollapsed("[Joi avatar] VRM audit");

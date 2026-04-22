@@ -62,8 +62,8 @@ function buildAtmosphereTexture(): THREE.CanvasTexture {
     height * 0.24,
     width * 0.36,
   );
-  crownGlow.addColorStop(0, "rgba(126,242,255,0.22)");
-  crownGlow.addColorStop(0.54, "rgba(126,242,255,0.08)");
+  crownGlow.addColorStop(0, "rgba(126,242,255,0.18)");
+  crownGlow.addColorStop(0.54, "rgba(126,242,255,0.065)");
   crownGlow.addColorStop(1, "rgba(126,242,255,0)");
   ctx.fillStyle = crownGlow;
   ctx.fillRect(0, 0, width, height);
@@ -114,7 +114,7 @@ export function HologramScene({
     if (haloMatRef.current) {
       haloMatRef.current.opacity = THREE.MathUtils.lerp(
         haloMatRef.current.opacity,
-        playing ? 0.62 : 0.42,
+        playing ? 0.5 : 0.32,
         1 - Math.exp(-4 * delta),
       );
       haloMatRef.current.color.set(colors.accent);
@@ -131,7 +131,7 @@ export function HologramScene({
         <meshBasicMaterial
           map={atmosphereTex}
           transparent
-          opacity={isVrm ? 0.62 : 0.98}
+          opacity={isVrm ? 0.52 : 0.98}
           depthWrite={false}
         />
       </mesh>
@@ -165,7 +165,7 @@ export function HologramScene({
           ref={haloMatRef}
           map={haloTex}
           transparent
-          opacity={isVrm ? 0.2 : 0.55}
+          opacity={isVrm ? 0.14 : 0.55}
           blending={THREE.AdditiveBlending}
           depthWrite={false}
         />

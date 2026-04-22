@@ -4,6 +4,11 @@
 
 Move Joi from a stylized 2D hologram panel into a premium real-time 3D avatar presence that feels cinematic, reactive, and technically defensible inside the existing Next.js + FastAPI stack.
 
+Related roadmap docs:
+
+- `docs/joi_master_presence_roadmap.md` merges this avatar track with the v2 platform and ambient hardware plans.
+- `docs/ambient_presence_plan.md` covers ESP32/Pi room-presence nodes that will eventually share state with the avatar.
+
 The target is not "a 3D character on the page." The target is:
 
 - A projected Joi bust with clear depth, silhouette, and lighting

@@ -5,8 +5,12 @@ import { Canvas } from "@react-three/fiber";
 
 import {
   ACTIVE_AVATAR_ASSET,
+  GLB_CAMERA_FOV,
+  GLB_CAMERA_POSITION,
   type AvatarAssetKind,
   isVrmAsset,
+  VRM_CAMERA_FOV,
+  VRM_CAMERA_POSITION,
 } from "@/components/avatar/avatar-constants";
 import { HologramScene } from "@/components/avatar/avatar-chamber";
 import type { AvatarRendererProps } from "@/components/avatar/avatar-types";
@@ -57,6 +61,7 @@ export function AvatarRenderer({ expression, sync, audioRef, playing }: AvatarRe
   const [assetKind, setAssetKind] = useState<AvatarAssetKind>(ACTIVE_AVATAR_ASSET);
   const [renderError, setRenderError] = useState<Error | null>(null);
   const isVrm = isVrmAsset(assetKind);
+  const cameraPosition = isVrm ? VRM_CAMERA_POSITION : GLB_CAMERA_POSITION;
 
   const handleRenderError = useCallback(
     (error: Error) => {
@@ -85,7 +90,12 @@ export function AvatarRenderer({ expression, sync, audioRef, playing }: AvatarRe
   return (
     <div className={`avatar-hologram${playing ? " speaking" : ""}`}>
       <Canvas
-        camera={{ fov: isVrm ? 22.5 : 25.5, position: [0, 1.48, 2.88], near: 0.1, far: 100 }}
+        camera={{
+          fov: isVrm ? VRM_CAMERA_FOV : GLB_CAMERA_FOV,
+          position: [cameraPosition.x, cameraPosition.y, cameraPosition.z],
+          near: 0.1,
+          far: 100,
+        }}
         gl={{ alpha: true, antialias: true }}
         dpr={[1, 2]}
       >

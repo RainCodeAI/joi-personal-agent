@@ -22,17 +22,14 @@ const EXPRESSION_ALIASES: Record<string, ExpressionWeights> = {
   smirk: {
     [VRMExpressionPresetName.Happy]: 0.34,
     [VRMExpressionPresetName.Relaxed]: 0.16,
-    smirk: 0.42,
   },
   concern: {
     [VRMExpressionPresetName.Sad]: 0.34,
     [VRMExpressionPresetName.Relaxed]: 0.08,
-    concern: 0.42,
   },
   stress: {
     [VRMExpressionPresetName.Sad]: 0.4,
     [VRMExpressionPresetName.Angry]: 0.08,
-    stress: 0.44,
   },
   negative: {
     [VRMExpressionPresetName.Sad]: 0.36,

@@ -17,7 +17,13 @@ export const GLB_TARGET_HEIGHT = 3.3;
 export const GLB_VERTICAL_OFFSET = 0.98;
 export const VRM_TARGET_HEIGHT = 4.5;
 export const VRM_FLOOR_OFFSET = -1.38;
-export const VISIBLE_LOOK_AT = new THREE.Vector3(0, 1.58, 0);
+export const VRM_BUST_GROUP_OFFSET = new THREE.Vector3(0, 0.72, 0);
+export const GLB_BUST_GROUP_OFFSET = new THREE.Vector3(0, 0, 0);
+export const VISIBLE_LOOK_AT = new THREE.Vector3(0, 1.72, 0);
+export const VRM_CAMERA_POSITION = new THREE.Vector3(0, 1.7, 2.72);
+export const GLB_CAMERA_POSITION = new THREE.Vector3(0, 1.48, 2.88);
+export const VRM_CAMERA_FOV = 22.5;
+export const GLB_CAMERA_FOV = 25.5;
 export const GLB_Y_ROTATION = -Math.PI / 2;
 export const VRM_Y_ROTATION = 0;
 

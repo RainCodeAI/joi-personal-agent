@@ -1254,7 +1254,7 @@ textarea {
   background:
     radial-gradient(circle at 50% 30%, rgba(126, 242, 255, 0.18), transparent 52%),
     radial-gradient(circle at 50% 86%, rgba(255, 123, 136, 0.08), transparent 34%);
-  filter: blur(24px);
+  filter: blur(18px);
   pointer-events: none;
   z-index: 1;
 }
@@ -1264,9 +1264,9 @@ textarea {
   position: absolute;
   inset: 0;
   background:
-    linear-gradient(180deg, rgba(4, 8, 14, 0.18), rgba(4, 8, 14, 0) 18%, rgba(4, 8, 14, 0) 76%, rgba(4, 8, 14, 0.28)),
-    radial-gradient(circle at 50% 82%, rgba(126, 242, 255, 0.08), transparent 26%),
-    radial-gradient(circle at 50% 100%, rgba(5, 7, 11, 0.4), transparent 34%);
+    linear-gradient(180deg, rgba(4, 8, 14, 0.12), rgba(4, 8, 14, 0) 18%, rgba(4, 8, 14, 0) 76%, rgba(4, 8, 14, 0.22)),
+    radial-gradient(circle at 50% 82%, rgba(126, 242, 255, 0.06), transparent 26%),
+    radial-gradient(circle at 50% 100%, rgba(5, 7, 11, 0.3), transparent 34%);
   pointer-events: none;
   z-index: 2;
 }
@@ -1283,7 +1283,7 @@ textarea {
 }
 
 .avatar-hologram canvas {
-  filter: saturate(1.08) contrast(1.01) brightness(0.92);
+  filter: saturate(1.12) contrast(1.03) brightness(0.99);
 }
 
 .avatar-hologram-error {
@@ -1374,13 +1374,61 @@ textarea {
   border-top: 1px solid rgba(126, 242, 255, 0.08);
 }
 
-.viseme-details summary {
+.viseme-details summary,
+.avatar-audit-details summary {
   cursor: pointer;
   color: var(--muted);
   font-size: 0.78rem;
   letter-spacing: 0.08em;
   text-transform: uppercase;
   user-select: none;
+}
+
+.avatar-audit-details {
+  padding-top: 2px;
+  border-top: 1px solid rgba(126, 242, 255, 0.08);
+}
+
+.avatar-audit-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  padding-top: 10px;
+}
+
+.avatar-audit-grid div {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  padding: 9px 10px;
+  border: 1px solid rgba(126, 242, 255, 0.1);
+  border-radius: var(--radius-sm);
+  background: rgba(7, 11, 18, 0.55);
+}
+
+.avatar-audit-grid span {
+  color: var(--muted);
+  font-size: 0.66rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.avatar-audit-grid strong {
+  overflow-wrap: anywhere;
+  color: var(--text);
+  font-size: 0.78rem;
+  line-height: 1.35;
+}
+
+.avatar-audit-wide,
+.avatar-audit-copy {
+  grid-column: 1 / -1;
+}
+
+.avatar-audit-empty {
+  margin: 10px 0 0;
+  color: var(--muted);
+  font-size: 0.78rem;
 }
 
 /* ── Aside accordions (Event Stream, Perception) ──────────────────────────── */

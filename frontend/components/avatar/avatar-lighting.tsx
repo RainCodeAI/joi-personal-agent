@@ -12,7 +12,16 @@ import {
 } from "@react-three/postprocessing";
 import { BlendFunction } from "postprocessing";
 
-import { CA_OFFSET, type AvatarAssetKind, isVrmAsset, VISIBLE_LOOK_AT } from "./avatar-constants";
+import {
+  CA_OFFSET,
+  GLB_CAMERA_FOV,
+  GLB_CAMERA_POSITION,
+  type AvatarAssetKind,
+  isVrmAsset,
+  VISIBLE_LOOK_AT,
+  VRM_CAMERA_FOV,
+  VRM_CAMERA_POSITION,
+} from "./avatar-constants";
 
 type AvatarLightingProps = {
   colors: { key: string; fill: string; rim: string; accent: string };
@@ -22,13 +31,18 @@ type AvatarLightingProps = {
 export function CameraRig({ assetKind }: { assetKind: AvatarAssetKind }) {
   const { camera, gl } = useThree();
   const isVrm = isVrmAsset(assetKind);
+  const cameraPosition = isVrm ? VRM_CAMERA_POSITION : GLB_CAMERA_POSITION;
 
   useEffect(() => {
     gl.toneMapping = THREE.ACESFilmicToneMapping;
-    gl.toneMappingExposure = isVrm ? 0.64 : 0.82;
+    gl.toneMappingExposure = isVrm ? 0.72 : 0.82;
+    camera.position.copy(cameraPosition);
+    if (camera instanceof THREE.PerspectiveCamera) {
+      camera.fov = isVrm ? VRM_CAMERA_FOV : GLB_CAMERA_FOV;
+    }
     camera.lookAt(VISIBLE_LOOK_AT);
     camera.updateProjectionMatrix();
-  }, [camera, gl, isVrm]);
+  }, [camera, cameraPosition, gl, isVrm]);
 
   useFrame(() => {
     camera.lookAt(VISIBLE_LOOK_AT);
@@ -42,28 +56,28 @@ export function AvatarLighting({ colors, assetKind }: AvatarLightingProps) {
 
   return (
     <>
-      <ambientLight intensity={isVrm ? 0.48 : 1.25} color={colors.key} />
+      <ambientLight intensity={isVrm ? 0.58 : 1.25} color={colors.key} />
       <pointLight
         position={[0.15, 3.05, 2.1]}
-        intensity={isVrm ? 6.2 : 28}
+        intensity={isVrm ? 7.1 : 28}
         color={colors.fill}
         distance={8}
       />
       <pointLight
         position={[-1.85, 2.2, 1.7]}
-        intensity={isVrm ? 5.6 : 18}
+        intensity={isVrm ? 5.2 : 18}
         color={colors.rim}
         distance={6.5}
       />
       <pointLight
         position={[1.9, 1.25, 1.35]}
-        intensity={isVrm ? 3.7 : 14}
+        intensity={isVrm ? 3.9 : 14}
         color={colors.key}
         distance={6.3}
       />
       <spotLight
         position={[0, 3.45, 1.7]}
-        intensity={isVrm ? 5.6 : 26}
+        intensity={isVrm ? 6.2 : 26}
         angle={0.44}
         penumbra={0.8}
         distance={10}
@@ -81,7 +95,7 @@ export function AvatarPostEffects({ assetKind }: { assetKind: AvatarAssetKind })
       <Bloom
         luminanceThreshold={isVrm ? 0.28 : 0.08}
         luminanceSmoothing={0.84}
-        intensity={isVrm ? 0.34 : 1.12}
+        intensity={isVrm ? 0.28 : 1.12}
         mipmapBlur
       />
       <ChromaticAberration
@@ -89,8 +103,8 @@ export function AvatarPostEffects({ assetKind }: { assetKind: AvatarAssetKind })
         radialModulation={false}
         modulationOffset={0}
       />
-      <Noise opacity={0.028} blendFunction={BlendFunction.ADD} />
-      <Vignette eskil={false} offset={0.12} darkness={0.68} />
+      <Noise opacity={0.022} blendFunction={BlendFunction.ADD} />
+      <Vignette eskil={false} offset={0.1} darkness={0.62} />
     </EffectComposer>
   );
 }

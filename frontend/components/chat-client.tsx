@@ -95,6 +95,14 @@ function valuePreview(value: unknown): string {
   }
 }
 
+function apiErrorMessage(error: Error): string {
+  if (error.message === "Failed to fetch") {
+    return "Backend offline: start the FastAPI service on 127.0.0.1:8000";
+  }
+
+  return error.message;
+}
+
 function approvalPresentation(approval: Approval): ApprovalPresentation {
   const args = approval.args ?? {};
   const toolName = approval.tool_name;
@@ -311,7 +319,7 @@ export function ChatClient({ initialSessionId }: ChatClientProps) {
           setStatus("Session ready");
         })
         .catch((error: Error) => {
-          setStatus(`Session error: ${error.message}`);
+          setStatus(apiErrorMessage(error));
         });
     }
   }, [sessionId]);
@@ -328,7 +336,7 @@ export function ChatClient({ initialSessionId }: ChatClientProps) {
         setMediaSession(mediaResponse.media_session);
       })
       .catch((error: Error) => {
-        setStatus(`Bootstrap error: ${error.message}`);
+        setStatus(`Bootstrap error: ${apiErrorMessage(error)}`);
       });
   }, [sessionId]);
 
@@ -757,7 +765,9 @@ export function ChatClient({ initialSessionId }: ChatClientProps) {
                   <strong>Status</strong>
                   <p>{status}</p>
                 </div>
-                <span className="badge ok">{sessionId ? "online" : "booting"}</span>
+                <span className={`badge ${sessionId ? "ok" : "warn"}`}>
+                  {sessionId ? "online" : "offline"}
+                </span>
               </div>
               <div className="list-row">
                 <div>

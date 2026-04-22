@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import { VRM, VRMExpressionPresetName, VRMHumanBoneName } from "@pixiv/three-vrm";
 
-import { VRM_Y_ROTATION } from "./avatar-constants";
+import { VRM_BUST_GROUP_OFFSET, VRM_Y_ROTATION } from "./avatar-constants";
 import { setExpressionIfAvailable } from "./avatar-expression";
 
 export type IdlePoseState = {
@@ -157,8 +157,9 @@ export function updateVrmIdlePose(
   const nod = idle.gestureKind === "softNod" ? gestureAmount * 0.04 : 0;
   const weightShift = idle.gestureKind === "weightShift" ? gestureAmount * 0.018 : 0;
 
-  rig.position.y = 0.02 + breathing;
-  rig.position.x = drift + weightShift;
+  rig.position.y = VRM_BUST_GROUP_OFFSET.y + 0.02 + breathing;
+  rig.position.x = VRM_BUST_GROUP_OFFSET.x + drift + weightShift;
+  rig.position.z = VRM_BUST_GROUP_OFFSET.z;
   rig.rotation.y = VRM_Y_ROTATION + Math.sin(elapsed * 0.18) * 0.028 * motionScale;
   rig.rotation.z = Math.sin(elapsed * 0.28) * 0.01 * motionScale + weightShift * 0.3;
   rig.scale.setScalar(speakingBoost);
@@ -166,6 +167,8 @@ export function updateVrmIdlePose(
   const head = vrm.humanoid.getNormalizedBoneNode(VRMHumanBoneName.Head);
   const neck = vrm.humanoid.getNormalizedBoneNode(VRMHumanBoneName.Neck);
   const chest = vrm.humanoid.getNormalizedBoneNode(VRMHumanBoneName.Chest);
+  const leftEye = vrm.humanoid.getNormalizedBoneNode(VRMHumanBoneName.LeftEye);
+  const rightEye = vrm.humanoid.getNormalizedBoneNode(VRMHumanBoneName.RightEye);
   const gazeX = idle.gazeCurrent.x;
   const gazeY = idle.gazeCurrent.y;
 
@@ -185,6 +188,16 @@ export function updateVrmIdlePose(
   if (chest) {
     chest.rotation.x = Math.sin(elapsed * 0.78) * 0.011 * motionScale;
     chest.rotation.z = Math.sin(elapsed * 0.24) * 0.008 * motionScale + weightShift * 0.28;
+  }
+
+  if (leftEye) {
+    leftEye.rotation.x = gazeY * 0.72;
+    leftEye.rotation.y = gazeX * 1.15;
+  }
+
+  if (rightEye) {
+    rightEye.rotation.x = gazeY * 0.72;
+    rightEye.rotation.y = gazeX * 1.15;
   }
 
   applyRelaxedUpperBodyPose(vrm, elapsed, motionScale, gestureAmount, idle.gestureKind);

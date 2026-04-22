@@ -9,6 +9,12 @@ Joi v2 should move from an ambitious Streamlit prototype into a stable product p
 
 This plan is intentionally ordered by dependency, not by novelty. The hologram and webcam work should happen after the backend and runtime are trustworthy enough to support them.
 
+Related roadmap docs:
+
+- `docs/joi_master_presence_roadmap.md` merges the v2 platform, avatar, voice, perception, initiative, and ambient hardware tracks.
+- `joi_avatar_3D_plan.md` covers the realtime avatar embodiment track.
+- `docs/ambient_presence_plan.md` covers ESP32/Pi physical presence nodes.
+
 ---
 
 ## Priority Ranking
