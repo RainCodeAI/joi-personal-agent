@@ -258,14 +258,43 @@ The hardware should extend a stable Joi runtime, not compensate for an unstable 
 
 ## Immediate Next Work
 
-Recommended next sequence:
+Handoff as of the 2026-04-22 night session:
 
-1. Fix the avatar framing regression from the 2026-04-21 mini presence sprint: full status panel is too zoomed into Joi's face/head, and mini/full framing should be tuned together.
-2. After framing is stable, continue with voice-first access: push-to-talk/hotkey path, STT, spoken response, and interrupt/stop speaking control.
-3. Add a short avatar tuning checklist for the next visual pass.
-4. Create the ESP32 firmware skeleton only after hardware work resumes.
-5. Add a backend MQTT bridge behind a feature flag.
-6. Start with LED-only state output before ultrasonic sensing.
+- Committed `fed1cc9d Fix avatar presence framing`.
+- Committed `133e7bdc Add browser push-to-talk hotkey`.
+- Committed `af652cbb Add stop speaking control`.
+- Worktree was clean at handoff.
+- No local Node server was left running.
+
+Thursday 2026-04-23 code focus:
+
+1. Finish the remaining Phase 4 voice polish: spoken response defaults and quieter transcript display.
+2. Do a runtime reliability pass before hardware enters the loop:
+   - backend health and startup state should be clear
+   - frontend degraded/offline state should not look like avatar failure
+   - diagnostics should show provider, media, memory/vector, realtime, and hardware-bridge readiness
+3. Add a short avatar/voice tuning checklist for future visual QA.
+4. Define the first hardware state contract in code before writing firmware:
+   - allowed Joi state names
+   - LED-only output states
+   - feature flag / disabled-by-default behavior
+   - diagnostics shape for bridge availability
+
+Hardware window target:
+
+- Friday 2026-04-24 through Sunday 2026-04-26 can move into Phase 8 if the Thursday code gates are done.
+- Start hardware with LED-only state output.
+- Do not start ultrasonic sensing until LED state output and node health are stable.
+- Do not start servo motion until LED behavior feels restrained and reliable.
+
+Must finish before touching hardware:
+
+1. Runtime can be left running without confusing startup/offline failures.
+2. The PC runtime owns the Joi state model; hardware nodes must not invent personality or behavior.
+3. A feature flag keeps the hardware bridge disabled by default when no node is connected.
+4. Diagnostics can report hardware bridge status without crashing when MQTT or hardware is unavailable.
+5. The first hardware contract is LED-only and maps from shared Joi state events, not ad hoc firmware decisions.
+6. Voice/presence UI should be stable enough that hardware is an extension of Joi, not a workaround for app instability.
 
 ## Success Definition
 
