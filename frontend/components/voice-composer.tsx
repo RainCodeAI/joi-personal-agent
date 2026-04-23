@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { patchMediaSession, transcribeAudioBlob } from "@/lib/api";
 import { MediaSession } from "@/lib/types";
@@ -12,6 +12,16 @@ type VoiceComposerProps = {
   onTranscript: (transcript: string) => void;
   onInterruptPlayback: () => void;
 };
+
+function isPushToTalkHotkey(event: KeyboardEvent) {
+  return (
+    event.code === "Space" &&
+    event.ctrlKey &&
+    event.shiftKey &&
+    !event.altKey &&
+    !event.metaKey
+  );
+}
 
 function pickRecorderMimeType() {
   if (typeof window === "undefined" || typeof MediaRecorder === "undefined") {
@@ -38,6 +48,8 @@ export function VoiceComposer({
   const streamRef = useRef<MediaStream | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const startedAtRef = useRef<number>(0);
+  const hotkeyActiveRef = useRef(false);
+  const pendingStopRef = useRef(false);
 
   const [isSupported, setIsSupported] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -59,17 +71,28 @@ export function VoiceComposer({
     };
   }, []);
 
-  async function syncSession(patch: Parameters<typeof patchMediaSession>[0]) {
+  const syncSession = useCallback(async (patch: Parameters<typeof patchMediaSession>[0]) => {
     const response = await patchMediaSession(patch);
     onMediaSession(response.media_session);
-  }
+  }, [onMediaSession]);
 
-  async function startRecording() {
+  const stopRecording = useCallback(() => {
+    if (!recorderRef.current || recorderRef.current.state === "inactive") {
+      pendingStopRef.current = true;
+      return;
+    }
+    pendingStopRef.current = false;
+    setBusy(true);
+    recorderRef.current.stop();
+  }, []);
+
+  const startRecording = useCallback(async () => {
     if (!sessionId || busy || !isSupported) {
       return;
     }
 
     setError(null);
+    pendingStopRef.current = false;
     setBusy(true);
 
     try {
@@ -136,6 +159,7 @@ export function VoiceComposer({
             // Ignore follow-up sync failures after the primary transcription error.
           }
         } finally {
+          pendingStopRef.current = false;
           setBusy(false);
         }
       });
@@ -147,9 +171,15 @@ export function VoiceComposer({
         capture_source: "browser",
       });
       setBusy(false);
+
+      if (pendingStopRef.current) {
+        pendingStopRef.current = false;
+        stopRecording();
+      }
     } catch (cause) {
       const message = cause instanceof Error ? cause.message : "Microphone capture failed";
       setError(message);
+      pendingStopRef.current = false;
       if (sessionId) {
         try {
           await syncSession({
@@ -163,15 +193,36 @@ export function VoiceComposer({
       }
       setBusy(false);
     }
-  }
+  }, [busy, isSupported, mediaSession?.speaking_state, onInterruptPlayback, sessionId, stopRecording, syncSession]);
 
-  function stopRecording() {
-    if (!recorderRef.current || recorderRef.current.state === "inactive") {
-      return;
-    }
-    setBusy(true);
-    recorderRef.current.stop();
-  }
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (!isPushToTalkHotkey(event) || event.repeat || hotkeyActiveRef.current) {
+        return;
+      }
+
+      event.preventDefault();
+      hotkeyActiveRef.current = true;
+      void startRecording();
+    };
+
+    const handleKeyUp = (event: KeyboardEvent) => {
+      if (!isPushToTalkHotkey(event) || !hotkeyActiveRef.current) {
+        return;
+      }
+
+      event.preventDefault();
+      hotkeyActiveRef.current = false;
+      stopRecording();
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    window.addEventListener("keyup", handleKeyUp);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+      window.removeEventListener("keyup", handleKeyUp);
+    };
+  }, [startRecording, stopRecording]);
 
   const isRecording = mediaSession?.mic_state === "recording";
 

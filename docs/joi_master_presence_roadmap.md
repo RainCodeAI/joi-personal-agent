@@ -171,6 +171,13 @@ Avoid early:
 - wake word
 - background microphone without a strong permission story
 
+Status as of 2026-04-22:
+
+- Push-to-talk hotkey path started on the existing browser voice capture flow.
+- Current hotkey behavior: hold `Ctrl+Shift+Space` to start browser recording, release to stop and transcribe into the draft.
+- Existing manual `Record voice` / `Stop recording` button flow remains available.
+- Remaining Phase 4 work: spoken response defaults, clearer interrupt/stop speaking control, and quieter transcript display.
+
 ### Phase 5 - Idle Life State Machine
 
 Goal: create life between messages.
