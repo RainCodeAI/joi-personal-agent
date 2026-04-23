@@ -8,9 +8,11 @@ import { MediaSession } from "@/lib/types";
 type VoiceComposerProps = {
   sessionId: string | null;
   mediaSession: MediaSession | null;
+  spokenRepliesEnabled: boolean;
   onMediaSession: (session: MediaSession) => void;
   onTranscript: (transcript: string) => void;
   onInterruptPlayback: (statusMessage?: string) => Promise<void> | void;
+  onToggleSpokenReplies: () => void;
 };
 
 function isPushToTalkHotkey(event: KeyboardEvent) {
@@ -40,9 +42,11 @@ function pickRecorderMimeType() {
 export function VoiceComposer({
   sessionId,
   mediaSession,
+  spokenRepliesEnabled,
   onMediaSession,
   onTranscript,
   onInterruptPlayback,
+  onToggleSpokenReplies,
 }: VoiceComposerProps) {
   const recorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -240,6 +244,14 @@ export function VoiceComposer({
           <p>Mic capture happens in the browser and posts audio back to Python for transcription.</p>
         </div>
         <div className="voice-badges">
+          <button
+            className={`button ${spokenRepliesEnabled ? "secondary" : "ghost"} voice-default-toggle`}
+            type="button"
+            aria-pressed={spokenRepliesEnabled}
+            onClick={onToggleSpokenReplies}
+          >
+            Spoken replies {spokenRepliesEnabled ? "on" : "off"}
+          </button>
           <span className={`badge ${isRecording ? "warn" : "ok"}`}>
             mic {mediaSession?.mic_state ?? "idle"}
           </span>

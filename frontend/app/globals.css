@@ -1107,6 +1107,11 @@ textarea {
   gap: 8px;
 }
 
+.voice-default-toggle {
+  min-width: 148px;
+  padding-inline: 12px;
+}
+
 .voice-transcript-preview,
 .voice-error {
   margin-top: 14px;

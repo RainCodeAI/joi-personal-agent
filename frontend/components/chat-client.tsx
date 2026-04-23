@@ -35,6 +35,7 @@ import {
 } from "@/lib/types";
 
 const SESSION_STORAGE_KEY = "joi-v2-session";
+const SPOKEN_REPLIES_STORAGE_KEY = "joi-v2-spoken-replies";
 
 type ChatClientProps = {
   initialSessionId?: string | null;
@@ -264,6 +265,7 @@ export function ChatClient({ initialSessionId }: ChatClientProps) {
   const [avatarSyncPayload, setAvatarSyncPayload] = useState<AvatarSyncPayload | null>(null);
   const [presenceMode, setPresenceMode] = useState<PresenceMode>("full");
   const [mediaSession, setMediaSession] = useState<MediaSession | null>(null);
+  const [spokenRepliesEnabled, setSpokenRepliesEnabled] = useState(true);
   const [avatarSyncLoading, setAvatarSyncLoading] = useState(false);
   const [isSending, setIsSending] = useState(false);
   const [perceptionState, setPerceptionState] = useState<PerceptionState>({
@@ -371,6 +373,28 @@ export function ChatClient({ initialSessionId }: ChatClientProps) {
       window.clearInterval(timer);
     };
   }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    const stored = window.localStorage.getItem(SPOKEN_REPLIES_STORAGE_KEY);
+    if (stored === "off") {
+      setSpokenRepliesEnabled(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    window.localStorage.setItem(
+      SPOKEN_REPLIES_STORAGE_KEY,
+      spokenRepliesEnabled ? "on" : "off",
+    );
+  }, [spokenRepliesEnabled]);
 
   useEffect(() => {
     const stored =
@@ -542,11 +566,12 @@ export function ChatClient({ initialSessionId }: ChatClientProps) {
   }
 
   async function handleAvatarSync(messageId: number, text: string, cue: AvatarCue) {
-    if (!sessionId || !cue.should_speak || !text.trim()) {
+    setAvatarCue(cue);
+
+    if (!sessionId || !cue.should_speak || !spokenRepliesEnabled || !text.trim()) {
       return;
     }
 
-    setAvatarCue(cue);
     setAvatarSyncLoading(true);
     try {
       const payload = await syncAvatar(sessionId, text);
@@ -603,6 +628,18 @@ export function ChatClient({ initialSessionId }: ChatClientProps) {
     } catch {
       // Preserve the local stop even if media-session sync fails.
     }
+  }
+
+  async function handleSpokenRepliesToggle() {
+    const nextEnabled = !spokenRepliesEnabled;
+    setSpokenRepliesEnabled(nextEnabled);
+
+    if (!nextEnabled) {
+      await handleInterruptPlayback("Spoken replies muted");
+      return;
+    }
+
+    setStatus("Spoken replies enabled");
   }
 
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
@@ -803,9 +840,11 @@ export function ChatClient({ initialSessionId }: ChatClientProps) {
             <VoiceComposer
               sessionId={sessionId}
               mediaSession={mediaSession}
+              spokenRepliesEnabled={spokenRepliesEnabled}
               onMediaSession={setMediaSession}
               onTranscript={handleVoiceTranscript}
               onInterruptPlayback={handleInterruptPlayback}
+              onToggleSpokenReplies={() => void handleSpokenRepliesToggle()}
             />
 
             {attachments.length ? (
