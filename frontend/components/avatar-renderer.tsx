@@ -5,16 +5,8 @@ import { Canvas } from "@react-three/fiber";
 
 import {
   ACTIVE_AVATAR_ASSET,
-  GLB_CAMERA_FOV,
-  GLB_CAMERA_POSITION,
-  GLB_COMPACT_CAMERA_FOV,
-  GLB_COMPACT_CAMERA_POSITION,
+  getAvatarCameraConfig,
   type AvatarAssetKind,
-  isVrmAsset,
-  VRM_COMPACT_CAMERA_FOV,
-  VRM_COMPACT_CAMERA_POSITION,
-  VRM_CAMERA_FOV,
-  VRM_CAMERA_POSITION,
 } from "@/components/avatar/avatar-constants";
 import { HologramScene } from "@/components/avatar/avatar-chamber";
 import type { AvatarRendererProps } from "@/components/avatar/avatar-types";
@@ -64,13 +56,7 @@ export function AvatarRenderer({ expression, sync, audioRef, playing, compact = 
   const deliveryStyle = sync?.delivery_style ?? "normal";
   const [assetKind, setAssetKind] = useState<AvatarAssetKind>(ACTIVE_AVATAR_ASSET);
   const [renderError, setRenderError] = useState<Error | null>(null);
-  const isVrm = isVrmAsset(assetKind);
-  const cameraPosition = compact
-    ? (isVrm ? VRM_COMPACT_CAMERA_POSITION : GLB_COMPACT_CAMERA_POSITION)
-    : (isVrm ? VRM_CAMERA_POSITION : GLB_CAMERA_POSITION);
-  const cameraFov = compact
-    ? (isVrm ? VRM_COMPACT_CAMERA_FOV : GLB_COMPACT_CAMERA_FOV)
-    : (isVrm ? VRM_CAMERA_FOV : GLB_CAMERA_FOV);
+  const cameraConfig = getAvatarCameraConfig(assetKind, compact);
 
   const handleRenderError = useCallback(
     (error: Error) => {
@@ -100,8 +86,8 @@ export function AvatarRenderer({ expression, sync, audioRef, playing, compact = 
     <div className={`avatar-hologram${playing ? " speaking" : ""}`}>
       <Canvas
         camera={{
-          fov: cameraFov,
-          position: [cameraPosition.x, cameraPosition.y, cameraPosition.z],
+          fov: cameraConfig.fov,
+          position: [cameraConfig.position.x, cameraConfig.position.y, cameraConfig.position.z],
           near: 0.1,
           far: 100,
         }}

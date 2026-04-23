@@ -19,18 +19,47 @@ export const VRM_TARGET_HEIGHT = 4.5;
 export const VRM_FLOOR_OFFSET = -1.38;
 export const VRM_BUST_GROUP_OFFSET = new THREE.Vector3(0, 0.72, 0);
 export const GLB_BUST_GROUP_OFFSET = new THREE.Vector3(0, 0, 0);
-export const VISIBLE_LOOK_AT = new THREE.Vector3(0, 1.72, 0);
-export const VRM_CAMERA_POSITION = new THREE.Vector3(0, 1.7, 2.72);
-export const GLB_CAMERA_POSITION = new THREE.Vector3(0, 1.48, 2.88);
-export const VRM_CAMERA_FOV = 22.5;
-export const GLB_CAMERA_FOV = 25.5;
-export const COMPACT_VISIBLE_LOOK_AT = new THREE.Vector3(0, 2.25, 0);
-export const VRM_COMPACT_CAMERA_POSITION = new THREE.Vector3(0, 2.36, 5.2);
-export const GLB_COMPACT_CAMERA_POSITION = new THREE.Vector3(0, 2.12, 5.1);
-export const VRM_COMPACT_CAMERA_FOV = 30;
+export const VRM_VISIBLE_LOOK_AT = new THREE.Vector3(0, 2.22, 0);
+export const GLB_VISIBLE_LOOK_AT = new THREE.Vector3(0, 1.48, 0);
+export const VRM_CAMERA_POSITION = new THREE.Vector3(0, 2.24, 6.18);
+export const GLB_CAMERA_POSITION = new THREE.Vector3(0, 1.36, 4.72);
+export const VRM_CAMERA_FOV = 34;
+export const GLB_CAMERA_FOV = 32;
+export const VRM_COMPACT_VISIBLE_LOOK_AT = new THREE.Vector3(0, 2.14, 0);
+export const GLB_COMPACT_VISIBLE_LOOK_AT = new THREE.Vector3(0, 1.76, 0);
+export const VRM_COMPACT_CAMERA_POSITION = new THREE.Vector3(0, 2.18, 5.35);
+export const GLB_COMPACT_CAMERA_POSITION = new THREE.Vector3(0, 1.74, 4.35);
+export const VRM_COMPACT_CAMERA_FOV = 32;
 export const GLB_COMPACT_CAMERA_FOV = 31;
 export const GLB_Y_ROTATION = -Math.PI / 2;
 export const VRM_Y_ROTATION = 0;
+
+export type AvatarCameraConfig = {
+  fov: number;
+  lookAt: THREE.Vector3;
+  position: THREE.Vector3;
+};
+
+export function getAvatarCameraConfig(
+  assetKind: AvatarAssetKind,
+  compact = false,
+): AvatarCameraConfig {
+  const isVrm = isVrmAsset(assetKind);
+
+  if (compact) {
+    return {
+      fov: isVrm ? VRM_COMPACT_CAMERA_FOV : GLB_COMPACT_CAMERA_FOV,
+      lookAt: isVrm ? VRM_COMPACT_VISIBLE_LOOK_AT : GLB_COMPACT_VISIBLE_LOOK_AT,
+      position: isVrm ? VRM_COMPACT_CAMERA_POSITION : GLB_COMPACT_CAMERA_POSITION,
+    };
+  }
+
+  return {
+    fov: isVrm ? VRM_CAMERA_FOV : GLB_CAMERA_FOV,
+    lookAt: isVrm ? VRM_VISIBLE_LOOK_AT : GLB_VISIBLE_LOOK_AT,
+    position: isVrm ? VRM_CAMERA_POSITION : GLB_CAMERA_POSITION,
+  };
+}
 
 export const MOTION_SCALE: Record<string, number> = {
   whisper: 0.55,

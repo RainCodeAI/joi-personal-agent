@@ -1156,7 +1156,7 @@ textarea {
   right: 24px;
   bottom: 24px;
   z-index: 70;
-  width: min(300px, calc(100vw - 32px));
+  width: min(320px, calc(100vw - 32px));
 }
 
 .avatar-stage {

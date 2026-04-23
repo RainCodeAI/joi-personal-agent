@@ -145,6 +145,13 @@ Status as of 2026-04-21:
 - The current mini framing needs a follow-up pass: the attached screenshot from 2026-04-21 shows the full chamber view zoomed too far into Joi's face/head in the status panel.
 - Next visual task: tune the full and compact avatar camera/framing constants so full mode shows a stable upper/full-body chamber view, while mini mode shows a readable bust or half-body presence without cropping the face.
 
+Status as of 2026-04-22:
+
+- Avatar framing regression is fixed and accepted against the 2026-04-22 visual review screenshot.
+- Accepted VRM full framing constants: look-at `(0, 2.22, 0)`, camera position `(0, 2.24, 6.18)`, FOV `34`.
+- Accepted VRM compact framing constants: look-at `(0, 2.14, 0)`, camera position `(0, 2.18, 5.35)`, FOV `32`.
+- Camera selection is centralized in `getAvatarCameraConfig` so the renderer and camera rig use the same full/compact asset-specific presets.
+
 ### Phase 4 - Voice-First Access
 
 Goal: reduce friction from typing to speaking.
