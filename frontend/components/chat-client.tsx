@@ -584,10 +584,25 @@ export function ChatClient({ initialSessionId }: ChatClientProps) {
     setStatus("Voice transcript appended to draft");
   }
 
-  function handleInterruptPlayback() {
+  async function handleInterruptPlayback(statusMessage = "Voice playback interrupted") {
     setAvatarSyncPayload(null);
     setAvatarSyncLoading(false);
-    setStatus("Voice playback interrupted by microphone capture");
+    setStatus(statusMessage);
+
+    if (!sessionId) {
+      return;
+    }
+
+    try {
+      const response = await patchMediaSession({
+        session_id: sessionId,
+        speaking_state: "interrupted",
+        interrupted: true,
+      });
+      setMediaSession(response.media_session);
+    } catch {
+      // Preserve the local stop even if media-session sync fails.
+    }
   }
 
   async function onSubmit(event: FormEvent<HTMLFormElement>) {

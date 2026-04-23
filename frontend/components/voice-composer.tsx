@@ -10,7 +10,7 @@ type VoiceComposerProps = {
   mediaSession: MediaSession | null;
   onMediaSession: (session: MediaSession) => void;
   onTranscript: (transcript: string) => void;
-  onInterruptPlayback: () => void;
+  onInterruptPlayback: (statusMessage?: string) => Promise<void> | void;
 };
 
 function isPushToTalkHotkey(event: KeyboardEvent) {
@@ -97,12 +97,7 @@ export function VoiceComposer({
 
     try {
       if (mediaSession?.speaking_state === "playing" || mediaSession?.speaking_state === "queued") {
-        onInterruptPlayback();
-        await syncSession({
-          session_id: sessionId,
-          speaking_state: "interrupted",
-          interrupted: true,
-        });
+        await onInterruptPlayback("Voice playback interrupted by microphone capture");
       }
 
       await syncSession({
@@ -225,6 +220,17 @@ export function VoiceComposer({
   }, [startRecording, stopRecording]);
 
   const isRecording = mediaSession?.mic_state === "recording";
+  const canStopSpeaking =
+    mediaSession?.speaking_state === "playing" || mediaSession?.speaking_state === "queued";
+
+  async function handleStopSpeaking() {
+    if (!sessionId || busy || !canStopSpeaking) {
+      return;
+    }
+
+    setError(null);
+    await onInterruptPlayback("Voice playback stopped");
+  }
 
   return (
     <div className="voice-panel">
@@ -250,6 +256,16 @@ export function VoiceComposer({
         >
           {isRecording ? "Stop recording" : "Record voice"}
         </button>
+        {canStopSpeaking ? (
+          <button
+            className="button secondary"
+            type="button"
+            disabled={!sessionId || busy}
+            onClick={() => void handleStopSpeaking()}
+          >
+            Stop speaking
+          </button>
+        ) : null}
         {mediaSession?.recognition_latency_ms ? (
           <span className="badge ok">{mediaSession.recognition_latency_ms}ms STT</span>
         ) : null}
