@@ -1115,18 +1115,32 @@ textarea {
 .voice-transcript-preview,
 .voice-error {
   margin-top: 14px;
-  padding: 12px 14px;
+  padding: 10px 12px;
   border-radius: 14px;
 }
 
 .voice-transcript-preview {
-  background: rgba(15, 23, 42, 0.9);
-  border: 1px solid rgba(96, 165, 250, 0.18);
+  background: rgba(10, 16, 28, 0.46);
+  border: 1px solid rgba(126, 242, 255, 0.12);
+}
+
+.voice-transcript-label {
+  display: inline-flex;
+  color: var(--muted);
+  font-size: 0.68rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
 }
 
 .voice-transcript-preview p {
-  margin: 8px 0 0;
-  color: var(--text);
+  margin: 6px 0 0;
+  color: rgba(218, 231, 248, 0.76);
+  font-size: 0.88rem;
+  line-height: 1.45;
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
 }
 
 .voice-error {

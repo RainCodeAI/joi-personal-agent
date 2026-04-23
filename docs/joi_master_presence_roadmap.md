@@ -178,7 +178,8 @@ Status as of 2026-04-22:
 - Spoken replies now default to on in the voice UI, persist across reloads, and can be muted explicitly without changing the rest of the voice capture flow.
 - Existing manual `Record voice` / `Stop recording` button flow remains available.
 - Explicit `Stop speaking` control is available while speech is queued or playing; it clears active playback locally and records an interrupted media session.
-- Remaining Phase 4 work: quieter transcript display.
+- Transcript preview is intentionally quiet in the UI: low-contrast, compact, and clamped so spoken interaction stays primary.
+- Phase 4 voice-first access is functionally complete enough to move into the runtime reliability gate before hardware work.
 
 ### Phase 5 - Idle Life State Machine
 

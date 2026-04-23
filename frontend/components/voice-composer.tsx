@@ -291,9 +291,9 @@ export function VoiceComposer({
       ) : error ? (
         <div className="voice-error">{error}</div>
       ) : mediaSession?.last_transcript ? (
-        <div className="voice-transcript-preview">
-          <strong>Latest transcript</strong>
-          <p>{mediaSession.last_transcript}</p>
+        <div className="voice-transcript-preview" aria-live="polite">
+          <span className="voice-transcript-label">Latest transcript</span>
+          <p title={mediaSession.last_transcript}>{mediaSession.last_transcript}</p>
         </div>
       ) : (
         <div className="empty-state">Voice capture is idle. Record a short prompt to append it to the draft.</div>
