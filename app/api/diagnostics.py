@@ -6,7 +6,9 @@ from typing import Any, Dict
 import httpx
 from fastapi import APIRouter
 
+from app.api.state import event_bus, media_sessions
 from app.config import settings
+from app.db import engine as db_engine
 from app.memory.store import MemoryStore
 from app.vault import get_secret
 from services import llama_local
@@ -70,6 +72,13 @@ def _ollama_status() -> Dict[str, Any]:
 
 
 def _provider_diagnostics() -> Dict[str, Any]:
+    openai_sdk_available = _module_available("openai")
+    grok_sdk_available = _module_available("grokpy")
+    gemini_sdk_available = _module_available("google.generativeai")
+    openai_configured = bool(settings.openai_api_key)
+    grok_configured = bool(settings.xai_api_key)
+    gemini_configured = bool(settings.gemini_api_key)
+
     return {
         "gguf": {
             "configured": bool(settings.gguf_model_path),
@@ -78,16 +87,19 @@ def _provider_diagnostics() -> Dict[str, Any]:
         },
         "ollama": _ollama_status(),
         "openai": {
-            "configured": bool(settings.openai_api_key),
-            "sdk_available": _module_available("openai"),
+            "configured": openai_configured,
+            "available": openai_configured and openai_sdk_available,
+            "sdk_available": openai_sdk_available,
         },
         "grok": {
-            "configured": bool(settings.xai_api_key),
-            "sdk_available": _module_available("grokpy"),
+            "configured": grok_configured,
+            "available": grok_configured and grok_sdk_available,
+            "sdk_available": grok_sdk_available,
         },
         "gemini": {
-            "configured": bool(settings.gemini_api_key),
-            "sdk_available": _module_available("google.generativeai"),
+            "configured": gemini_configured,
+            "available": gemini_configured and gemini_sdk_available,
+            "sdk_available": gemini_sdk_available,
         },
     }
 
@@ -97,6 +109,7 @@ def _storage_diagnostics() -> Dict[str, Any]:
     vector_mode = "chroma" if memory_store.collection is not None else "sql_only"
     return {
         "airgap": settings.airgap,
+        "available": db_engine is not None,
         "database_mode": db_mode,
         "database_target": settings.database_url or settings.db_path,
         "vector_mode": vector_mode,
@@ -130,11 +143,101 @@ def _media_diagnostics() -> Dict[str, Any]:
     }
 
 
+def _realtime_diagnostics() -> Dict[str, Any]:
+    return {
+        "available": True,
+        "transport": "sse",
+        "bus": "in_process",
+        "subscriber_count": len(event_bus._subscribers),
+        "recent_event_buffer": event_bus._history.maxlen,
+        "tracked_media_sessions": len(media_sessions._sessions),
+    }
+
+
+def _hardware_bridge_diagnostics() -> Dict[str, Any]:
+    return {
+        "enabled": False,
+        "available": False,
+        "transport": "mqtt",
+        "feature_flag": "off",
+        "note": "disabled until ambient hardware Phase 8 begins",
+    }
+
+
+def _readiness_summary(
+    providers: Dict[str, Any],
+    storage: Dict[str, Any],
+    media: Dict[str, Any],
+    realtime: Dict[str, Any],
+    hardware_bridge: Dict[str, Any],
+) -> Dict[str, Dict[str, str]]:
+    provider_ready = any(bool(details.get("available")) for details in providers.values())
+    tts_ready = any(
+        bool(media.get("tts", {}).get(key))
+        for key in ("openai", "elevenlabs_sdk", "local_engine")
+    )
+    stt_ready = any(
+        bool(media.get("stt", {}).get(key))
+        for key in ("google_local_stack", "whisper_local")
+    )
+    storage_ready = bool(storage.get("available"))
+    realtime_ready = bool(realtime.get("available"))
+    bridge_enabled = bool(hardware_bridge.get("enabled"))
+
+    return {
+        "providers": {
+            "state": "ready" if provider_ready else "degraded",
+            "summary": "provider route available" if provider_ready else "no provider route available",
+        },
+        "storage": {
+            "state": "ready" if storage_ready else "degraded",
+            "summary": f"{storage.get('database_mode', 'unknown')} / {storage.get('vector_mode', 'unknown')}",
+        },
+        "media": {
+            "state": "ready" if (tts_ready and stt_ready) else "degraded",
+            "summary": (
+                "tts and stt ready"
+                if (tts_ready and stt_ready)
+                else f"tts {'ready' if tts_ready else 'missing'}, stt {'ready' if stt_ready else 'missing'}"
+            ),
+        },
+        "realtime": {
+            "state": "ready" if realtime_ready else "degraded",
+            "summary": f"{realtime.get('transport', 'unknown')} transport",
+        },
+        "hardware_bridge": {
+            "state": "disabled" if not bridge_enabled else ("ready" if hardware_bridge.get("available") else "degraded"),
+            "summary": str(hardware_bridge.get("note") or "bridge status unknown"),
+        },
+    }
+
+
+def build_runtime_diagnostics() -> Dict[str, Any]:
+    providers = _provider_diagnostics()
+    storage = _storage_diagnostics()
+    media = _media_diagnostics()
+    realtime = _realtime_diagnostics()
+    hardware_bridge = _hardware_bridge_diagnostics()
+    readiness = _readiness_summary(providers, storage, media, realtime, hardware_bridge)
+    status = (
+        "ok"
+        if all(
+            readiness[key]["state"] == "ready"
+            for key in ("providers", "storage", "media", "realtime")
+        )
+        else "degraded"
+    )
+    return {
+        "status": status,
+        "readiness": readiness,
+        "providers": providers,
+        "storage": storage,
+        "media": media,
+        "realtime": realtime,
+        "hardware_bridge": hardware_bridge,
+    }
+
+
 @router.get("/runtime")
 def runtime_health():
-    return {
-        "status": "ok",
-        "providers": _provider_diagnostics(),
-        "storage": _storage_diagnostics(),
-        "media": _media_diagnostics(),
-    }
+    return build_runtime_diagnostics()

@@ -298,6 +298,36 @@ Must finish before touching hardware:
 5. The first hardware contract is LED-only and maps from shared Joi state events, not ad hoc firmware decisions.
 6. Voice/presence UI should be stable enough that hardware is an extension of Joi, not a workaround for app instability.
 
+Update from Thursday 2026-04-23:
+
+- Committed `2195f7a3 Set spoken replies on by default`.
+- Committed `53b6ba8e Quiet voice transcript display`.
+- Phase 4 voice-first access is now closed enough to stop adding voice UI surface area for the moment.
+- Runtime reliability pass completed:
+  - `/health` and `/diagnostics/runtime` now expose readiness buckets for providers, storage, media, realtime, and hardware bridge.
+  - Chat sidebar status now distinguishes degraded runtime state from full backend offline.
+  - Diagnostics page now shows readiness, realtime transport details, and disabled-by-default hardware bridge state.
+- `npm run typecheck` passed.
+- `npm run build` passed.
+- Python API tests were updated, but local `pytest` verification could not run in this shell because the available interpreter does not have a working project pytest environment.
+
+Start here next:
+
+1. Add the short avatar and voice QA checklist promised above:
+   - full mode framing
+   - mini mode framing
+   - VRM fallback
+   - GLB fallback
+   - idle motion
+   - speech and lip-sync
+   - narrow viewport behavior
+2. Define the first hardware state contract in code before firmware:
+   - canonical Joi runtime state names
+   - LED-only hardware output states
+   - disabled-by-default bridge feature flag
+   - diagnostics contract for bridge readiness
+3. Only after that, begin the first ESP32 or MQTT implementation pass.
+
 ## Success Definition
 
 Joi reaches the target direction when:

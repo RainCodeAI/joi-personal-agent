@@ -56,11 +56,39 @@ export type ProviderInfo = {
   errors: Array<Record<string, unknown>>;
 };
 
+export type ReadinessState = {
+  state: "ready" | "degraded" | "disabled";
+  summary: string;
+};
+
+export type ReadinessMap = Record<string, ReadinessState>;
+
 export type BackendHealth = {
   status: "ok" | "degraded";
   database: {
     available: boolean;
   };
+  storage?: {
+    available?: boolean;
+    database_mode?: string;
+    vector_mode?: string;
+  };
+  media?: {
+    available?: boolean;
+    tts_available?: boolean;
+    stt_available?: boolean;
+  };
+  realtime?: {
+    available?: boolean;
+    transport?: string;
+    subscriber_count?: number;
+  };
+  hardware_bridge?: {
+    enabled?: boolean;
+    available?: boolean;
+    note?: string;
+  };
+  readiness?: ReadinessMap;
   providers: Record<
     string,
     {
@@ -196,9 +224,12 @@ export type PlannerResponse = {
 
 export type DiagnosticsResponse = {
   status: string;
+  readiness: ReadinessMap;
   providers: Record<string, Record<string, unknown>>;
   storage: Record<string, unknown>;
   media: Record<string, Record<string, unknown>>;
+  realtime: Record<string, unknown>;
+  hardware_bridge: Record<string, unknown>;
 };
 
 export type PerceptionSignalType =

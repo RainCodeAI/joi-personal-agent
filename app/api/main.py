@@ -1,9 +1,9 @@
 import logging
 
-import httpx
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.api import diagnostics as diagnostics_api
 from app.api.diagnostics import router as diagnostics_router
 from app.api.models import (
     ChatRequest,
@@ -16,7 +16,6 @@ from app.api.models import (
 )
 from app.api.state import agent, memory_store
 from app.api.v2 import router as v2_router
-from app.config import settings
 from app.db import engine as db_engine
 
 logger = logging.getLogger(__name__)
@@ -34,39 +33,46 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-
-def _check_ollama() -> dict:
-    try:
-        with httpx.Client(timeout=1.5) as client:
-            r = client.get(f"{settings.ollama_host}/api/version")
-            r.raise_for_status()
-            return {"available": True}
-    except Exception as exc:
-        return {"available": False, "error": str(exc)}
-
-
 @app.get("/health")
 async def health():
+    runtime = diagnostics_api.build_runtime_diagnostics()
     db_ok = db_engine is not None
-    ollama = _check_ollama()
-    openai_configured = bool(settings.openai_api_key)
+    media_tts = runtime["media"].get("tts", {})
+    media_stt = runtime["media"].get("stt", {})
 
-    providers = {
-        "ollama": ollama,
-        "openai": {"available": openai_configured, "note": "key_present" if openai_configured else "key_missing"},
-    }
-
-    any_provider_up = ollama["available"] or openai_configured
-    status = "ok" if (db_ok and any_provider_up) else "degraded"
-
-    if status == "degraded":
-        logger.warning("Health check degraded: db_ok=%s any_provider_up=%s", db_ok, any_provider_up)
+    if runtime["status"] == "degraded":
+        logger.warning(
+            "Health check degraded: readiness=%s",
+            {key: value["state"] for key, value in runtime["readiness"].items()},
+        )
 
     return {
-        "status": status,
+        "status": runtime["status"],
         "database": {"available": db_ok},
-        "providers": providers,
+        "providers": runtime["providers"],
+        "storage": {
+            "available": runtime["storage"].get("available", False),
+            "database_mode": runtime["storage"].get("database_mode"),
+            "vector_mode": runtime["storage"].get("vector_mode"),
+        },
+        "media": {
+            "available": runtime["readiness"]["media"]["state"] == "ready",
+            "tts_available": any(
+                bool(media_tts.get(key))
+                for key in ("openai", "local_engine", "elevenlabs_sdk")
+            ),
+            "stt_available": any(
+                bool(media_stt.get(key))
+                for key in ("google_local_stack", "whisper_local")
+            ),
+        },
+        "realtime": {
+            "available": runtime["realtime"].get("available", False),
+            "transport": runtime["realtime"].get("transport"),
+            "subscriber_count": runtime["realtime"].get("subscriber_count", 0),
+        },
+        "hardware_bridge": runtime["hardware_bridge"],
+        "readiness": runtime["readiness"],
     }
 
 

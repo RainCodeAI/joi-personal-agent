@@ -5,6 +5,7 @@ from types import SimpleNamespace
 
 from fastapi.testclient import TestClient
 
+from app.api import main as api_main
 from app.api.main import app
 from app.api.models import ChatResponse
 from app.api.realtime import RealtimeEventBus, format_sse_event
@@ -17,10 +18,60 @@ from app.orchestrator.security.approval import ApprovalStatus, PendingApproval
 client = TestClient(app)
 
 
-def test_health():
+def test_health(monkeypatch):
+    monkeypatch.setattr(api_main, "db_engine", object())
+    monkeypatch.setattr(
+        api_main.diagnostics_api,
+        "build_runtime_diagnostics",
+        lambda: {
+            "status": "ok",
+            "providers": {
+                "ollama": {"available": True},
+                "openai": {"available": False},
+            },
+            "storage": {
+                "available": True,
+                "database_mode": "sqlite",
+                "vector_mode": "sql_only",
+            },
+            "media": {
+                "tts": {"openai": True, "local_engine": False, "elevenlabs_sdk": False},
+                "stt": {"google_local_stack": True, "whisper_local": False},
+            },
+            "realtime": {
+                "available": True,
+                "transport": "sse",
+                "subscriber_count": 2,
+            },
+            "hardware_bridge": {
+                "enabled": False,
+                "available": False,
+                "note": "disabled until ambient hardware Phase 8 begins",
+            },
+            "readiness": {
+                "providers": {"state": "ready", "summary": "provider route available"},
+                "storage": {"state": "ready", "summary": "sqlite / sql_only"},
+                "media": {"state": "ready", "summary": "tts and stt ready"},
+                "realtime": {"state": "ready", "summary": "sse transport"},
+                "hardware_bridge": {
+                    "state": "disabled",
+                    "summary": "disabled until ambient hardware Phase 8 begins",
+                },
+            },
+        },
+    )
+
     response = client.get("/health")
     assert response.status_code == 200
-    assert response.json() == {"status": "ok"}
+    body = response.json()
+    assert body["status"] == "ok"
+    assert body["database"]["available"] is True
+    assert body["storage"]["database_mode"] == "sqlite"
+    assert body["media"]["tts_available"] is True
+    assert body["media"]["stt_available"] is True
+    assert body["realtime"]["transport"] == "sse"
+    assert body["hardware_bridge"]["enabled"] is False
+    assert body["readiness"]["hardware_bridge"]["state"] == "disabled"
 
 
 def test_runtime_diagnostics(monkeypatch):
@@ -29,7 +80,7 @@ def test_runtime_diagnostics(monkeypatch):
         "_provider_diagnostics",
         lambda: {
             "ollama": {"configured": True, "available": True, "host": "http://127.0.0.1:11434"},
-            "openai": {"configured": False, "sdk_available": True},
+            "openai": {"configured": False, "available": False, "sdk_available": True},
         },
     )
     monkeypatch.setattr(
@@ -37,6 +88,7 @@ def test_runtime_diagnostics(monkeypatch):
         "_storage_diagnostics",
         lambda: {
             "airgap": False,
+            "available": True,
             "database_mode": "sqlite",
             "database_target": "./data/joi_v1.db",
             "vector_mode": "sql_only",
@@ -52,15 +104,41 @@ def test_runtime_diagnostics(monkeypatch):
             "vision": {"captioning_stack": True, "torch": True},
         },
     )
+    monkeypatch.setattr(
+        diagnostics_api,
+        "_realtime_diagnostics",
+        lambda: {
+            "available": True,
+            "transport": "sse",
+            "bus": "in_process",
+            "subscriber_count": 1,
+            "recent_event_buffer": 20,
+            "tracked_media_sessions": 0,
+        },
+    )
+    monkeypatch.setattr(
+        diagnostics_api,
+        "_hardware_bridge_diagnostics",
+        lambda: {
+            "enabled": False,
+            "available": False,
+            "transport": "mqtt",
+            "feature_flag": "off",
+            "note": "disabled until ambient hardware Phase 8 begins",
+        },
+    )
 
     response = client.get("/diagnostics/runtime")
 
     assert response.status_code == 200
     body = response.json()
     assert body["status"] == "ok"
+    assert body["readiness"]["media"]["state"] == "ready"
     assert body["providers"]["ollama"]["available"] is True
     assert body["storage"]["vector_mode"] == "sql_only"
     assert body["media"]["tts"]["openai"] is True
+    assert body["realtime"]["transport"] == "sse"
+    assert body["hardware_bridge"]["enabled"] is False
 
 
 def test_v2_create_session(monkeypatch):

@@ -30,6 +30,7 @@ import {
   Message,
   PerceptionSignal,
   PerceptionState,
+  ReadinessState,
   RealtimeEvent,
   SnapshotAnalysis,
 } from "@/lib/types";
@@ -66,6 +67,16 @@ type ApprovalPresentation = {
   fields: ApprovalField[];
   preview?: string;
 };
+
+const RUNTIME_READINESS_KEYS = [
+  "providers",
+  "storage",
+  "media",
+  "realtime",
+  "hardware_bridge",
+] as const;
+
+type RuntimeReadinessKey = (typeof RUNTIME_READINESS_KEYS)[number];
 
 function formatTimestamp(value: string) {
   try {
@@ -113,6 +124,33 @@ function apiErrorMessage(error: Error): string {
   return error.message;
 }
 
+function readinessTone(state?: ReadinessState["state"]): string {
+  if (state === "ready") return "ok";
+  if (state === "degraded") return "warn";
+  return "";
+}
+
+function readinessLabel(state?: ReadinessState["state"]): string {
+  if (state === "ready") return "ready";
+  if (state === "degraded") return "degraded";
+  if (state === "disabled") return "disabled";
+  return "unknown";
+}
+
+function readinessEntry(health: BackendHealth | null, key: RuntimeReadinessKey) {
+  return health?.readiness?.[key];
+}
+
+function providerAvailabilitySummary(health: BackendHealth | null): string {
+  if (!health) {
+    return "not connected";
+  }
+
+  const providerEntries = Object.entries(health.providers ?? {});
+  const availableCount = providerEntries.filter(([, provider]) => provider.available).length;
+  return `${availableCount}/${providerEntries.length} routes available`;
+}
+
 function backendStatusCopy(status: BackendStatus, health: BackendHealth | null): string {
   if (status === "checking") {
     return "Checking backend";
@@ -123,12 +161,13 @@ function backendStatusCopy(status: BackendStatus, health: BackendHealth | null):
   }
 
   if (status === "degraded") {
-    const unavailable = Object.entries(health?.providers ?? {})
-      .filter(([, provider]) => !provider.available)
-      .map(([name]) => name);
-    return unavailable.length
-      ? `Backend degraded: ${unavailable.join(", ")} unavailable`
-      : "Backend degraded";
+    const degradedSystems = RUNTIME_READINESS_KEYS
+      .map((key) => [key, readinessEntry(health, key)] as const)
+      .filter(([, entry]) => entry?.state === "degraded")
+      .map(([key, entry]) => `${humanizeKey(key)} ${entry?.summary.toLowerCase()}`);
+    return degradedSystems.length
+      ? `Runtime degraded: ${degradedSystems.join(" | ")}`
+      : "Runtime degraded";
   }
 
   return "Backend online";
@@ -929,12 +968,64 @@ export function ChatClient({ initialSessionId }: ChatClientProps) {
                     <strong>Backend</strong>
                     <p>
                       {backendHealth
-                        ? `db ${backendHealth.database.available ? "ready" : "unavailable"}`
+                        ? `${providerAvailabilitySummary(backendHealth)} | ${readinessEntry(backendHealth, "providers")?.summary ?? "provider status pending"}`
                         : "not connected"}
                     </p>
                   </div>
                   <span className={`badge ${backendBadgeClass(backendStatus)}`}>
                     {backendStatus}
+                  </span>
+                </div>
+                <div className="list-row">
+                  <div>
+                    <strong>Storage</strong>
+                    <p>
+                      {backendHealth
+                        ? readinessEntry(backendHealth, "storage")?.summary ?? "storage status pending"
+                        : "not connected"}
+                    </p>
+                  </div>
+                  <span className={`badge ${readinessTone(readinessEntry(backendHealth, "storage")?.state)}`}>
+                    {readinessLabel(readinessEntry(backendHealth, "storage")?.state)}
+                  </span>
+                </div>
+                <div className="list-row">
+                  <div>
+                    <strong>Media</strong>
+                    <p>
+                      {backendHealth
+                        ? readinessEntry(backendHealth, "media")?.summary ?? "media status pending"
+                        : "not connected"}
+                    </p>
+                  </div>
+                  <span className={`badge ${readinessTone(readinessEntry(backendHealth, "media")?.state)}`}>
+                    {readinessLabel(readinessEntry(backendHealth, "media")?.state)}
+                  </span>
+                </div>
+                <div className="list-row">
+                  <div>
+                    <strong>Realtime</strong>
+                    <p>
+                      {backendHealth
+                        ? readinessEntry(backendHealth, "realtime")?.summary ?? "realtime status pending"
+                        : "not connected"}
+                    </p>
+                  </div>
+                  <span className={`badge ${readinessTone(readinessEntry(backendHealth, "realtime")?.state)}`}>
+                    {readinessLabel(readinessEntry(backendHealth, "realtime")?.state)}
+                  </span>
+                </div>
+                <div className="list-row">
+                  <div>
+                    <strong>Hardware bridge</strong>
+                    <p>
+                      {backendHealth
+                        ? readinessEntry(backendHealth, "hardware_bridge")?.summary ?? "hardware bridge status pending"
+                        : "not connected"}
+                    </p>
+                  </div>
+                  <span className={`badge ${readinessTone(readinessEntry(backendHealth, "hardware_bridge")?.state)}`}>
+                    {readinessLabel(readinessEntry(backendHealth, "hardware_bridge")?.state)}
                   </span>
                 </div>
                 <div className="list-row">
