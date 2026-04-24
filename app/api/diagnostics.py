@@ -6,7 +6,7 @@ from typing import Any, Dict
 import httpx
 from fastapi import APIRouter
 
-from app.api.state import event_bus, media_sessions
+from app.api.state import event_bus, hardware_bridge, media_sessions
 from app.config import settings
 from app.db import engine as db_engine
 from app.memory.store import MemoryStore
@@ -155,13 +155,12 @@ def _realtime_diagnostics() -> Dict[str, Any]:
 
 
 def _hardware_bridge_diagnostics() -> Dict[str, Any]:
-    return {
-        "enabled": False,
-        "available": False,
-        "transport": "mqtt",
-        "feature_flag": "off",
-        "note": "disabled until ambient hardware Phase 8 begins",
-    }
+    diagnostics = hardware_bridge.get_bridge_snapshot()
+    if not diagnostics.get("enabled"):
+        diagnostics["note"] = "disabled until ambient hardware Phase 8 begins"
+    elif not diagnostics.get("note"):
+        diagnostics["note"] = f"mqtt {diagnostics.get('connection_state', 'unknown')}"
+    return diagnostics
 
 
 def _readiness_summary(

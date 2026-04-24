@@ -328,6 +328,26 @@ Start here next:
    - diagnostics contract for bridge readiness
 3. Only after that, begin the first ESP32 or MQTT implementation pass.
 
+Update from Thursday 2026-04-23, late session:
+
+- First hardware state contract is now defined in code before firmware work:
+  - canonical states: `sleeping`, `idle`, `listening`, `thinking`, `speaking`, `user_returned`, `user_away`, `error`
+  - LED-only output states are mapped on the PC side and exposed through a stable contract
+  - bridge config is disabled by default and exposed through runtime settings
+  - diagnostics now have a concrete bridge shape: connection state, node count, heartbeat, publish time, and bridge error
+- New contract endpoint: `GET /api/v2/hardware/contract`
+- Runtime transitions now emit `joi.state.changed` so the future MQTT bridge has one command signal to mirror.
+
+Revised next start:
+
+1. Add the short avatar and voice QA checklist.
+2. Decide whether to expose the hardware contract in the diagnostics/settings UI any further, or leave the current API surface as the source of truth.
+3. Begin the first MQTT bridge implementation pass:
+   - publish the current hardware command to `joi/nodes/{node_id}/cmd/state`
+   - keep the bridge disabled by default
+   - report disconnected vs connected cleanly
+4. Only after that, start the first ESP32 LED node bring-up.
+
 ## Success Definition
 
 Joi reaches the target direction when:

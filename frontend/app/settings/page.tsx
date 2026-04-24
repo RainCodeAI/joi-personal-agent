@@ -31,6 +31,10 @@ export default async function SettingsPage() {
             <span>Camera</span>
             <strong>{policyResponse.policy.camera_enabled ? "On" : "Off"}</strong>
           </div>
+          <div className="status-card">
+            <span>Hardware Bridge</span>
+            <strong>{settingsResponse.settings.enable_hardware_nodes ? "On" : "Off"}</strong>
+          </div>
         </div>
       </header>
 

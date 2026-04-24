@@ -16,8 +16,18 @@ from typing import Any, Dict, Iterable, List
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 
+from app.hardware.schemas import HardwareBridgeContractResponse, HardwareStateName
 from app.api.realtime import format_sse_event
-from app.api.state import agent, approval_manager, event_bus, media_sessions, memory_store, perception_policy, runtime_settings
+from app.api.state import (
+    agent,
+    approval_manager,
+    event_bus,
+    hardware_bridge,
+    media_sessions,
+    memory_store,
+    perception_policy,
+    runtime_settings,
+)
 from app.api.models import (
     ActivityLog,
     CbtExercise,
@@ -158,6 +168,10 @@ def _settings_resource() -> SettingsResource:
     return SettingsResource(**runtime_settings.get())
 
 
+def _hardware_contract_response() -> HardwareBridgeContractResponse:
+    return HardwareBridgeContractResponse(**hardware_bridge.get_contract())
+
+
 def _event_resource(event: Dict[str, Any]) -> RealtimeEventEnvelope:
     return RealtimeEventEnvelope(**event)
 
@@ -166,7 +180,46 @@ def _media_session_resource(state: Dict[str, Any]) -> MediaSessionResource:
     return MediaSessionResource(**state)
 
 
+async def _publish_hardware_state_transition(
+    state: HardwareStateName,
+    *,
+    source_event: str,
+    session_id: str | None = None,
+    reason: str | None = None,
+) -> None:
+    command, changed = hardware_bridge.set_runtime_state(
+        state,
+        source_event=source_event,
+        session_id=session_id,
+        reason=reason,
+    )
+    if not changed:
+        return
+    await event_bus.publish(
+        "joi.state.changed",
+        {
+            "state": command["state"],
+            "led_state": command["led_state"],
+            "hardware_command": command,
+        },
+        session_id=session_id,
+        source="runtime",
+    )
+
+
 async def _publish_media_session(session_id: str, state: Dict[str, Any]) -> None:
+    command, changed = hardware_bridge.sync_from_media_session(session_id, state)
+    if changed:
+        await event_bus.publish(
+            "joi.state.changed",
+            {
+                "state": command["state"],
+                "led_state": command["led_state"],
+                "hardware_command": command,
+            },
+            session_id=session_id,
+            source="runtime",
+        )
     await event_bus.publish(
         "media.session.updated",
         {
@@ -620,6 +673,12 @@ async def chat_v2(request: V2ChatRequest):
         session_id=request.session_id,
         source="chat",
     )
+    await _publish_hardware_state_transition(
+        "thinking",
+        source_event="response.started",
+        session_id=request.session_id,
+        reason="assistant response in progress",
+    )
     loop = asyncio.get_running_loop()
     on_token, flush_deltas = _create_delta_bridge(loop, request.session_id)
     response = await asyncio.to_thread(
@@ -705,6 +764,12 @@ async def chat_v2(request: V2ChatRequest):
         },
         session_id=request.session_id,
         source="chat",
+    )
+    await _publish_hardware_state_transition(
+        "idle",
+        source_event="message.completed",
+        session_id=request.session_id,
+        reason="assistant response completed",
     )
     await event_bus.publish(
         "avatar.state",
@@ -1196,6 +1261,11 @@ async def patch_settings(request: SettingsPatchRequest):
         source="settings",
     )
     return settings_response
+
+
+@router.get("/hardware/contract", response_model=HardwareBridgeContractResponse)
+async def get_hardware_contract():
+    return _hardware_contract_response()
 
 
 @router.get("/events", response_model=RealtimeEventsResponse)

@@ -302,6 +302,11 @@ export async function fetchSettings() {
       airgap: boolean;
       autonomy_level: string;
       enable_proactive_messaging: boolean;
+      enable_hardware_nodes: boolean;
+      mqtt_broker_host: string;
+      mqtt_broker_port: number;
+      mqtt_client_id: string;
+      mqtt_topic_prefix: string;
       model_chat: string;
       model_embed: string;
       router_timeout: number;
@@ -316,6 +321,11 @@ export async function patchSettings(
     airgap: boolean;
     autonomy_level: string;
     enable_proactive_messaging: boolean;
+    enable_hardware_nodes: boolean;
+    mqtt_broker_host: string;
+    mqtt_broker_port: number;
+    mqtt_client_id: string;
+    mqtt_topic_prefix: string;
     model_chat: string;
     model_embed: string;
     router_timeout: number;
@@ -329,6 +339,11 @@ export async function patchSettings(
       airgap: boolean;
       autonomy_level: string;
       enable_proactive_messaging: boolean;
+      enable_hardware_nodes: boolean;
+      mqtt_broker_host: string;
+      mqtt_broker_port: number;
+      mqtt_client_id: string;
+      mqtt_topic_prefix: string;
       model_chat: string;
       model_embed: string;
       router_timeout: number;

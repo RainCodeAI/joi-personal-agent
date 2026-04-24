@@ -23,6 +23,11 @@ class Settings(BaseSettings):
     router_timeout: int = Field(default=30)
     autonomy_level: str = Field(default="medium")  # low, medium, high
     enable_proactive_messaging: bool = Field(default=True)
+    enable_hardware_nodes: bool = Field(default=False)
+    mqtt_broker_host: str = Field(default="127.0.0.1")
+    mqtt_broker_port: int = Field(default=1883)
+    mqtt_client_id: str = Field(default="joi-pc-runtime")
+    mqtt_topic_prefix: str = Field(default="joi")
     # Phase 11: GGUF local model
     gguf_model_path: str = Field(default="")  # Path to .gguf file
     gguf_n_ctx: int = Field(default=2048)

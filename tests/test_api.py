@@ -284,9 +284,11 @@ def test_v2_chat_contract(monkeypatch):
     assert [event["event"] for event in published_events] == [
         "message.received",
         "response.started",
+        "joi.state.changed",
         "approval.requested",
         "message.created",
         "message.completed",
+        "joi.state.changed",
         "avatar.state",
     ]
 
@@ -428,10 +430,12 @@ def test_v2_chat_with_attachments_and_deltas(monkeypatch):
     assert [event["event"] for event in published_events] == [
         "message.received",
         "response.started",
+        "joi.state.changed",
         "message.delta",
         "message.delta",
         "message.created",
         "message.completed",
+        "joi.state.changed",
         "avatar.state",
     ]
     assert published_events[2]["payload"]["content"] == "I see the "
@@ -506,7 +510,24 @@ def test_v2_media_session_contract(monkeypatch):
             "payload": payload,
         }
 
+    class FakeHardwareBridge:
+        def __init__(self):
+            self.calls = []
+
+        def sync_from_media_session(self, session_id, state):
+            self.calls.append((session_id, dict(state)))
+            return (
+                {
+                    "state": "listening",
+                    "led_state": "attentive_pulse",
+                    "session_id": session_id,
+                },
+                True,
+            )
+
     monkeypatch.setattr(api_v2, "media_sessions", FakeMediaSessions())
+    fake_bridge = FakeHardwareBridge()
+    monkeypatch.setattr(api_v2, "hardware_bridge", fake_bridge)
     monkeypatch.setattr(api_v2.event_bus, "publish", fake_publish)
 
     response = client.patch(
@@ -524,7 +545,10 @@ def test_v2_media_session_contract(monkeypatch):
     assert body["media_session"]["mic_state"] == "recording"
     assert body["media_session"]["speaking_state"] == "interrupted"
     assert body["media_session"]["interruption_count"] == 1
-    assert published_events[0][0] == "media.session.updated"
+    assert published_events[0][0] == "joi.state.changed"
+    assert published_events[1][0] == "media.session.updated"
+    assert fake_bridge.calls[0][0] == "session-chat"
+    assert fake_bridge.calls[0][1]["mic_state"] == "recording"
 
 
 def test_v2_media_transcribe_contract(monkeypatch):
@@ -597,6 +621,11 @@ def test_v2_settings_patch(monkeypatch):
                 "airgap": False,
                 "autonomy_level": "medium",
                 "enable_proactive_messaging": True,
+                "enable_hardware_nodes": False,
+                "mqtt_broker_host": "127.0.0.1",
+                "mqtt_broker_port": 1883,
+                "mqtt_client_id": "joi-pc-runtime",
+                "mqtt_topic_prefix": "joi",
                 "model_chat": "gpt-4o-mini",
                 "model_embed": "nomic-embed-text",
                 "router_timeout": 30,
@@ -621,6 +650,85 @@ def test_v2_settings_patch(monkeypatch):
     assert body["api_version"] == "v2"
     assert body["settings"]["autonomy_level"] == "high"
     assert body["settings"]["router_timeout"] == 45
+
+
+def test_v2_hardware_contract(monkeypatch):
+    class FakeHardwareBridge:
+        def get_contract(self):
+            return {
+                "api_version": "v2",
+                "contract_version": "ambient-v1",
+                "disabled_by_default": True,
+                "state_topic_template": "joi/nodes/{node_id}/cmd/state",
+                "config_topic_template": "joi/nodes/{node_id}/cmd/config",
+                "telemetry_topics": [
+                    "joi/nodes/{node_id}/telemetry/presence",
+                    "joi/nodes/{node_id}/status/health",
+                ],
+                "diagnostics_fields": [
+                    "enabled",
+                    "available",
+                    "connection_state",
+                    "node_count",
+                ],
+                "states": [
+                    {
+                        "state": "idle",
+                        "led_state": "calm_pulse",
+                        "intensity": 0.35,
+                        "transition_ms": 1200,
+                        "note": "Default calm presence",
+                    },
+                    {
+                        "state": "speaking",
+                        "led_state": "speaking_pulse",
+                        "intensity": 0.65,
+                        "transition_ms": 180,
+                        "note": "Speech active",
+                    },
+                ],
+                "bridge": {
+                    "enabled": False,
+                    "available": False,
+                    "transport": "mqtt",
+                    "feature_flag": "off",
+                    "broker_host": "127.0.0.1",
+                    "broker_port": 1883,
+                    "client_id": "joi-pc-runtime",
+                    "topic_prefix": "joi",
+                    "connection_state": "disabled",
+                    "node_count": 0,
+                    "last_heartbeat_at": None,
+                    "last_publish_at": None,
+                    "last_bridge_error": None,
+                    "contract_version": "ambient-v1",
+                    "current_command": {
+                        "contract_version": "ambient-v1",
+                        "state": "idle",
+                        "led_state": "calm_pulse",
+                        "intensity": 0.35,
+                        "transition_ms": 1200,
+                        "mood": "neutral",
+                        "source_event": "system.boot",
+                        "session_id": None,
+                        "reason": "ambient bridge initialized in disabled mode",
+                        "updated_at": "2026-01-03T12:00:01Z",
+                    },
+                },
+            }
+
+    monkeypatch.setattr(api_v2, "hardware_bridge", FakeHardwareBridge())
+
+    response = client.get("/api/v2/hardware/contract")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["api_version"] == "v2"
+    assert body["contract_version"] == "ambient-v1"
+    assert body["bridge"]["enabled"] is False
+    assert body["bridge"]["connection_state"] == "disabled"
+    assert body["states"][0]["state"] == "idle"
+    assert body["states"][1]["led_state"] == "speaking_pulse"
 
 
 def test_v2_recent_events(monkeypatch):

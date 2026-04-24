@@ -40,7 +40,9 @@ function DetailRows({ value }: { value: unknown }) {
       {entries.map(([k, v]) => (
         <div className="diag-row" key={k}>
           <span className="diag-key">{k}</span>
-          <span className="diag-value">{String(v)}</span>
+          <span className="diag-value">
+            {v !== null && typeof v === "object" ? JSON.stringify(v) : String(v)}
+          </span>
         </div>
       ))}
     </div>

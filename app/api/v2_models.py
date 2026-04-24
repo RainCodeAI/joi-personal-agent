@@ -198,6 +198,11 @@ class SettingsResource(BaseModel):
     airgap: bool
     autonomy_level: str
     enable_proactive_messaging: bool
+    enable_hardware_nodes: bool
+    mqtt_broker_host: str
+    mqtt_broker_port: int
+    mqtt_client_id: str
+    mqtt_topic_prefix: str
     model_chat: str
     model_embed: str
     router_timeout: int
@@ -213,6 +218,11 @@ class SettingsPatchRequest(BaseModel):
     airgap: Optional[bool] = None
     autonomy_level: Optional[str] = None
     enable_proactive_messaging: Optional[bool] = None
+    enable_hardware_nodes: Optional[bool] = None
+    mqtt_broker_host: Optional[str] = None
+    mqtt_broker_port: Optional[int] = None
+    mqtt_client_id: Optional[str] = None
+    mqtt_topic_prefix: Optional[str] = None
     model_chat: Optional[str] = None
     model_embed: Optional[str] = None
     router_timeout: Optional[int] = None

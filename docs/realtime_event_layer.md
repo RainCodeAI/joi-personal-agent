@@ -34,6 +34,7 @@ Every event uses this shape:
 - `approval.resolved`
 - `tool.completed`
 - `avatar.state`
+- `joi.state.changed`
 - `tts.ready`
 - `settings.updated`
 - `heartbeat`
@@ -44,6 +45,7 @@ Every event uses this shape:
 - Use `GET /api/v2/events?session_id=...` for short backfill or reconnect bootstrap.
 - Treat `message.completed` as the current assistant-final event.
 - Treat `response.started` as typing/processing state.
+- Treat `joi.state.changed` as the stable ambient-hardware command signal for LEDs and future node behavior.
 - Treat `approval.requested` and `approval.resolved` as the approval UI driver.
 - Treat `avatar.state` and `tts.ready` as separate signals so motion and playback can evolve independently.
 

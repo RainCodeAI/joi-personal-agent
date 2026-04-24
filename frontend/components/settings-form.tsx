@@ -9,6 +9,11 @@ type SettingsFormProps = {
     airgap: boolean;
     autonomy_level: string;
     enable_proactive_messaging: boolean;
+    enable_hardware_nodes: boolean;
+    mqtt_broker_host: string;
+    mqtt_broker_port: number;
+    mqtt_client_id: string;
+    mqtt_topic_prefix: string;
     model_chat: string;
     model_embed: string;
     router_timeout: number;
@@ -80,6 +85,45 @@ export function SettingsForm({ settings }: SettingsFormProps) {
             onChange={(event) => setForm((current) => ({ ...current, model_embed: event.target.value }))}
           />
         </div>
+        <div className="field">
+          <label htmlFor="settings-mqtt-host">MQTT Host</label>
+          <input
+            id="settings-mqtt-host"
+            className="input"
+            value={form.mqtt_broker_host}
+            onChange={(event) => setForm((current) => ({ ...current, mqtt_broker_host: event.target.value }))}
+          />
+        </div>
+        <div className="field">
+          <label htmlFor="settings-mqtt-port">MQTT Port</label>
+          <input
+            id="settings-mqtt-port"
+            className="input"
+            type="number"
+            value={form.mqtt_broker_port}
+            onChange={(event) =>
+              setForm((current) => ({ ...current, mqtt_broker_port: Number(event.target.value || 0) }))
+            }
+          />
+        </div>
+        <div className="field">
+          <label htmlFor="settings-mqtt-client">MQTT Client ID</label>
+          <input
+            id="settings-mqtt-client"
+            className="input"
+            value={form.mqtt_client_id}
+            onChange={(event) => setForm((current) => ({ ...current, mqtt_client_id: event.target.value }))}
+          />
+        </div>
+        <div className="field">
+          <label htmlFor="settings-mqtt-topic-prefix">MQTT Topic Prefix</label>
+          <input
+            id="settings-mqtt-topic-prefix"
+            className="input"
+            value={form.mqtt_topic_prefix}
+            onChange={(event) => setForm((current) => ({ ...current, mqtt_topic_prefix: event.target.value }))}
+          />
+        </div>
       </div>
 
       <div className="button-row">
@@ -101,6 +145,18 @@ export function SettingsForm({ settings }: SettingsFormProps) {
           }
         >
           Proactive: {form.enable_proactive_messaging ? "on" : "off"}
+        </button>
+        <button
+          className="button secondary"
+          type="button"
+          onClick={() =>
+            setForm((current) => ({
+              ...current,
+              enable_hardware_nodes: !current.enable_hardware_nodes,
+            }))
+          }
+        >
+          Hardware bridge: {form.enable_hardware_nodes ? "on" : "off"}
         </button>
         <button className="button primary" type="submit">
           Save settings
