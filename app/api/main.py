@@ -1,4 +1,13 @@
+import asyncio
 import logging
+import sys
+from contextlib import asynccontextmanager
+
+# aiomqtt requires SelectorEventLoop on Windows (ProactorEventLoop lacks add_reader/add_writer).
+# set_event_loop_policy is deprecated in 3.14 and slated for removal in 3.16.
+# When uvicorn gains loop_factory support, replace this with that mechanism.
+if sys.platform == "win32":
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())  # noqa: PYD014
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -14,13 +23,21 @@ from app.api.models import (
     OAuthCallbackResponse,
     OAuthStartResponse,
 )
-from app.api.state import agent, memory_store
+from app.api.state import agent, memory_store, mqtt_bridge
 from app.api.v2 import router as v2_router
 from app.db import engine as db_engine
 
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="Joi API", version="1.0.0")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    await mqtt_bridge.start()
+    yield
+    await mqtt_bridge.stop()
+
+
+app = FastAPI(title="Joi API", version="1.0.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,

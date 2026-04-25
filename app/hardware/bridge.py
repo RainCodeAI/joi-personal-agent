@@ -83,7 +83,7 @@ def _utcnow() -> str:
 
 
 class HardwareBridgeStore:
-    """Keeps the PC-side hardware contract stable before MQTT transport exists."""
+    """PC-side hardware contract and diagnostics state. Updated by MqttBridge at runtime."""
 
     def __init__(self) -> None:
         self._lock = Lock()
@@ -142,6 +142,31 @@ class HardwareBridgeStore:
             bridge=HardwareBridgeDiagnosticsResource(**self.get_bridge_snapshot()),
         )
         return contract.model_dump(mode="json")
+
+    def get_current_command(self) -> dict[str, Any]:
+        with self._lock:
+            return self._current_command.model_dump(mode="json")
+
+    def set_connection_state(
+        self,
+        state: str,
+        error: str | None = None,
+    ) -> None:
+        with self._lock:
+            self._connection_state = state
+            if error is not None:
+                self._last_bridge_error = error
+            if state in ("disconnected", "disabled", "error"):
+                self._node_count = 0
+
+    def record_publish(self) -> None:
+        with self._lock:
+            self._last_publish_at = _utcnow()
+
+    def record_heartbeat(self) -> None:
+        with self._lock:
+            self._last_heartbeat_at = _utcnow()
+            self._node_count = 1
 
     def set_runtime_state(
         self,

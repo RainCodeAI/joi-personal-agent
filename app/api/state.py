@@ -1,4 +1,5 @@
 from app.hardware.bridge import HardwareBridgeStore
+from app.hardware.mqtt_bridge import MqttBridge
 from app.api.media_session import MediaSessionStore
 from app.api.perception_policy import PerceptionPolicyStore
 from app.api.realtime import RealtimeEventBus
@@ -16,3 +17,4 @@ perception_policy = PerceptionPolicyStore()
 event_bus = RealtimeEventBus()
 media_sessions = MediaSessionStore()
 hardware_bridge = HardwareBridgeStore()
+mqtt_bridge = MqttBridge(hardware_bridge, event_bus)

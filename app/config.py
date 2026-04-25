@@ -28,6 +28,7 @@ class Settings(BaseSettings):
     mqtt_broker_port: int = Field(default=1883)
     mqtt_client_id: str = Field(default="joi-pc-runtime")
     mqtt_topic_prefix: str = Field(default="joi")
+    mqtt_node_id: str = Field(default="desk")
     # Phase 11: GGUF local model
     gguf_model_path: str = Field(default="")  # Path to .gguf file
     gguf_n_ctx: int = Field(default=2048)

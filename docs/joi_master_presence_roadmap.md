@@ -348,6 +348,30 @@ Revised next start:
    - report disconnected vs connected cleanly
 4. Only after that, start the first ESP32 LED node bring-up.
 
+Update from Thursday 2026-04-23, close-of-night session:
+
+- First MQTT bridge implementation pass is complete and smoke tested.
+- `aiomqtt>=2.0` added to requirements; `aiomqtt 2.5.1` installed.
+- `app/hardware/mqtt_bridge.py` created: `MqttBridge` class with reconnect loop, birth/LWT to `joi/bridge/status`, publishes `joi/nodes/{node_id}/cmd/state` on every `joi.state.changed` event, subscribes to `joi/nodes/{node_id}/telemetry/heartbeat` for node tracking.
+- `HardwareBridgeStore` extended with `set_connection_state()`, `record_publish()`, `record_heartbeat()`.
+- `mqtt_node_id` config field added (default: `desk`); public runtime settings exposure is still a follow-up.
+- `MqttBridge` wired into `app/api/state.py` singleton and FastAPI lifespan in `app/api/main.py`.
+- Windows fix: `SelectorEventLoop` policy applied at module load in `main.py` (aiomqtt requires `add_reader`/`add_writer` which `ProactorEventLoop` does not implement). Smoke test uses `loop_factory=asyncio.SelectorEventLoop` directly to avoid the deprecated policy API.
+- Smoke test `smoke_mqtt.py` passes 6/6: birth message, state command delivery, diagnostics timestamps, clean shutdown.
+- Mosquitto 2.1.2 installed locally via winget for broker testing.
+- Follow-up fix after review:
+  - bridge enable/disable now applies live through runtime settings without requiring an API restart
+  - current hardware command is replayed on MQTT connect/reconnect so the node does not wait for the next state transition
+
+Start here next:
+
+1. Add the short avatar and voice QA checklist.
+2. Start the first ESP32 LED node bring-up:
+   - Flash ESP32 with firmware that subscribes to `joi/nodes/desk/cmd/state`
+   - Parse the `led_state` field and drive LED output
+   - Publish heartbeat to `joi/nodes/desk/telemetry/heartbeat` so node_count increments in diagnostics
+   - Do not add ultrasonic sensing until LED state output and node health are stable
+
 ## Success Definition
 
 Joi reaches the target direction when:

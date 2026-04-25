@@ -12,6 +12,7 @@ from app.api.realtime import RealtimeEventBus, format_sse_event
 from app.api import v2 as api_v2
 from app.api.v2_models import ChatAttachmentResource
 from app.api import diagnostics as diagnostics_api
+from app.hardware import mqtt_bridge as mqtt_bridge_module
 from app.orchestrator.security.approval import ApprovalStatus, PendingApproval
 
 
@@ -626,6 +627,7 @@ def test_v2_settings_patch(monkeypatch):
                 "mqtt_broker_port": 1883,
                 "mqtt_client_id": "joi-pc-runtime",
                 "mqtt_topic_prefix": "joi",
+                "mqtt_node_id": "desk",
                 "model_chat": "gpt-4o-mini",
                 "model_embed": "nomic-embed-text",
                 "router_timeout": 30,
@@ -642,6 +644,13 @@ def test_v2_settings_patch(monkeypatch):
 
     fake_runtime = FakeRuntimeSettings()
     monkeypatch.setattr(api_v2, "runtime_settings", fake_runtime)
+    apply_calls = []
+
+    class FakeMqttBridge:
+        async def apply_runtime_settings(self):
+            apply_calls.append("applied")
+
+    monkeypatch.setattr(api_v2, "mqtt_bridge", FakeMqttBridge())
 
     response = client.patch("/api/v2/settings", json={"autonomy_level": "high", "router_timeout": 45})
 
@@ -650,6 +659,14 @@ def test_v2_settings_patch(monkeypatch):
     assert body["api_version"] == "v2"
     assert body["settings"]["autonomy_level"] == "high"
     assert body["settings"]["router_timeout"] == 45
+    assert apply_calls == []
+
+    response = client.patch("/api/v2/settings", json={"enable_hardware_nodes": True})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["settings"]["enable_hardware_nodes"] is True
+    assert apply_calls == ["applied"]
 
 
 def test_v2_hardware_contract(monkeypatch):
@@ -729,6 +746,104 @@ def test_v2_hardware_contract(monkeypatch):
     assert body["bridge"]["connection_state"] == "disabled"
     assert body["states"][0]["state"] == "idle"
     assert body["states"][1]["led_state"] == "speaking_pulse"
+
+
+def test_mqtt_bridge_replays_current_command_on_connect(monkeypatch):
+    class FakeStore:
+        def __init__(self):
+            self.connection_states = []
+            self.publish_count = 0
+
+        def set_connection_state(self, state, error=None):
+            self.connection_states.append((state, error))
+
+        def get_current_command(self):
+            return {
+                "contract_version": "ambient-v1",
+                "state": "thinking",
+                "led_state": "thinking_glow",
+                "intensity": 0.45,
+                "transition_ms": 700,
+                "mood": "neutral",
+                "source_event": "response.started",
+                "session_id": "session-chat",
+                "reason": "assistant response in progress",
+                "updated_at": "2026-01-03T12:00:01Z",
+            }
+
+        def record_publish(self):
+            self.publish_count += 1
+
+    class FakeClient:
+        def __init__(self, *args, **kwargs):
+            self.kwargs = kwargs
+            self.publishes = []
+            self.subscriptions = []
+            self.messages = self
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def publish(self, topic, payload, retain=False):
+            self.publishes.append((topic, json.loads(payload), retain))
+
+        async def subscribe(self, topic):
+            self.subscriptions.append(topic)
+
+        def __aiter__(self):
+            return self
+
+        async def __anext__(self):
+            raise StopAsyncIteration
+
+    class FakeAiomqtt:
+        last_client = None
+
+        class Will:
+            def __init__(self, **kwargs):
+                self.kwargs = kwargs
+
+        @staticmethod
+        def Client(*args, **kwargs):
+            client = FakeClient(*args, **kwargs)
+            FakeAiomqtt.last_client = client
+            return client
+
+    class FakeEventBus:
+        async def subscribe(self, session_id=None):
+            return "sub-1", asyncio.Queue()
+
+        async def unsubscribe(self, subscriber_id):
+            return None
+
+    monkeypatch.setattr(mqtt_bridge_module, "_AIOMQTT_AVAILABLE", True)
+    monkeypatch.setattr(mqtt_bridge_module, "aiomqtt", FakeAiomqtt)
+    monkeypatch.setattr(mqtt_bridge_module.settings, "enable_hardware_nodes", True)
+    monkeypatch.setattr(mqtt_bridge_module.settings, "mqtt_broker_host", "127.0.0.1")
+    monkeypatch.setattr(mqtt_bridge_module.settings, "mqtt_broker_port", 1883)
+    monkeypatch.setattr(mqtt_bridge_module.settings, "mqtt_client_id", "joi-test")
+    monkeypatch.setattr(mqtt_bridge_module.settings, "mqtt_topic_prefix", "joi")
+    monkeypatch.setattr(mqtt_bridge_module.settings, "mqtt_node_id", "desk")
+
+    bridge = mqtt_bridge_module.MqttBridge(FakeStore(), FakeEventBus())
+
+    async def fake_publish_loop(client, queue, state_topic):
+        return None
+
+    bridge._publish_loop = fake_publish_loop  # type: ignore[method-assign]
+
+    asyncio.run(bridge._connect_and_serve())
+
+    published = FakeAiomqtt.last_client.publishes
+    assert published[0][0] == "joi/bridge/status"
+    assert published[0][1]["status"] == "online"
+    assert published[0][2] is True
+    assert published[1][0] == "joi/nodes/desk/cmd/state"
+    assert published[1][1]["state"] == "thinking"
+    assert published[1][2] is True
 
 
 def test_v2_recent_events(monkeypatch):

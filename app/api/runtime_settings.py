@@ -19,6 +19,7 @@ class RuntimeSettingsStore:
         "mqtt_broker_port",
         "mqtt_client_id",
         "mqtt_topic_prefix",
+        "mqtt_node_id",
         "model_chat",
         "model_embed",
         "router_timeout",

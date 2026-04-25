@@ -25,6 +25,7 @@ from app.api.state import (
     hardware_bridge,
     media_sessions,
     memory_store,
+    mqtt_bridge,
     perception_policy,
     runtime_settings,
 )
@@ -1251,6 +1252,15 @@ async def patch_settings(request: SettingsPatchRequest):
         runtime_settings.update(update_data)
     except KeyError as exc:
         raise HTTPException(status_code=400, detail=f"Unsupported settings key: {exc.args[0]}") from exc
+    if {
+        "enable_hardware_nodes",
+        "mqtt_broker_host",
+        "mqtt_broker_port",
+        "mqtt_client_id",
+        "mqtt_topic_prefix",
+        "mqtt_node_id",
+    } & set(update_data):
+        await mqtt_bridge.apply_runtime_settings()
     settings_response = SettingsResponse(settings=_settings_resource())
     await event_bus.publish(
         "settings.updated",

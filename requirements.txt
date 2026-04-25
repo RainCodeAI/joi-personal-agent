@@ -40,3 +40,5 @@ win10toast
 pyinstaller
 # Phase 11: GGUF Optimization
 llama-cpp-python
+# Phase 8: Ambient Hardware
+aiomqtt>=2.0
