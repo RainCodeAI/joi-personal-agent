@@ -14,6 +14,7 @@ type SettingsFormProps = {
     mqtt_broker_port: number;
     mqtt_client_id: string;
     mqtt_topic_prefix: string;
+    mqtt_node_id: string;
     model_chat: string;
     model_embed: string;
     router_timeout: number;
@@ -122,6 +123,15 @@ export function SettingsForm({ settings }: SettingsFormProps) {
             className="input"
             value={form.mqtt_topic_prefix}
             onChange={(event) => setForm((current) => ({ ...current, mqtt_topic_prefix: event.target.value }))}
+          />
+        </div>
+        <div className="field">
+          <label htmlFor="settings-mqtt-node-id">MQTT Node ID</label>
+          <input
+            id="settings-mqtt-node-id"
+            className="input"
+            value={form.mqtt_node_id}
+            onChange={(event) => setForm((current) => ({ ...current, mqtt_node_id: event.target.value }))}
           />
         </div>
       </div>

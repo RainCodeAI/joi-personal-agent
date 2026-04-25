@@ -203,6 +203,7 @@ class SettingsResource(BaseModel):
     mqtt_broker_port: int
     mqtt_client_id: str
     mqtt_topic_prefix: str
+    mqtt_node_id: str
     model_chat: str
     model_embed: str
     router_timeout: int
@@ -223,6 +224,7 @@ class SettingsPatchRequest(BaseModel):
     mqtt_broker_port: Optional[int] = None
     mqtt_client_id: Optional[str] = None
     mqtt_topic_prefix: Optional[str] = None
+    mqtt_node_id: Optional[str] = None
     model_chat: Optional[str] = None
     model_embed: Optional[str] = None
     router_timeout: Optional[int] = None

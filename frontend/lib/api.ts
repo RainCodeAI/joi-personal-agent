@@ -307,6 +307,7 @@ export async function fetchSettings() {
       mqtt_broker_port: number;
       mqtt_client_id: string;
       mqtt_topic_prefix: string;
+      mqtt_node_id: string;
       model_chat: string;
       model_embed: string;
       router_timeout: number;
@@ -326,6 +327,7 @@ export async function patchSettings(
     mqtt_broker_port: number;
     mqtt_client_id: string;
     mqtt_topic_prefix: string;
+    mqtt_node_id: string;
     model_chat: string;
     model_embed: string;
     router_timeout: number;
@@ -344,6 +346,7 @@ export async function patchSettings(
       mqtt_broker_port: number;
       mqtt_client_id: string;
       mqtt_topic_prefix: string;
+      mqtt_node_id: string;
       model_chat: string;
       model_embed: string;
       router_timeout: number;

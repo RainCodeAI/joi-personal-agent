@@ -659,13 +659,15 @@ def test_v2_settings_patch(monkeypatch):
     assert body["api_version"] == "v2"
     assert body["settings"]["autonomy_level"] == "high"
     assert body["settings"]["router_timeout"] == 45
+    assert body["settings"]["mqtt_node_id"] == "desk"
     assert apply_calls == []
 
-    response = client.patch("/api/v2/settings", json={"enable_hardware_nodes": True})
+    response = client.patch("/api/v2/settings", json={"enable_hardware_nodes": True, "mqtt_node_id": "bedside"})
 
     assert response.status_code == 200
     body = response.json()
     assert body["settings"]["enable_hardware_nodes"] is True
+    assert body["settings"]["mqtt_node_id"] == "bedside"
     assert apply_calls == ["applied"]
 
 
