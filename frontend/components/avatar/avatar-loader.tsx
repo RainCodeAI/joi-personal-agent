@@ -13,6 +13,7 @@ import {
   GLB_TARGET_HEIGHT,
   GLB_VERTICAL_OFFSET,
   GLB_Y_ROTATION,
+  LIFE_STATE_IDLE_MOTION_SCALE,
   MOTION_SCALE,
   VRM_FLOOR_OFFSET,
   VRM_MODEL_URL,
@@ -81,7 +82,7 @@ function useVrm(url: string): VRM | null {
   return (gltf.userData.vrm as VRM | undefined) ?? null;
 }
 
-function VrmBust({ expression, deliveryStyle, playing, sync, audioRef }: AvatarModelProps) {
+function VrmBust({ expression, deliveryStyle, playing, sync, audioRef, lifeState }: AvatarModelProps) {
   const vrm = useVrm(VRM_MODEL_URL);
   const rigRef = useRef<THREE.Group>(null);
   const loggedRef = useRef(false);
@@ -127,7 +128,12 @@ function VrmBust({ expression, deliveryStyle, playing, sync, audioRef }: AvatarM
     }
 
     const elapsed = state.clock.elapsedTime;
-    const motionScale = MOTION_SCALE[deliveryStyle] ?? 1;
+    const baseMotionScale = MOTION_SCALE[deliveryStyle] ?? 1;
+    // During idle (not speaking), multiply by the life-state scale so resting/calm
+    // states feel quieter without killing motion entirely. While playing, use the
+    // delivery-style scale unmodified to keep speech animation natural.
+    const lifeMultiplier = playing ? 1 : (LIFE_STATE_IDLE_MOTION_SCALE[lifeState ?? "calm"] ?? 1);
+    const motionScale = baseMotionScale * lifeMultiplier;
     const expressionManager = vrm.expressionManager;
 
     expressionManager?.resetValues();
@@ -171,7 +177,7 @@ function VrmBust({ expression, deliveryStyle, playing, sync, audioRef }: AvatarM
   );
 }
 
-function StaticGlbBust({ deliveryStyle, playing }: AvatarModelProps) {
+function StaticGlbBust({ deliveryStyle, playing, lifeState }: AvatarModelProps) {
   const { scene } = useGLTF(GLB_MODEL_URL);
   const model = scene;
   const rigRef = useRef<THREE.Group>(null);
@@ -199,7 +205,9 @@ function StaticGlbBust({ deliveryStyle, playing }: AvatarModelProps) {
     }
 
     const elapsed = state.clock.elapsedTime;
-    const motionScale = MOTION_SCALE[deliveryStyle] ?? 1;
+    const baseMotionScale = MOTION_SCALE[deliveryStyle] ?? 1;
+    const lifeMultiplier = playing ? 1 : (LIFE_STATE_IDLE_MOTION_SCALE[lifeState ?? "calm"] ?? 1);
+    const motionScale = baseMotionScale * lifeMultiplier;
     const speakingBoost = playing ? 1.24 : 1;
     const breathing = Math.sin(elapsed * 0.86) * 0.038 * motionScale;
     const settle = Math.sin(elapsed * 0.26) * 0.024 * motionScale;

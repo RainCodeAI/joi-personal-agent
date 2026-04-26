@@ -69,6 +69,16 @@ export const MOTION_SCALE: Record<string, number> = {
   normal: 1,
 };
 
+// Multiplied against MOTION_SCALE during idle (not while speaking).
+// Keeps motion restrained in quiet states without killing it entirely.
+export const LIFE_STATE_IDLE_MOTION_SCALE: Record<string, number> = {
+  resting:    0.42,
+  calm:       0.72,
+  observant:  0.95,
+  curious:    1.05,
+  engaged:    1.20,
+};
+
 export const EXPRESSION_TINT: Record<
   string,
   { key: string; fill: string; rim: string; accent: string }

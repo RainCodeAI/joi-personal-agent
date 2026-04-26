@@ -368,6 +368,7 @@ const SSE_EVENT_NAMES = [
   "initiative.emitted",
   "initiative.suppressed",
   "initiative.activity",
+  "avatar.life_state_changed",
   "heartbeat",
 ] as const;
 

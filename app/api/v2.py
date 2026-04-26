@@ -24,6 +24,7 @@ from app.api.state import (
     event_bus,
     hardware_bridge,
     initiative_service,
+    life_state_engine,
     media_sessions,
     memory_store,
     mqtt_bridge,
@@ -207,6 +208,14 @@ async def _publish_hardware_state_transition(
         session_id=session_id,
         source="runtime",
     )
+    new_life_state = life_state_engine.on_joi_state_changed(str(state))
+    if new_life_state is not None:
+        await event_bus.publish(
+            "avatar.life_state_changed",
+            {"life_state": new_life_state},
+            session_id=session_id,
+            source="runtime",
+        )
 
 
 async def _publish_media_session(session_id: str, state: Dict[str, Any]) -> None:
@@ -1371,10 +1380,30 @@ async def record_initiative_activity(
         session_id=session_id,
         source="initiative",
     )
+    # Re-evaluate life state on presence changes — absence/return are strong signals.
+    new_life_state = life_state_engine.evaluate(
+        last_activity_at=initiative_service.store.last_user_activity_at(),
+        absence_started_at=initiative_service.store.absence_started_at(session_id),
+    )
+    if new_life_state is not None:
+        await event_bus.publish(
+            "avatar.life_state_changed",
+            {"life_state": new_life_state},
+            session_id=session_id,
+            source="presence",
+        )
     return {
         "api_version": "v2",
         "state": state,
         "activity": activity,
+    }
+
+
+@router.get("/avatar/life-state")
+async def get_life_state():
+    return {
+        "api_version": "v2",
+        **life_state_engine.snapshot(),
     }
 
 

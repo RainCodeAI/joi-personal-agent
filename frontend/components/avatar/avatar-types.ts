@@ -1,6 +1,6 @@
 import type { RefObject } from "react";
 
-import type { AvatarSyncPayload } from "@/lib/types";
+import type { AvatarSyncPayload, LifeStateName } from "@/lib/types";
 import type { AvatarAssetKind } from "./avatar-constants";
 
 export type AvatarModelProps = {
@@ -11,6 +11,7 @@ export type AvatarModelProps = {
   audioRef: RefObject<HTMLAudioElement | null>;
   assetKind: AvatarAssetKind;
   compact?: boolean;
+  lifeState?: LifeStateName;
 };
 
 export type AvatarSceneProps = AvatarModelProps;
@@ -21,6 +22,7 @@ export type AvatarRendererProps = {
   audioRef: RefObject<HTMLAudioElement | null>;
   playing: boolean;
   compact?: boolean;
+  lifeState?: LifeStateName;
 };
 
 export type AvatarLoadState = "loading" | "ready" | "fallback" | "error";

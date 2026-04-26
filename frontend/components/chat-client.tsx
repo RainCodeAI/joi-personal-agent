@@ -28,6 +28,7 @@ import {
   ChatAttachment,
   ChatAttachmentInput,
   ChatResponse,
+  LifeStateName,
   MediaSession,
   Message,
   PerceptionSignal,
@@ -305,6 +306,7 @@ export function ChatClient({ initialSessionId }: ChatClientProps) {
   const [streamingText, setStreamingText] = useState("");
   const [avatarCue, setAvatarCue] = useState<AvatarCue | null>(null);
   const [avatarSyncPayload, setAvatarSyncPayload] = useState<AvatarSyncPayload | null>(null);
+  const [lifeState, setLifeState] = useState<LifeStateName>("calm");
   const [presenceMode, setPresenceMode] = useState<PresenceMode>("full");
   const [mediaSession, setMediaSession] = useState<MediaSession | null>(null);
   const [spokenRepliesEnabled, setSpokenRepliesEnabled] = useState(true);
@@ -556,6 +558,11 @@ export function ChatClient({ initialSessionId }: ChatClientProps) {
         if (cue) {
           setAvatarCue(cue);
         }
+      }
+
+      if (event.event === "avatar.life_state_changed") {
+        const ls = event.payload.life_state as LifeStateName | undefined;
+        if (ls) setLifeState(ls);
       }
 
       if (event.event === "media.session.updated") {
@@ -987,6 +994,7 @@ export function ChatClient({ initialSessionId }: ChatClientProps) {
               sync={avatarSyncPayload}
               compact={presenceMode === "mini"}
               perceptionExpression={perceptionExpression}
+              lifeState={lifeState}
               onToggleCompact={() =>
                 setPresenceMode((mode) => (mode === "mini" ? "full" : "mini"))
               }

@@ -251,6 +251,8 @@ export type DiagnosticsResponse = {
   initiative?: InitiativeDiagnostics;
 };
 
+export type LifeStateName = "calm" | "observant" | "resting" | "engaged" | "curious";
+
 export type PerceptionSignalType =
   | "user_present"
   | "face_visible"
