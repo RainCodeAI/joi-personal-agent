@@ -12,6 +12,7 @@ from app.api.realtime import RealtimeEventBus, format_sse_event
 from app.api import v2 as api_v2
 from app.api.v2_models import ChatAttachmentResource
 from app.api import diagnostics as diagnostics_api
+from app.hardware.bridge import HardwareBridgeStore
 from app.hardware import mqtt_bridge as mqtt_bridge_module
 from app.orchestrator.security.approval import ApprovalStatus, PendingApproval
 
@@ -439,8 +440,8 @@ def test_v2_chat_with_attachments_and_deltas(monkeypatch):
         "joi.state.changed",
         "avatar.state",
     ]
-    assert published_events[2]["payload"]["content"] == "I see the "
-    assert published_events[3]["payload"]["content"] == "I see the skyline."
+    assert published_events[3]["payload"]["content"] == "I see the "
+    assert published_events[4]["payload"]["content"] == "I see the skyline."
     assert published_events[0]["payload"]["attachments"][0]["name"] == "scene.png"
 
 
@@ -609,7 +610,9 @@ def test_v2_media_transcribe_contract(monkeypatch):
     assert body["media_session"]["mic_state"] == "idle"
     assert body["media_session"]["recognition_latency_ms"] is not None
     assert published_events == [
+        "joi.state.changed",
         "media.session.updated",
+        "joi.state.changed",
         "media.session.updated",
         "media.transcription.completed",
     ]
@@ -622,6 +625,19 @@ def test_v2_settings_patch(monkeypatch):
                 "airgap": False,
                 "autonomy_level": "medium",
                 "enable_proactive_messaging": True,
+                "initiative_enabled": True,
+                "initiative_daily_limit": 2,
+                "initiative_timezone": "America/Toronto",
+                "initiative_daily_greeting_start": "07:00",
+                "initiative_daily_greeting_end": "11:00",
+                "initiative_quiet_hours_start": "22:00",
+                "initiative_quiet_hours_end": "08:00",
+                "initiative_focus_mode": False,
+                "initiative_do_not_disturb": False,
+                "initiative_late_night_start": "22:00",
+                "initiative_late_night_end": "01:00",
+                "initiative_silence_threshold_minutes": 90,
+                "initiative_allowed_types": "daily_greeting,return_after_absence,late_night_checkin",
                 "enable_hardware_nodes": False,
                 "mqtt_broker_host": "127.0.0.1",
                 "mqtt_broker_port": 1883,
@@ -659,6 +675,7 @@ def test_v2_settings_patch(monkeypatch):
     assert body["api_version"] == "v2"
     assert body["settings"]["autonomy_level"] == "high"
     assert body["settings"]["router_timeout"] == 45
+    assert body["settings"]["initiative_daily_limit"] == 2
     assert body["settings"]["mqtt_node_id"] == "desk"
     assert apply_calls == []
 
@@ -669,6 +686,75 @@ def test_v2_settings_patch(monkeypatch):
     assert body["settings"]["enable_hardware_nodes"] is True
     assert body["settings"]["mqtt_node_id"] == "bedside"
     assert apply_calls == ["applied"]
+
+
+def test_v2_return_after_absence_candidate(monkeypatch):
+    published_events = []
+
+    class FakeInitiativeService:
+        def __init__(self):
+            self.away_recorded = False
+
+        def record_absence_started(self, session_id, source):
+            self.away_recorded = True
+            return {
+                "session_id": session_id,
+                "source": source,
+                "observed_at": "2026-04-25T10:00:00",
+            }
+
+        def build_return_after_absence_candidate(self, session_id):
+            if not self.away_recorded:
+                return None
+            return SimpleNamespace(
+                type="return_after_absence",
+                priority="low",
+                reason="user returned after 50 minutes away",
+                session_id=session_id,
+                message="Welcome back. Want to pick up where we left off?",
+                expires_at="2026-04-25T11:20:00",
+                to_dict=lambda: {
+                    "type": "return_after_absence",
+                    "priority": "low",
+                    "reason": "user returned after 50 minutes away",
+                    "session_id": session_id,
+                    "message": "Welcome back. Want to pick up where we left off?",
+                    "expires_at": "2026-04-25T11:20:00",
+                },
+            )
+
+        def can_emit(self, candidate, media_session=None):
+            return SimpleNamespace(
+                allowed=True,
+                to_dict=lambda: {
+                    "allowed": True,
+                    "candidate": candidate.to_dict(),
+                    "suppressed_reason": None,
+                },
+            )
+
+    class FakeMediaSessions:
+        def get(self, session_id):
+            return {"mic_state": "idle", "speaking_state": "idle"}
+
+    async def fake_publish(event, payload, session_id=None, source="system"):
+        published_events.append((event, payload, session_id, source))
+
+    fake_service = FakeInitiativeService()
+    monkeypatch.setattr(api_v2, "initiative_service", fake_service)
+    monkeypatch.setattr(api_v2, "media_sessions", FakeMediaSessions())
+    monkeypatch.setattr(api_v2.event_bus, "publish", fake_publish)
+
+    response = client.post("/api/v2/initiative/activity", params={"session_id": "default", "state": "away", "source": "test"})
+    assert response.status_code == 200
+    assert response.json()["state"] == "away"
+
+    response = client.post("/api/v2/initiative/return-after-absence", params={"session_id": "default"})
+    assert response.status_code == 200
+    body = response.json()
+    assert body["decision"]["allowed"] is True
+    assert body["decision"]["candidate"]["type"] == "return_after_absence"
+    assert published_events[-1][0] == "initiative.candidate"
 
 
 def test_v2_hardware_contract(monkeypatch):
@@ -822,7 +908,7 @@ def test_mqtt_bridge_replays_current_command_on_connect(monkeypatch):
             return None
 
     monkeypatch.setattr(mqtt_bridge_module, "_AIOMQTT_AVAILABLE", True)
-    monkeypatch.setattr(mqtt_bridge_module, "aiomqtt", FakeAiomqtt)
+    monkeypatch.setattr(mqtt_bridge_module, "aiomqtt", FakeAiomqtt, raising=False)
     monkeypatch.setattr(mqtt_bridge_module.settings, "enable_hardware_nodes", True)
     monkeypatch.setattr(mqtt_bridge_module.settings, "mqtt_broker_host", "127.0.0.1")
     monkeypatch.setattr(mqtt_bridge_module.settings, "mqtt_broker_port", 1883)
@@ -846,6 +932,103 @@ def test_mqtt_bridge_replays_current_command_on_connect(monkeypatch):
     assert published[1][0] == "joi/nodes/desk/cmd/state"
     assert published[1][1]["state"] == "thinking"
     assert published[1][2] is True
+
+
+def test_hardware_contract_includes_node_payload_shapes(monkeypatch):
+    monkeypatch.setattr(mqtt_bridge_module.settings, "mqtt_topic_prefix", "joi")
+    monkeypatch.setattr(mqtt_bridge_module.settings, "mqtt_node_id", "desk")
+
+    contract = HardwareBridgeStore().get_contract()
+    payloads = {payload["payload_type"]: payload for payload in contract["node_payloads"]}
+
+    assert "joi/nodes/{node_id}/telemetry/heartbeat" in contract["telemetry_topics"]
+    assert payloads["telemetry.heartbeat"]["topic_template"] == "joi/nodes/{node_id}/telemetry/heartbeat"
+    assert payloads["telemetry.heartbeat"]["required_fields"] == [
+        "contract_version",
+        "node_id",
+        "status",
+        "uptime_ms",
+        "sequence",
+        "published_at",
+    ]
+    assert payloads["status.health"]["topic_template"] == "joi/nodes/{node_id}/status/health"
+    assert payloads["status.health"]["example"]["status"] == "ok"
+    assert payloads["telemetry.presence"]["topic_template"] == "joi/nodes/{node_id}/telemetry/presence"
+    assert payloads["telemetry.presence"]["example"]["event"] == "user_returned"
+
+
+def test_mqtt_bridge_apply_runtime_settings_starts_when_enabled(monkeypatch):
+    class FakeStore:
+        def __init__(self):
+            self.connection_states = []
+
+        def set_connection_state(self, state, error=None):
+            self.connection_states.append((state, error))
+
+    class FakeEventBus:
+        pass
+
+    bridge = mqtt_bridge_module.MqttBridge(FakeStore(), FakeEventBus())
+    calls = []
+
+    async def fake_start():
+        calls.append("start")
+
+    monkeypatch.setattr(mqtt_bridge_module, "_AIOMQTT_AVAILABLE", True)
+    monkeypatch.setattr(mqtt_bridge_module.settings, "enable_hardware_nodes", True)
+    monkeypatch.setattr(bridge, "start", fake_start)
+
+    asyncio.run(bridge.apply_runtime_settings())
+
+    assert calls == ["start"]
+
+
+def test_mqtt_bridge_apply_runtime_settings_restarts_when_node_id_changes(monkeypatch):
+    class FakeStore:
+        def set_connection_state(self, state, error=None):
+            return None
+
+    class FakeEventBus:
+        pass
+
+    class RunningTask:
+        def done(self):
+            return False
+
+    bridge = mqtt_bridge_module.MqttBridge(FakeStore(), FakeEventBus())
+    bridge._task = RunningTask()  # type: ignore[assignment]
+
+    monkeypatch.setattr(mqtt_bridge_module, "_AIOMQTT_AVAILABLE", True)
+    monkeypatch.setattr(mqtt_bridge_module.settings, "enable_hardware_nodes", True)
+    monkeypatch.setattr(mqtt_bridge_module.settings, "mqtt_broker_host", "127.0.0.1")
+    monkeypatch.setattr(mqtt_bridge_module.settings, "mqtt_broker_port", 1883)
+    monkeypatch.setattr(mqtt_bridge_module.settings, "mqtt_client_id", "joi-test")
+    monkeypatch.setattr(mqtt_bridge_module.settings, "mqtt_topic_prefix", "joi")
+    bridge._config_signature = (
+        True,
+        "127.0.0.1",
+        1883,
+        "joi-test",
+        "joi",
+        "desk",
+    )
+    monkeypatch.setattr(mqtt_bridge_module.settings, "mqtt_node_id", "bedside")
+
+    calls = []
+
+    async def fake_stop(*, disabled=False):
+        calls.append(("stop", disabled))
+        bridge._task = None
+
+    async def fake_start():
+        calls.append(("start", None))
+
+    monkeypatch.setattr(bridge, "stop", fake_stop)
+    monkeypatch.setattr(bridge, "start", fake_start)
+
+    asyncio.run(bridge.apply_runtime_settings())
+
+    assert calls == [("stop", False), ("start", None)]
 
 
 def test_v2_recent_events(monkeypatch):

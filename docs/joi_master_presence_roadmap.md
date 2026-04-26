@@ -365,12 +365,22 @@ Update from Thursday 2026-04-23, close-of-night session:
 
 Start here next:
 
-1. Add the short avatar and voice QA checklist.
-2. Start the first ESP32 LED node bring-up:
+1. Start the first ESP32 LED node bring-up:
    - Flash ESP32 with firmware that subscribes to `joi/nodes/desk/cmd/state`
    - Parse the `led_state` field and drive LED output
    - Publish heartbeat to `joi/nodes/desk/telemetry/heartbeat` so node_count increments in diagnostics
    - Do not add ultrasonic sensing until LED state output and node health are stable
+
+Update from Friday 2026-04-24:
+
+- Added the pre-hardware avatar and voice QA checklist in `docs/avatar_voice_qa_checklist.md`.
+- Locked the firmware-facing MQTT contract in `docs/hardware_firmware_contract.md`.
+- `/api/v2/hardware/contract` now includes explicit node-to-PC payload contracts for heartbeat, health, and optional presence telemetry.
+- Updated and reran `smoke_mqtt.py` against the current contract:
+  - bridge starts live
+  - bridge stops live
+  - reconnect replays the current command
+  - non-default `mqtt_node_id` publishes to the expected node topic
 
 ## Success Definition
 
@@ -383,3 +393,34 @@ Joi reaches the target direction when:
 - physical nodes express her state subtly
 - hardware events feed the same state model as the avatar and voice systems
 - all sensing and memory behavior is explicit, private, and user-controllable
+
+## Phase 7 Initiative Layer Start
+
+Initial implementation direction:
+
+- Added a dedicated initiative policy/gating layer rather than extending the older proactive action helper directly.
+- Runtime settings now expose:
+  - `initiative_enabled`
+  - `initiative_daily_limit`
+  - `initiative_quiet_hours_start`
+  - `initiative_quiet_hours_end`
+  - `initiative_focus_mode`
+  - `initiative_do_not_disturb`
+- The central gate suppresses initiative when disabled, over daily limit, inside quiet hours, during focus/DND, while mic/speech is active, too soon after the last initiative, or when a trigger already emitted today.
+- `GET /api/v2/initiative/diagnostics` exposes policy state, daily count, remaining allowance, quiet-hours status, and last suppression.
+- `POST /api/v2/initiative/daily-greeting?session_id=default&emit=false` evaluates the first low-risk trigger without emitting by default.
+- `emit=true` records the assistant message, updates the initiative ledger, and publishes `initiative.emitted`.
+- Future triggers should reuse this gate before adding scheduling:
+  - return-after-absence
+  - late-night check-in
+  - prolonged silence prompt
+  - memory-linked follow-up
+
+Update:
+
+- Added activity tracking to the initiative ledger.
+- `/api/v2/chat` now records user activity before processing a message.
+- Added `POST /api/v2/initiative/activity?state=active|away` so future presence, perception, or hardware hooks can mark active/away without knowing initiative internals.
+- Added `POST /api/v2/initiative/return-after-absence?session_id=default&emit=false`.
+- Return-after-absence currently requires at least 45 minutes away and still passes through the same central gate before it can emit.
+- User activity clears the pending absence marker, preventing stale return prompts.
