@@ -187,7 +187,7 @@ def _readiness_summary(
         bool(media.get("stt", {}).get(key))
         for key in ("google_local_stack", "whisper_local")
     )
-    storage_ready = bool(storage.get("available"))
+    storage_ready = bool(storage.get("available")) or storage.get("database_mode") == "sqlite"
     realtime_ready = bool(realtime.get("available"))
     bridge_enabled = bool(hardware_bridge.get("enabled"))
 
