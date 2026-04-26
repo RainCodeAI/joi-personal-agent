@@ -5,6 +5,7 @@ import { ChangeEvent, FormEvent, useCallback, useEffect, useRef, useState, start
 import { AvatarSyncPanel } from "@/components/avatar-sync-panel";
 import { PerceptionEngine } from "@/components/perception-engine";
 import { VoiceComposer } from "@/components/voice-composer";
+import { usePresenceReporter } from "@/hooks/use-presence-reporter";
 import {
   approveAction,
   createEventStream,
@@ -15,6 +16,7 @@ import {
   listApprovals,
   listMessages,
   patchMediaSession,
+  postActivityState,
   sendChatMessageWithAttachments,
   syncAvatar,
 } from "@/lib/api";
@@ -289,6 +291,7 @@ function toAttachmentResource(draft: AttachmentDraft): ChatAttachment {
 
 export function ChatClient({ initialSessionId }: ChatClientProps) {
   const [sessionId, setSessionId] = useState<string | null>(initialSessionId ?? null);
+  const sessionIdRef = useRef<string | null>(initialSessionId ?? null);
   const [messages, setMessages] = useState<DisplayMessage[]>([]);
   const [events, setEvents] = useState<RealtimeEvent[]>([]);
   const [approvals, setApprovals] = useState<Approval[]>([]);
@@ -305,6 +308,7 @@ export function ChatClient({ initialSessionId }: ChatClientProps) {
   const [presenceMode, setPresenceMode] = useState<PresenceMode>("full");
   const [mediaSession, setMediaSession] = useState<MediaSession | null>(null);
   const [spokenRepliesEnabled, setSpokenRepliesEnabled] = useState(true);
+  const spokenRepliesEnabledRef = useRef(true);
   const [avatarSyncLoading, setAvatarSyncLoading] = useState(false);
   const [isSending, setIsSending] = useState(false);
   const [perceptionState, setPerceptionState] = useState<PerceptionState>({
@@ -321,6 +325,18 @@ export function ChatClient({ initialSessionId }: ChatClientProps) {
   const bottomRef = useRef<HTMLDivElement | null>(null);
 
   const handlePerceptionSignal = useCallback((signal: PerceptionSignal) => {
+    // Feed camera presence transitions into the initiative activity endpoint.
+    // returned_to_frame is edge-triggered (fires once per absence→present transition)
+    // so no additional debounce is needed here.
+    const sid = sessionIdRef.current;
+    if (sid) {
+      if (signal.signal === "returned_to_frame") {
+        postActivityState(sid, "returned", "browser_perception");
+      } else if (signal.signal === "looked_away") {
+        postActivityState(sid, "away", "browser_perception");
+      }
+    }
+
     startTransition(() => {
       setPerceptionState((prev) => {
         const presenceSignals = new Set(["user_present", "face_visible", "returned_to_frame"]);
@@ -433,7 +449,15 @@ export function ChatClient({ initialSessionId }: ChatClientProps) {
       SPOKEN_REPLIES_STORAGE_KEY,
       spokenRepliesEnabled ? "on" : "off",
     );
+    spokenRepliesEnabledRef.current = spokenRepliesEnabled;
   }, [spokenRepliesEnabled]);
+
+  // Keep ref in sync so stable callbacks (handlePerceptionSignal) always read the current sessionId.
+  useEffect(() => {
+    sessionIdRef.current = sessionId;
+  }, [sessionId]);
+
+  usePresenceReporter(sessionId);
 
   useEffect(() => {
     const stored =
@@ -573,6 +597,43 @@ export function ChatClient({ initialSessionId }: ChatClientProps) {
         const eventMediaSession = event.payload.media_session as MediaSession | undefined;
         if (eventMediaSession) {
           setMediaSession(eventMediaSession);
+        }
+      }
+
+      if (event.event === "initiative.emitted") {
+        const candidate = event.payload.candidate as
+          | { message?: string; type?: string; session_id?: string }
+          | undefined;
+        const message = candidate?.message;
+        if (message && sessionId) {
+          const initiativeMsg: Message = {
+            id: Date.now(),
+            session_id: candidate?.session_id ?? sessionId,
+            role: "assistant",
+            content: message,
+            timestamp: new Date().toISOString(),
+          };
+          startTransition(() => {
+            setMessages((current) => [...current, initiativeMsg]);
+          });
+          setStatus(`Joi: ${candidate?.type ?? "initiative"}`);
+          if (
+            spokenRepliesEnabledRef.current &&
+            typeof document !== "undefined" &&
+            document.visibilityState === "visible"
+          ) {
+            setAvatarSyncLoading(true);
+            syncAvatar(sessionId, message)
+              .then((syncPayload) => {
+                setAvatarSyncPayload(syncPayload);
+              })
+              .catch(() => {
+                /* non-fatal — TTS unavailable */
+              })
+              .finally(() => {
+                setAvatarSyncLoading(false);
+              });
+          }
         }
       }
     });

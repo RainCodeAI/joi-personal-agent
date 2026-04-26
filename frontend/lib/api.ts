@@ -264,6 +264,18 @@ export async function patchPerceptionPolicy(patch: Partial<PerceptionPolicy>) {
   });
 }
 
+export function postActivityState(
+  sessionId: string,
+  state: "active" | "away" | "returned",
+  source = "browser",
+): void {
+  const params = new URLSearchParams({ session_id: sessionId, state, source });
+  fetch(toUrl(`/api/v2/initiative/activity?${params}`), {
+    method: "POST",
+    cache: "no-store",
+  }).catch(() => null);
+}
+
 export async function analyzeSnapshot(
   sessionId: string,
   dataUrl: string,
@@ -295,65 +307,42 @@ export async function fetchDiagnostics() {
   return apiFetch<DiagnosticsResponse>("/diagnostics/runtime");
 }
 
+export type SettingsShape = {
+  airgap: boolean;
+  autonomy_level: string;
+  enable_proactive_messaging: boolean;
+  initiative_enabled: boolean;
+  initiative_daily_limit: number;
+  initiative_timezone: string;
+  initiative_daily_greeting_start: string;
+  initiative_daily_greeting_end: string;
+  initiative_quiet_hours_start: string;
+  initiative_quiet_hours_end: string;
+  initiative_focus_mode: boolean;
+  initiative_do_not_disturb: boolean;
+  initiative_late_night_start: string;
+  initiative_late_night_end: string;
+  initiative_silence_threshold_minutes: number;
+  initiative_allowed_types: string;
+  enable_hardware_nodes: boolean;
+  mqtt_broker_host: string;
+  mqtt_broker_port: number;
+  mqtt_client_id: string;
+  mqtt_topic_prefix: string;
+  mqtt_node_id: string;
+  model_chat: string;
+  model_embed: string;
+  router_timeout: number;
+  gguf_n_ctx: number;
+  gguf_n_gpu_layers: number;
+};
+
 export async function fetchSettings() {
-  return apiFetch<{
-    api_version: "v2";
-    settings: {
-      airgap: boolean;
-      autonomy_level: string;
-      enable_proactive_messaging: boolean;
-      enable_hardware_nodes: boolean;
-      mqtt_broker_host: string;
-      mqtt_broker_port: number;
-      mqtt_client_id: string;
-      mqtt_topic_prefix: string;
-      mqtt_node_id: string;
-      model_chat: string;
-      model_embed: string;
-      router_timeout: number;
-      gguf_n_ctx: number;
-      gguf_n_gpu_layers: number;
-    };
-  }>("/api/v2/settings");
+  return apiFetch<{ api_version: "v2"; settings: SettingsShape }>("/api/v2/settings");
 }
 
-export async function patchSettings(
-  payload: Partial<{
-    airgap: boolean;
-    autonomy_level: string;
-    enable_proactive_messaging: boolean;
-    enable_hardware_nodes: boolean;
-    mqtt_broker_host: string;
-    mqtt_broker_port: number;
-    mqtt_client_id: string;
-    mqtt_topic_prefix: string;
-    mqtt_node_id: string;
-    model_chat: string;
-    model_embed: string;
-    router_timeout: number;
-    gguf_n_ctx: number;
-    gguf_n_gpu_layers: number;
-  }>,
-) {
-  return apiFetch<{
-    api_version: "v2";
-    settings: {
-      airgap: boolean;
-      autonomy_level: string;
-      enable_proactive_messaging: boolean;
-      enable_hardware_nodes: boolean;
-      mqtt_broker_host: string;
-      mqtt_broker_port: number;
-      mqtt_client_id: string;
-      mqtt_topic_prefix: string;
-      mqtt_node_id: string;
-      model_chat: string;
-      model_embed: string;
-      router_timeout: number;
-      gguf_n_ctx: number;
-      gguf_n_gpu_layers: number;
-    };
-  }>("/api/v2/settings", {
+export async function patchSettings(payload: Partial<SettingsShape>) {
+  return apiFetch<{ api_version: "v2"; settings: SettingsShape }>("/api/v2/settings", {
     method: "PATCH",
     body: JSON.stringify(payload),
   });
@@ -376,6 +365,9 @@ const SSE_EVENT_NAMES = [
   "tts.ready",
   "settings.updated",
   "perception.snapshot",
+  "initiative.emitted",
+  "initiative.suppressed",
+  "initiative.activity",
   "heartbeat",
 ] as const;
 
