@@ -6,7 +6,7 @@ from typing import Any, Dict
 import httpx
 from fastapi import APIRouter
 
-from app.api.state import event_bus, hardware_bridge, media_sessions
+from app.api.state import event_bus, hardware_bridge, initiative_scheduler, initiative_service, media_sessions
 from app.config import settings
 from app.db import engine as db_engine
 from app.memory.store import MemoryStore
@@ -163,12 +163,20 @@ def _hardware_bridge_diagnostics() -> Dict[str, Any]:
     return diagnostics
 
 
+def _initiative_diagnostics() -> Dict[str, Any]:
+    return {
+        **initiative_service.diagnostics(),
+        "scheduler": initiative_scheduler.diagnostics(),
+    }
+
+
 def _readiness_summary(
     providers: Dict[str, Any],
     storage: Dict[str, Any],
     media: Dict[str, Any],
     realtime: Dict[str, Any],
     hardware_bridge: Dict[str, Any],
+    initiative: Dict[str, Any],
 ) -> Dict[str, Dict[str, str]]:
     provider_ready = any(bool(details.get("available")) for details in providers.values())
     tts_ready = any(
@@ -208,6 +216,14 @@ def _readiness_summary(
             "state": "disabled" if not bridge_enabled else ("ready" if hardware_bridge.get("available") else "degraded"),
             "summary": str(hardware_bridge.get("note") or "bridge status unknown"),
         },
+        "initiative": {
+            "state": "ready" if initiative.get("enabled") else "disabled",
+            "summary": (
+                f"{initiative.get('remaining_today', 0)} of {initiative.get('daily_limit', 0)} initiatives remaining today"
+                if initiative.get("enabled")
+                else "initiative disabled"
+            ),
+        },
     }
 
 
@@ -217,7 +233,8 @@ def build_runtime_diagnostics() -> Dict[str, Any]:
     media = _media_diagnostics()
     realtime = _realtime_diagnostics()
     hardware_bridge = _hardware_bridge_diagnostics()
-    readiness = _readiness_summary(providers, storage, media, realtime, hardware_bridge)
+    initiative = _initiative_diagnostics()
+    readiness = _readiness_summary(providers, storage, media, realtime, hardware_bridge, initiative)
     status = (
         "ok"
         if all(
@@ -234,6 +251,7 @@ def build_runtime_diagnostics() -> Dict[str, Any]:
         "media": media,
         "realtime": realtime,
         "hardware_bridge": hardware_bridge,
+        "initiative": initiative,
     }
 
 

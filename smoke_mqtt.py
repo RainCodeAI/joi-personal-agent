@@ -2,17 +2,19 @@
 Smoke test for MqttBridge.
 
 Connects a subscriber before starting the bridge, fires a synthetic
-joi.state.changed event through the real RealtimeEventBus, then asserts:
+joi.state.changed event through the real RealtimeEventBus, restarts the
+bridge, then asserts:
 
-  1. Bridge connects and publishes joi/bridge/status = online (retained birth msg).
-  2. The state command arrives on joi/nodes/desk/cmd/state.
-  3. HardwareBridgeStore diagnostics reflect connected state and last_publish_at.
-  4. Bridge shuts down cleanly and connection_state returns to disconnected.
+  1. Bridge starts live and publishes joi/bridge/status = online.
+  2. Bridge stops live and returns diagnostics to disconnected.
+  3. Reconnect replays the current command.
+  4. A non-default mqtt_node_id publishes to the expected node topic.
 """
 
 import asyncio
 import json
 import sys
+import uuid
 
 import aiomqtt
 
@@ -24,13 +26,19 @@ from app.config import settings
 BROKER = "127.0.0.1"
 PORT = 1883
 TIMEOUT = 8.0
+NODE_ID = f"smoke-{uuid.uuid4().hex[:8]}"
+CLIENT_ID = f"joi-smoke-test-{NODE_ID}"
+SUBSCRIBER_ID = f"joi-smoke-sub-{NODE_ID}"
+TOPIC_PREFIX = "joi"
+BRIDGE_STATUS_TOPIC = f"{TOPIC_PREFIX}/bridge/status"
+STATE_TOPIC = f"{TOPIC_PREFIX}/nodes/{NODE_ID}/cmd/state"
 
 settings.enable_hardware_nodes = True
 settings.mqtt_broker_host = BROKER
 settings.mqtt_broker_port = PORT
-settings.mqtt_node_id = "desk"
-settings.mqtt_client_id = "joi-smoke-test"
-settings.mqtt_topic_prefix = "joi"
+settings.mqtt_node_id = NODE_ID
+settings.mqtt_client_id = CLIENT_ID
+settings.mqtt_topic_prefix = TOPIC_PREFIX
 
 
 async def run_smoke_test() -> bool:
@@ -39,24 +47,37 @@ async def run_smoke_test() -> bool:
     bridge = MqttBridge(store, bus)
 
     received_birth: dict | None = None
-    received_command: dict | None = None
+    received_commands: list[dict] = []
+    received_command_topics: list[str] = []
+    stop_snapshot: dict | None = None
+    reconnect_snapshot: dict | None = None
+    subscriber_ready = asyncio.Event()
 
     async def subscriber() -> None:
-        nonlocal received_birth, received_command
-        async with aiomqtt.Client(hostname=BROKER, port=PORT, identifier="joi-smoke-sub") as sub:
-            await sub.subscribe("joi/bridge/status")
-            await sub.subscribe("joi/nodes/desk/cmd/state")
+        nonlocal received_birth
+        async with aiomqtt.Client(hostname=BROKER, port=PORT, identifier=SUBSCRIBER_ID) as sub:
+            await sub.subscribe(BRIDGE_STATUS_TOPIC)
+            await sub.subscribe(STATE_TOPIC)
+            subscriber_ready.set()
             async for msg in sub.messages:
                 topic = str(msg.topic)
                 payload = json.loads(msg.payload)
-                if topic == "joi/bridge/status":
+                if topic == BRIDGE_STATUS_TOPIC:
                     received_birth = payload
-                elif topic == "joi/nodes/desk/cmd/state":
-                    received_command = payload
-                if received_birth and received_command:
+                elif topic == STATE_TOPIC:
+                    received_command_topics.append(topic)
+                    received_commands.append(payload)
+                if received_birth and len(received_commands) >= 3:
                     return
 
     sub_task = asyncio.create_task(subscriber())
+    await asyncio.wait_for(subscriber_ready.wait(), timeout=TIMEOUT)
+
+    command, _changed = store.set_runtime_state(
+        "thinking",
+        source_event="smoke.test.seed",
+        reason="smoke test reconnect replay seed",
+    )
 
     await bridge.start()
     # Give bridge a moment to connect and publish birth message
@@ -68,21 +89,18 @@ async def run_smoke_test() -> bool:
         {
             "state": "thinking",
             "led_state": "thinking_glow",
-            "hardware_command": {
-                "contract_version": "ambient-v1",
-                "state": "thinking",
-                "led_state": "thinking_glow",
-                "intensity": 0.45,
-                "transition_ms": 700,
-                "mood": "neutral",
-                "source_event": "smoke.test",
-                "session_id": None,
-                "reason": "smoke test publish",
-                "updated_at": "2026-04-23T00:00:00Z",
-            },
+            "hardware_command": command,
         },
         source="smoke-test",
     )
+    await asyncio.sleep(0.5)
+
+    await bridge.stop()
+    stop_snapshot = store.get_bridge_snapshot()
+
+    await bridge.start()
+    await asyncio.sleep(0.5)
+    reconnect_snapshot = store.get_bridge_snapshot()
 
     try:
         await asyncio.wait_for(sub_task, timeout=TIMEOUT)
@@ -104,22 +122,42 @@ async def run_smoke_test() -> bool:
     snapshot = store.get_bridge_snapshot()
 
     print("\nSmoke test results:")
+    check("Configured non-default mqtt_node_id", NODE_ID != "desk", NODE_ID)
     check("Bridge birth message received", received_birth is not None)
     check(
         "Birth status = online",
         received_birth is not None and received_birth.get("status") == "online",
         str(received_birth),
     )
-    check("State command received on joi/nodes/desk/cmd/state", received_command is not None)
+    check(
+        f"State command received on {STATE_TOPIC}",
+        STATE_TOPIC in received_command_topics,
+        str(received_command_topics),
+    )
     check(
         "Command state = thinking",
-        received_command is not None and received_command.get("state") == "thinking",
-        str(received_command),
+        any(command.get("state") == "thinking" for command in received_commands),
+        str(received_commands),
+    )
+    check(
+        "Reconnect replayed current command",
+        len([command for command in received_commands if command.get("state") == "thinking"]) >= 2,
+        str(received_commands),
     )
     check(
         "Diagnostics last_publish_at set",
         snapshot.get("last_publish_at") is not None,
         str(snapshot.get("last_publish_at")),
+    )
+    check(
+        "Bridge started live",
+        reconnect_snapshot is not None and reconnect_snapshot.get("connection_state") == "connected",
+        None if reconnect_snapshot is None else reconnect_snapshot.get("connection_state"),
+    )
+    check(
+        "Bridge stopped live",
+        stop_snapshot is not None and stop_snapshot.get("connection_state") == "disconnected",
+        None if stop_snapshot is None else stop_snapshot.get("connection_state"),
     )
     check(
         "Bridge shut down cleanly (disconnected)",
@@ -133,7 +171,7 @@ async def run_smoke_test() -> bool:
 
 if __name__ == "__main__":
     # SelectorEventLoop required on Windows for aiomqtt's add_reader/add_writer.
-    # Use loop_factory (Python 3.12+) to avoid the deprecated set_event_loop_policy.
-    factory = asyncio.SelectorEventLoop if sys.platform == "win32" else None
-    ok = asyncio.run(run_smoke_test(), loop_factory=factory)
+    if sys.platform == "win32":
+        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+    ok = asyncio.run(run_smoke_test())
     sys.exit(0 if ok else 1)

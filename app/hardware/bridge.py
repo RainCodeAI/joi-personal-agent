@@ -9,6 +9,7 @@ from app.hardware.schemas import (
     HardwareBridgeContractResponse,
     HardwareBridgeDiagnosticsResource,
     HardwareCommandResource,
+    HardwareNodePayloadContractResource,
     HardwareStateDefinitionResource,
     HardwareStateName,
 )
@@ -129,11 +130,13 @@ class HardwareBridgeStore:
             state_topic_template=f"{settings.mqtt_topic_prefix}/nodes/{{node_id}}/cmd/state",
             config_topic_template=f"{settings.mqtt_topic_prefix}/nodes/{{node_id}}/cmd/config",
             telemetry_topics=[
+                f"{settings.mqtt_topic_prefix}/nodes/{{node_id}}/telemetry/heartbeat",
                 f"{settings.mqtt_topic_prefix}/nodes/{{node_id}}/telemetry/presence",
                 f"{settings.mqtt_topic_prefix}/nodes/{{node_id}}/telemetry/distance",
                 f"{settings.mqtt_topic_prefix}/nodes/{{node_id}}/status/availability",
                 f"{settings.mqtt_topic_prefix}/nodes/{{node_id}}/status/health",
             ],
+            node_payloads=self._node_payload_contracts(),
             diagnostics_fields=DIAGNOSTICS_FIELDS,
             states=[
                 HardwareStateDefinitionResource(state=state, **profile)
@@ -142,6 +145,89 @@ class HardwareBridgeStore:
             bridge=HardwareBridgeDiagnosticsResource(**self.get_bridge_snapshot()),
         )
         return contract.model_dump(mode="json")
+
+    def _node_payload_contracts(self) -> list[HardwareNodePayloadContractResource]:
+        prefix = settings.mqtt_topic_prefix
+        node_topic = f"{prefix}/nodes/{{node_id}}"
+        return [
+            HardwareNodePayloadContractResource(
+                payload_type="telemetry.heartbeat",
+                direction="node_to_pc",
+                topic_template=f"{node_topic}/telemetry/heartbeat",
+                required_fields=[
+                    "contract_version",
+                    "node_id",
+                    "status",
+                    "uptime_ms",
+                    "sequence",
+                    "published_at",
+                ],
+                optional_fields=["firmware_version", "ip", "rssi_dbm"],
+                example={
+                    "contract_version": CONTRACT_VERSION,
+                    "node_id": settings.mqtt_node_id,
+                    "status": "online",
+                    "uptime_ms": 120000,
+                    "sequence": 42,
+                    "published_at": "2026-04-24T22:30:00Z",
+                    "firmware_version": "joi-presence-node-v1.0.0",
+                    "ip": "192.168.1.42",
+                    "rssi_dbm": -58,
+                },
+            ),
+            HardwareNodePayloadContractResource(
+                payload_type="status.health",
+                direction="node_to_pc",
+                topic_template=f"{node_topic}/status/health",
+                required_fields=[
+                    "contract_version",
+                    "node_id",
+                    "status",
+                    "uptime_ms",
+                    "free_heap",
+                    "wifi_rssi_dbm",
+                    "last_command_sequence",
+                    "published_at",
+                ],
+                optional_fields=["firmware_version", "last_error"],
+                example={
+                    "contract_version": CONTRACT_VERSION,
+                    "node_id": settings.mqtt_node_id,
+                    "status": "ok",
+                    "uptime_ms": 120000,
+                    "free_heap": 184320,
+                    "wifi_rssi_dbm": -58,
+                    "last_command_sequence": 42,
+                    "published_at": "2026-04-24T22:30:00Z",
+                    "firmware_version": "joi-presence-node-v1.0.0",
+                    "last_error": None,
+                },
+            ),
+            HardwareNodePayloadContractResource(
+                payload_type="telemetry.presence",
+                direction="node_to_pc",
+                topic_template=f"{node_topic}/telemetry/presence",
+                required_fields=[
+                    "contract_version",
+                    "node_id",
+                    "present",
+                    "confidence",
+                    "event",
+                    "published_at",
+                ],
+                optional_fields=["distance_cm", "sample_count"],
+                example={
+                    "contract_version": CONTRACT_VERSION,
+                    "node_id": settings.mqtt_node_id,
+                    "present": True,
+                    "confidence": 0.82,
+                    "event": "user_returned",
+                    "published_at": "2026-04-24T22:30:00Z",
+                    "distance_cm": 74,
+                    "sample_count": 5,
+                },
+            ),
+        ]
 
     def get_current_command(self) -> dict[str, Any]:
         with self._lock:

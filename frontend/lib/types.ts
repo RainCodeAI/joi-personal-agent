@@ -222,6 +222,24 @@ export type PlannerResponse = {
   snapshot: PlannerSnapshot;
 };
 
+export type InitiativeDiagnostics = {
+  enabled: boolean;
+  daily_limit: number;
+  daily_count: number;
+  remaining_today: number;
+  timezone: string;
+  daily_greeting: { start: string; end: string; active: boolean };
+  quiet_hours: { start: string; end: string; active: boolean };
+  late_night: { start: string; end: string; active: boolean };
+  focus_mode: boolean;
+  do_not_disturb: boolean;
+  allowed_types: string[];
+  silence_threshold_minutes: number;
+  last_emitted_at: string | null;
+  last_suppressed: { type: string; reason: string; checked_at: string } | null;
+  scheduler: { running: boolean; jobs: Array<{ id: string; name: string; next_run_time: string | null }> };
+};
+
 export type DiagnosticsResponse = {
   status: string;
   readiness: ReadinessMap;
@@ -230,6 +248,7 @@ export type DiagnosticsResponse = {
   media: Record<string, Record<string, unknown>>;
   realtime: Record<string, unknown>;
   hardware_bridge: Record<string, unknown>;
+  initiative?: InitiativeDiagnostics;
 };
 
 export type PerceptionSignalType =

@@ -1,5 +1,5 @@
 import { fetchDiagnostics } from "@/lib/api";
-import { DiagnosticsResponse, ReadinessState } from "@/lib/types";
+import { DiagnosticsResponse, InitiativeDiagnostics, ReadinessState } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
@@ -11,6 +11,7 @@ const FALLBACK_DIAGNOSTICS: DiagnosticsResponse = {
   media: {},
   realtime: {},
   hardware_bridge: {},
+  initiative: undefined,
 };
 
 function readinessTone(state?: ReadinessState["state"]) {
@@ -46,6 +47,128 @@ function DetailRows({ value }: { value: unknown }) {
         </div>
       ))}
     </div>
+  );
+}
+
+function fmt(ts: string | null | undefined): string {
+  if (!ts) return "never";
+  try {
+    return new Date(ts).toLocaleString();
+  } catch {
+    return ts;
+  }
+}
+
+function InitiativePanel({ initiative }: { initiative: InitiativeDiagnostics | undefined }) {
+  if (!initiative) {
+    return (
+      <section className="panel">
+        <p className="eyebrow">Initiative</p>
+        <h3>Presence triggers</h3>
+        <p style={{ opacity: 0.5, fontSize: 13 }}>No data</p>
+      </section>
+    );
+  }
+
+  const { scheduler } = initiative;
+  const generalJob = scheduler?.jobs?.find((j) => j.id === "initiative_general_tick");
+  const memoryJob = scheduler?.jobs?.find((j) => j.id === "initiative_memory_tick");
+
+  return (
+    <section className="panel">
+      <p className="eyebrow">Initiative</p>
+      <h3>Presence triggers</h3>
+      <div className="list">
+        <div className="list-row">
+          <div><strong>Status</strong></div>
+          <span className={`badge ${initiative.enabled ? "ok" : ""}`}>
+            {initiative.enabled ? "enabled" : "disabled"}
+          </span>
+        </div>
+        <div className="list-row">
+          <div>
+            <strong>Daily usage</strong>
+            <p>{initiative.daily_count} of {initiative.daily_limit} used - {initiative.remaining_today} remaining</p>
+          </div>
+        </div>
+        <div className="list-row">
+          <div>
+            <strong>Local policy time</strong>
+            <p>{initiative.timezone}</p>
+          </div>
+        </div>
+        <div className="list-row">
+          <div>
+            <strong>Greeting window</strong>
+            <p>{initiative.daily_greeting.start}-{initiative.daily_greeting.end}</p>
+          </div>
+          <span className={`badge ${initiative.daily_greeting.active ? "ok" : ""}`}>
+            {initiative.daily_greeting.active ? "active" : "outside"}
+          </span>
+        </div>
+        <div className="list-row">
+          <div>
+            <strong>Quiet hours</strong>
+            <p>{initiative.quiet_hours.start}-{initiative.quiet_hours.end}</p>
+          </div>
+          <span className={`badge ${initiative.quiet_hours.active ? "warn" : ""}`}>
+            {initiative.quiet_hours.active ? "active" : "clear"}
+          </span>
+        </div>
+        <div className="list-row">
+          <div>
+            <strong>Late-night window</strong>
+            <p>{initiative.late_night.start}-{initiative.late_night.end}</p>
+          </div>
+          <span className={`badge ${initiative.late_night.active ? "ok" : ""}`}>
+            {initiative.late_night.active ? "active" : "outside"}
+          </span>
+        </div>
+        <div className="list-row">
+          <div>
+            <strong>Gates</strong>
+            <p>
+              Focus: {initiative.focus_mode ? "on" : "off"} * DND: {initiative.do_not_disturb ? "on" : "off"}
+            </p>
+          </div>
+        </div>
+        <div className="list-row">
+          <div>
+            <strong>Enabled types</strong>
+            <p>{initiative.allowed_types.length > 0 ? initiative.allowed_types.join(", ") : "none"}</p>
+          </div>
+        </div>
+        <div className="list-row">
+          <div>
+            <strong>Last emitted</strong>
+            <p>{fmt(initiative.last_emitted_at)}</p>
+          </div>
+        </div>
+        {initiative.last_suppressed && (
+          <div className="list-row">
+            <div>
+              <strong>Last suppressed</strong>
+              <p>{initiative.last_suppressed.type} - {initiative.last_suppressed.reason}</p>
+              <p style={{ opacity: 0.55, fontSize: 12 }}>{fmt(initiative.last_suppressed.checked_at)}</p>
+            </div>
+          </div>
+        )}
+        <div className="list-row">
+          <div>
+            <strong>Scheduler</strong>
+            <p>
+              General: {generalJob ? fmt(generalJob.next_run_time) : "-"}
+            </p>
+            <p>
+              Memory: {memoryJob ? fmt(memoryJob.next_run_time) : "-"}
+            </p>
+          </div>
+          <span className={`badge ${scheduler?.running ? "ok" : ""}`}>
+            {scheduler?.running ? "running" : "stopped"}
+          </span>
+        </div>
+      </div>
+    </section>
   );
 }
 
@@ -184,7 +307,10 @@ export default async function DiagnosticsPage() {
             ))}
           </div>
         </section>
+
+        <InitiativePanel initiative={diagnostics.initiative} />
       </div>
     </>
   );
 }
+

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Literal, Optional
+from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -68,6 +68,15 @@ class HardwareBridgeDiagnosticsResource(BaseModel):
     current_command: HardwareCommandResource
 
 
+class HardwareNodePayloadContractResource(BaseModel):
+    payload_type: str
+    direction: Literal["pc_to_node", "node_to_pc"]
+    topic_template: str
+    required_fields: list[str] = Field(default_factory=list)
+    optional_fields: list[str] = Field(default_factory=list)
+    example: dict[str, Any] = Field(default_factory=dict)
+
+
 class HardwareBridgeContractResponse(BaseModel):
     api_version: Literal["v2"] = "v2"
     contract_version: str = "ambient-v1"
@@ -75,7 +84,7 @@ class HardwareBridgeContractResponse(BaseModel):
     state_topic_template: str
     config_topic_template: str
     telemetry_topics: list[str] = Field(default_factory=list)
+    node_payloads: list[HardwareNodePayloadContractResource] = Field(default_factory=list)
     diagnostics_fields: list[str] = Field(default_factory=list)
     states: list[HardwareStateDefinitionResource] = Field(default_factory=list)
     bridge: HardwareBridgeDiagnosticsResource
-
