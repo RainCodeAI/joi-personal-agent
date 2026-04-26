@@ -35,6 +35,14 @@ export default async function SettingsPage() {
             <span>Hardware Bridge</span>
             <strong>{settingsResponse.settings.enable_hardware_nodes ? "On" : "Off"}</strong>
           </div>
+          <div className="status-card">
+            <span>Initiatives</span>
+            <strong>{settingsResponse.settings.initiative_enabled ? "On" : "Off"}</strong>
+          </div>
+          <div className="status-card">
+            <span>Daily limit</span>
+            <strong>{settingsResponse.settings.initiative_daily_limit}</strong>
+          </div>
         </div>
       </header>
 
