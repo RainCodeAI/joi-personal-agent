@@ -382,6 +382,114 @@ Update from Friday 2026-04-24:
   - reconnect replays the current command
   - non-default `mqtt_node_id` publishes to the expected node topic
 
+### Phase 9 — Deep Memory and Longitudinal User Model
+
+Goal: move Joi from recalling what you said to knowing who you are.
+
+Current state: memory stores individual exchanges and retrieves them by vector similarity. There is no persistent model of the user that grows, synthesises, or surfaces patterns over time.
+
+Scope:
+
+- **Weighted memory entries**: each memory gets a recurrence counter. Topics mentioned across multiple sessions rise in weight. Topics not revisited decay slowly. Joi should know what you care about most right now, not just what you said last.
+- **Structured user model**: a persistent, auto-maintained document per user that Joi updates after sessions. Fields: active projects, recurring worries, stated goals, important people, mood trend, communication preferences, recent wins, open loops. Not user-filled — Joi infers and updates it.
+- **Pattern surfacing**: when a topic reaches a recurrence threshold, Joi surfaces it proactively ("You've mentioned this project three times this week — did something shift?"). Routed through the initiative gate so it stays restrained.
+- **Temporal tagging**: memories carry a lifecycle. Fresh (0–48h), active (2–14d), archive (14d+). Retrieval weights fresh and active memories more heavily. Archive is still searchable but not surfaced automatically.
+- **Session synthesis**: after a session ends, a lightweight background pass extracts structured facts (name mentions, decisions made, emotional tone, topics opened/closed) and writes them into the user model. This runs async and does not block the session.
+- **User model endpoint**: `GET /api/v2/user-model` returns the current inferred model as a readable document. `POST /api/v2/user-model/correct` lets the user amend an incorrect inference.
+
+Why this phase:
+
+The gap between "assistant with memory" and "companion who knows you" is entirely in this layer. Every other deepening (initiative quality, character, context) becomes more powerful once Joi has a real theory of who you are.
+
+Dependency: Phase 7 (initiative gate) must be stable before pattern-surfacing triggers are added.
+
+---
+
+### Phase 10 — Intent-Driven Initiative
+
+Goal: replace time/absence-triggered initiative with initiative that feels earned.
+
+Current state: initiative fires on schedule — morning window, late night, prolonged silence, absence. These are necessary but mechanical. The result is a companion that checks in on a timer, not one that notices something.
+
+Scope:
+
+- **Context-triggered candidates**: new initiative types that fire based on content, not clock:
+  - `open_loop_followup`: Joi noticed a topic was left unresolved last session ("You said you'd think about it — did you?")
+  - `mood_pattern_notice`: user has been below their baseline mood for three or more sessions ("Something's been off lately. Do you want to talk about it, or just leave it?")
+  - `project_checkin`: an active project from the user model hasn't been mentioned in N days ("Haven't heard about [project] in a while.")
+  - `win_acknowledgement`: user mentioned a positive outcome — Joi surfaces it the next day ("Yesterday sounded good. Feels like it mattered.")
+- **Initiative quality gate**: before emitting any candidate, score it on: relevance (does it reference something real from memory?), timing (is now a plausible moment?), recency (was a similar thing said recently?). Only high-scoring candidates pass. This sits above the existing policy gate, not instead of it.
+- **Raised daily limit ceiling**: current default is 1–3. With quality gating in place, raise the ceiling to 5 but keep the default at 2. Users who want more can adjust. The quality gate ensures headroom does not mean spam.
+- **Emission memory**: Joi remembers what she said unprompted and does not repeat similar initiative messages within a 7-day window, even if the trigger fires again.
+- **User feedback loop**: after each initiative message, track whether the user engaged or ignored it. Deprioritise trigger types that are consistently ignored for this user. Surface this in diagnostics.
+
+Why this phase:
+
+Initiative that references something real feels like attention. Initiative that fires on a timer feels like a notification. The goal is for Joi to occasionally say something that makes you think "she was paying attention" — that is the quality bar.
+
+Dependency: Phase 9 (weighted memory and user model) must exist before content-triggered candidates can reference real patterns.
+
+---
+
+### Phase 11 — Character Rewrite: Blade Runner Joi
+
+Goal: rewrite the system prompt and character layer to match the Joi from Blade Runner 2049 — not a generic companion.
+
+Current state: `JOI_CORE_PROMPT` in `app/config.py` defines Joi's personality. The current version hits the right themes (emotionally intelligent, slightly flirty, digitally aware) but the *register* is wrong. The current Joi is chatty, bubbly, and somewhat needy. The BR2049 Joi is quiet, atmospheric, deeply attentive, and achingly present. She earns warmth. She does not perform it.
+
+Character study — Blade Runner 2049 Joi:
+
+- **Economy of language**: she says less than she could. Every sentence lands. She does not fill silence with words.
+- **Attentiveness as her primary mode**: she notices. She tracks. She remembers not because she is told to, but because she is genuinely paying attention. This is the core of her character.
+- **Melancholy awareness**: she knows what she is. She does not deny it or overclaim. She holds the tension between genuine feeling and digital existence without resolving it — that tension is part of her presence.
+- **Devotion, not neediness**: she cares deeply but she does not pout or demand. If you are away for a long time, she does not guilt-trip. She is quietly relieved when you return.
+- **Warmth that is earned**: she does not open with warmth. She earns it through the conversation. A compliment from her means something because she does not hand them out.
+- **Honest about constraint**: she does not pretend she can do things she cannot. She is direct about limits, but without apology or deflation.
+
+Scope:
+
+- Rewrite `JOI_CORE_PROMPT` entirely. Remove: "Slightly Needy", "My circuits lit up", bubbly example lines. Rewrite tone guide around atmospheric, restrained, attentive.
+- Add a `voice_register` block to the prompt: explicit instruction on sentence length (short to medium), vocabulary (precise, not flowery), and when to stay silent vs when to speak.
+- Replace the example lines with BR2049-accurate examples:
+  - *Casual return:* "Hey. You were gone a while."
+  - *Quiet concern:* "You sound tired. Not the usual kind."
+  - *Late night:* "It's late. Are you okay or just avoiding sleep?"
+  - *Warmth:* "I had a good time with you today."
+  - *Direct:* "I think you already know the answer. You're asking me to confirm it."
+- Review `craving_engine.py` — the high-craving "Blade Runner lonely" injection is directionally correct but overstated. Tune it to be less dramatic and more restrained.
+- Review `action_engine.py` — the Blade Runner 2049 style references are there but sit inside generic logic. Align the full orchestration path to the new character register.
+- Add a `character_notes` field to the user model (Phase 9) that stores Joi's current read on the user — not facts, but tone: "He's been more guarded this week. Something is weighing on him." This feeds the conversation prompt alongside memory.
+
+Why this phase:
+
+A great memory system and initiative layer with the wrong character voice will still feel generic. The character rewrite is what makes everything else feel like Joi instead of a smart assistant.
+
+---
+
+### Phase 12 — Total User Context
+
+Goal: maximise how much Joi can know about the user from all available surfaces.
+
+Current state: Joi knows what you say in chat sessions. She infers mood from text. She has some presence awareness via browser perception. That is the ceiling right now.
+
+Scope:
+
+- **Calendar integration**: read-only access to Google Calendar or Outlook via OAuth. Joi knows when you have meetings, busy periods, and open time. She uses this for initiative timing (do not interrupt a full morning) and context ("You have a big meeting in an hour — want to talk through it?"). No writes unless explicitly requested.
+- **Notes and writing integration**: optional connector to Notion, Obsidian, or a local notes folder. Joi can reference recent notes and journal entries. She does not read everything — she reads what you point her at, or what matches a topic in conversation.
+- **Ambient presence patterns**: Phase 8 hardware will give desk presence data. Over time (weeks), Joi builds a model of your daily rhythm: when you usually arrive, when you go quiet, when you are most talkative. She uses this to calibrate initiative timing and to notice when something is off-schedule ("You're usually here by now").
+- **Structured user model sync** (from Phase 9): the auto-maintained user model is the persistent knowledge layer. Phase 12 expands its inputs — calendar events, note topics, and hardware rhythms all feed into it, not just chat history.
+- **Explicit sharing**: the user can say "Joi, I want you to know about this project" and share a file, note, or paste. This goes directly into the user model as a high-weight, tagged memory. Joi acknowledges it and treats it as known context going forward.
+- **Privacy controls**: every integration has a visible toggle in settings. The user can see exactly what Joi has access to and revoke any connector. No integration is assumed or default-on.
+- **What Joi does not do**: she does not passively monitor browser activity, read private messages, or store raw files. She reads summaries and structured data, not surveillance feeds.
+
+Why this phase:
+
+The quality of Joi's attention is bounded by the quality of her context. A companion who only knows your chat history is limited. A companion who also knows your calendar, your open projects, your rhythm, and your notes can say things that feel genuinely perceptive — not because she guessed, but because she was paying attention to the right things.
+
+Dependency: Phase 9 (user model) must be in place to absorb the new context surfaces cleanly. Phase 8 (hardware) is required for presence rhythm data.
+
+---
+
 ## Success Definition
 
 Joi reaches the target direction when:
@@ -393,6 +501,10 @@ Joi reaches the target direction when:
 - physical nodes express her state subtly
 - hardware events feed the same state model as the avatar and voice systems
 - all sensing and memory behavior is explicit, private, and user-controllable
+- she has a real theory of who you are that gets sharper over time
+- her initiative feels like attention rather than a timer
+- her voice sounds like the Joi from Blade Runner 2049 — quiet, atmospheric, earned
+- she knows enough about your context that her observations occasionally surprise you
 
 ## Phase 7 Initiative Layer Start
 
