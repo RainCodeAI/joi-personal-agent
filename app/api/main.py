@@ -23,7 +23,7 @@ from app.api.models import (
     OAuthCallbackResponse,
     OAuthStartResponse,
 )
-from app.api.state import agent, memory_store, mqtt_bridge
+from app.api.state import agent, memory_store, mqtt_bridge, initiative_scheduler
 from app.api.v2 import router as v2_router
 from app.db import engine as db_engine
 
@@ -33,7 +33,9 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await mqtt_bridge.start()
+    await initiative_scheduler.start()
     yield
+    await initiative_scheduler.stop()
     await mqtt_bridge.stop()
 
 

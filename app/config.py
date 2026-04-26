@@ -23,6 +23,23 @@ class Settings(BaseSettings):
     router_timeout: int = Field(default=30)
     autonomy_level: str = Field(default="medium")  # low, medium, high
     enable_proactive_messaging: bool = Field(default=True)
+    initiative_enabled: bool = Field(default=True)
+    initiative_daily_limit: int = Field(default=2)
+    initiative_timezone: str = Field(default="America/Toronto")
+    initiative_daily_greeting_start: str = Field(default="07:00")
+    initiative_daily_greeting_end: str = Field(default="11:00")
+    initiative_quiet_hours_start: str = Field(default="22:00")
+    initiative_quiet_hours_end: str = Field(default="08:00")
+    initiative_focus_mode: bool = Field(default=False)
+    initiative_do_not_disturb: bool = Field(default=False)
+    initiative_late_night_start: str = Field(default="22:00")
+    initiative_late_night_end: str = Field(default="01:00")
+    initiative_silence_threshold_minutes: int = Field(default=90)
+    # Comma-separated list of enabled initiative types.
+    # prolonged_silence and memory_followup are off by default until tested.
+    initiative_allowed_types: str = Field(
+        default="daily_greeting,return_after_absence,late_night_checkin"
+    )
     enable_hardware_nodes: bool = Field(default=False)
     mqtt_broker_host: str = Field(default="127.0.0.1")
     mqtt_broker_port: int = Field(default=1883)

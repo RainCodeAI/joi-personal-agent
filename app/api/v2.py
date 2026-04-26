@@ -23,6 +23,7 @@ from app.api.state import (
     approval_manager,
     event_bus,
     hardware_bridge,
+    initiative_service,
     media_sessions,
     memory_store,
     mqtt_bridge,
@@ -647,6 +648,11 @@ async def search_memory(
 @router.post("/chat", response_model=V2ChatResponse)
 async def chat_v2(request: V2ChatRequest):
     history = memory_store.get_chat_history(request.session_id)
+    initiative_service.record_user_activity(
+        session_id=request.session_id,
+        source="chat.message.received",
+        clear_absence=True,
+    )
     attachment_resources: List[ChatAttachmentResource] = []
     attachment_contexts: List[str] = []
     for attachment in request.attachments:
@@ -1271,6 +1277,259 @@ async def patch_settings(request: SettingsPatchRequest):
         source="settings",
     )
     return settings_response
+
+
+@router.get("/initiative/diagnostics")
+async def get_initiative_diagnostics():
+    return {
+        "api_version": "v2",
+        "initiative": initiative_service.diagnostics(),
+    }
+
+
+@router.post("/initiative/daily-greeting")
+async def daily_greeting_initiative(session_id: str = "default", emit: bool = False):
+    candidate = initiative_service.build_daily_greeting_candidate(session_id=session_id)
+    if candidate is None:
+        payload = {
+            "allowed": False,
+            "candidate": None,
+            "suppressed_reason": "outside daily greeting window",
+        }
+        await event_bus.publish(
+            "initiative.suppressed",
+            payload,
+            session_id=session_id,
+            source="initiative",
+        )
+        return {
+            "api_version": "v2",
+            "decision": payload,
+        }
+    media_state = media_sessions.get(session_id)
+    if emit:
+        decision = await initiative_service.emit(
+            candidate,
+            event_bus=event_bus,
+            memory_store=memory_store,
+            media_session=media_state,
+        )
+    else:
+        decision = initiative_service.can_emit(candidate, media_session=media_state)
+        event_name = "initiative.candidate" if decision.allowed else "initiative.suppressed"
+        await event_bus.publish(
+            event_name,
+            decision.to_dict(),
+            session_id=session_id,
+            source="initiative",
+        )
+    return {
+        "api_version": "v2",
+        "decision": decision.to_dict(),
+    }
+
+
+@router.post("/initiative/activity")
+async def record_initiative_activity(
+    session_id: str = "default",
+    state: str = Query(default="active", pattern="^(active|away|returned)$"),
+    source: str = "api",
+):
+    if state == "away":
+        activity = initiative_service.record_absence_started(
+            session_id=session_id,
+            source=source,
+        )
+    elif state == "returned":
+        activity = initiative_service.record_user_activity(
+            session_id=session_id,
+            source=source,
+        )
+        candidate = initiative_service.build_return_after_absence_candidate(session_id=session_id)
+        initiative_service.clear_absence(session_id=session_id)
+        if candidate is not None:
+            media_state = media_sessions.get(session_id)
+            decision = await initiative_service.emit(
+                candidate,
+                event_bus=event_bus,
+                memory_store=memory_store,
+                media_session=media_state,
+            )
+            activity["return_after_absence"] = decision.to_dict()
+    else:
+        activity = initiative_service.record_user_activity(
+            session_id=session_id,
+            source=source,
+            clear_absence=True,
+        )
+    await event_bus.publish(
+        "initiative.activity",
+        {
+            "state": state,
+            "activity": activity,
+        },
+        session_id=session_id,
+        source="initiative",
+    )
+    return {
+        "api_version": "v2",
+        "state": state,
+        "activity": activity,
+    }
+
+
+@router.post("/initiative/return-after-absence")
+async def return_after_absence_initiative(session_id: str = "default", emit: bool = False):
+    candidate = initiative_service.build_return_after_absence_candidate(session_id=session_id)
+    if candidate is None:
+        payload = {
+            "allowed": False,
+            "candidate": None,
+            "suppressed_reason": "absence threshold not met",
+        }
+        await event_bus.publish(
+            "initiative.suppressed",
+            payload,
+            session_id=session_id,
+            source="initiative",
+        )
+        return {
+            "api_version": "v2",
+            "decision": payload,
+        }
+
+    media_state = media_sessions.get(session_id)
+    if emit:
+        decision = await initiative_service.emit(
+            candidate,
+            event_bus=event_bus,
+            memory_store=memory_store,
+            media_session=media_state,
+        )
+    else:
+        decision = initiative_service.can_emit(candidate, media_session=media_state)
+        event_name = "initiative.candidate" if decision.allowed else "initiative.suppressed"
+        await event_bus.publish(
+            event_name,
+            decision.to_dict(),
+            session_id=session_id,
+            source="initiative",
+        )
+    return {
+        "api_version": "v2",
+        "decision": decision.to_dict(),
+    }
+
+
+@router.post("/initiative/late-night-checkin")
+async def late_night_checkin_initiative(session_id: str = "default", emit: bool = False):
+    candidate = initiative_service.build_late_night_checkin_candidate(session_id=session_id)
+    if candidate is None:
+        payload = {
+            "allowed": False,
+            "candidate": None,
+            "suppressed_reason": "late-night eligibility not met",
+        }
+        await event_bus.publish(
+            "initiative.suppressed",
+            payload,
+            session_id=session_id,
+            source="initiative",
+        )
+        return {"api_version": "v2", "decision": payload}
+    media_state = media_sessions.get(session_id)
+    if emit:
+        decision = await initiative_service.emit(
+            candidate,
+            event_bus=event_bus,
+            memory_store=memory_store,
+            media_session=media_state,
+        )
+    else:
+        decision = initiative_service.can_emit(candidate, media_session=media_state)
+        event_name = "initiative.candidate" if decision.allowed else "initiative.suppressed"
+        await event_bus.publish(
+            event_name,
+            decision.to_dict(),
+            session_id=session_id,
+            source="initiative",
+        )
+    return {"api_version": "v2", "decision": decision.to_dict()}
+
+
+@router.post("/initiative/prolonged-silence")
+async def prolonged_silence_initiative(session_id: str = "default", emit: bool = False):
+    candidate = initiative_service.build_prolonged_silence_candidate(session_id=session_id)
+    if candidate is None:
+        payload = {
+            "allowed": False,
+            "candidate": None,
+            "suppressed_reason": "silence threshold not met",
+        }
+        await event_bus.publish(
+            "initiative.suppressed",
+            payload,
+            session_id=session_id,
+            source="initiative",
+        )
+        return {"api_version": "v2", "decision": payload}
+    media_state = media_sessions.get(session_id)
+    if emit:
+        decision = await initiative_service.emit(
+            candidate,
+            event_bus=event_bus,
+            memory_store=memory_store,
+            media_session=media_state,
+        )
+    else:
+        decision = initiative_service.can_emit(candidate, media_session=media_state)
+        event_name = "initiative.candidate" if decision.allowed else "initiative.suppressed"
+        await event_bus.publish(
+            event_name,
+            decision.to_dict(),
+            session_id=session_id,
+            source="initiative",
+        )
+    return {"api_version": "v2", "decision": decision.to_dict()}
+
+
+@router.post("/initiative/memory-followup")
+async def memory_followup_initiative(session_id: str = "default", emit: bool = False):
+    candidate = initiative_service.build_memory_followup_candidate(
+        session_id=session_id,
+        memory_store=memory_store,
+    )
+    if candidate is None:
+        payload = {
+            "allowed": False,
+            "candidate": None,
+            "suppressed_reason": "no suitable memory found",
+        }
+        await event_bus.publish(
+            "initiative.suppressed",
+            payload,
+            session_id=session_id,
+            source="initiative",
+        )
+        return {"api_version": "v2", "decision": payload}
+    media_state = media_sessions.get(session_id)
+    if emit:
+        decision = await initiative_service.emit(
+            candidate,
+            event_bus=event_bus,
+            memory_store=memory_store,
+            media_session=media_state,
+        )
+    else:
+        decision = initiative_service.can_emit(candidate, media_session=media_state)
+        event_name = "initiative.candidate" if decision.allowed else "initiative.suppressed"
+        await event_bus.publish(
+            event_name,
+            decision.to_dict(),
+            session_id=session_id,
+            source="initiative",
+        )
+    return {"api_version": "v2", "decision": decision.to_dict()}
 
 
 @router.get("/hardware/contract", response_model=HardwareBridgeContractResponse)

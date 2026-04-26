@@ -198,6 +198,19 @@ class SettingsResource(BaseModel):
     airgap: bool
     autonomy_level: str
     enable_proactive_messaging: bool
+    initiative_enabled: bool
+    initiative_daily_limit: int
+    initiative_timezone: str
+    initiative_daily_greeting_start: str
+    initiative_daily_greeting_end: str
+    initiative_quiet_hours_start: str
+    initiative_quiet_hours_end: str
+    initiative_focus_mode: bool
+    initiative_do_not_disturb: bool
+    initiative_late_night_start: str
+    initiative_late_night_end: str
+    initiative_silence_threshold_minutes: int
+    initiative_allowed_types: str
     enable_hardware_nodes: bool
     mqtt_broker_host: str
     mqtt_broker_port: int
@@ -219,6 +232,19 @@ class SettingsPatchRequest(BaseModel):
     airgap: Optional[bool] = None
     autonomy_level: Optional[str] = None
     enable_proactive_messaging: Optional[bool] = None
+    initiative_enabled: Optional[bool] = None
+    initiative_daily_limit: Optional[int] = None
+    initiative_timezone: Optional[str] = None
+    initiative_daily_greeting_start: Optional[str] = None
+    initiative_daily_greeting_end: Optional[str] = None
+    initiative_quiet_hours_start: Optional[str] = None
+    initiative_quiet_hours_end: Optional[str] = None
+    initiative_focus_mode: Optional[bool] = None
+    initiative_do_not_disturb: Optional[bool] = None
+    initiative_late_night_start: Optional[str] = None
+    initiative_late_night_end: Optional[str] = None
+    initiative_silence_threshold_minutes: Optional[int] = None
+    initiative_allowed_types: Optional[str] = None
     enable_hardware_nodes: Optional[bool] = None
     mqtt_broker_host: Optional[str] = None
     mqtt_broker_port: Optional[int] = None
