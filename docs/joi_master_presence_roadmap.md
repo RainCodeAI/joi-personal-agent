@@ -412,6 +412,13 @@ Update from Monday 2026-04-27:
 - Added `POST /api/v2/user-model/correct` request shape, but it returns `501` until durable correction storage exists; corrections must not pretend to save.
 - Added API tests for the contract-only projection and correction non-persistence behavior.
 
+Update from Monday 2026-04-27, later:
+
+- Durable correction storage added through `UserModelCorrectionStore` backed by `data/user_model_corrections.json`.
+- `POST /api/v2/user-model/correct` now persists `confirm`, `edit`, `hide`, `delete`, and `add` actions.
+- `GET /api/v2/user-model` merges corrections into the contract-only projection while keeping inference disabled.
+- Added tests for confirm/edit/hide/delete/add behavior and correction validation.
+
 ---
 
 ### Phase 10 — Intent-Driven Initiative

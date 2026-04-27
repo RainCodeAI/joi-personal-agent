@@ -30,6 +30,7 @@ from app.api.state import (
     mqtt_bridge,
     perception_policy,
     runtime_settings,
+    user_model_corrections,
 )
 from app.api.models import (
     ActivityLog,
@@ -104,7 +105,9 @@ from app.api.v2_models import (
     TransactionCreateResponse,
     TransactionResource,
     ToolCallResource,
+    UserModelCorrectionResource,
     UserModelCorrectionRequest,
+    UserModelCorrectionResponse,
     UserModelEvidenceResource,
     UserModelItemResource,
     UserModelPolicyResource,
@@ -652,6 +655,20 @@ def _user_model_section(key: str, items: List[UserModelItemResource]) -> UserMod
     )
 
 
+def _user_model_correction_resource(record: Dict[str, Any]) -> UserModelCorrectionResource:
+    return UserModelCorrectionResource(
+        id=str(record.get("id", "")),
+        user_id=str(record.get("user_id", "default")),
+        section_key=str(record.get("section_key", "character_notes")),  # type: ignore[arg-type]
+        action=str(record.get("action", "confirm")),  # type: ignore[arg-type]
+        item_id=record.get("item_id"),
+        label=record.get("label"),
+        value=record.get("value"),
+        note=record.get("note"),
+        created_at=str(record.get("created_at", "")),
+    )
+
+
 def _mood_trend_item(user_id: str, moods: List[Any]) -> UserModelItemResource | None:
     if not moods:
         return None
@@ -687,6 +704,84 @@ def _mood_trend_item(user_id: str, moods: List[Any]) -> UserModelItemResource | 
         evidence=evidence,
         user_confirmed=False,
     )
+
+
+def _apply_user_model_corrections(
+    user_id: str,
+    sections: Dict[str, List[UserModelItemResource]],
+) -> None:
+    corrections = user_model_corrections.list_for_user(user_id)
+    for correction in corrections:
+        section_key = str(correction.get("section_key") or "")
+        action = str(correction.get("action") or "")
+        if section_key not in sections:
+            continue
+        item_id = str(correction.get("item_id") or "")
+        items = sections[section_key]
+        existing = next((item for item in items if item.id == item_id), None)
+        if action == "add":
+            if not item_id or existing is not None:
+                continue
+            label = str(correction.get("label") or correction.get("value") or "User supplied item").strip()
+            value = str(correction.get("value") or label).strip()
+            if not value:
+                continue
+            evidence = [
+                _user_model_evidence(
+                    "correction",
+                    source_id=str(correction.get("id", "")),
+                    summary="User explicitly added this item",
+                    observed_at=correction.get("created_at"),
+                )
+            ]
+            items.append(
+                UserModelItemResource(
+                    id=item_id,
+                    label=label,
+                    value=value,
+                    category="user_supplied",
+                    confidence=1.0,
+                    evidence_count=1,
+                    first_seen=str(correction.get("created_at") or ""),
+                    last_seen=str(correction.get("created_at") or ""),
+                    lifecycle="pinned",
+                    user_confirmed=True,
+                    hidden=False,
+                    source_summary="Added directly by the user.",
+                    evidence=evidence,
+                )
+            )
+            continue
+        if existing is None:
+            continue
+        correction_evidence = _user_model_evidence(
+            "correction",
+            source_id=str(correction.get("id", "")),
+            summary=f"User correction action: {action}",
+            observed_at=correction.get("created_at"),
+        )
+        existing.evidence.append(correction_evidence)
+        existing.evidence_count = len(existing.evidence)
+        existing.last_seen = correction_evidence.observed_at or existing.last_seen
+        if action == "confirm":
+            existing.user_confirmed = True
+            existing.confidence = max(existing.confidence, 0.95)
+            existing.lifecycle = "pinned"
+            existing.source_summary = "Confirmed by the user."
+        elif action == "edit":
+            if correction.get("label"):
+                existing.label = str(correction["label"])
+            if correction.get("value"):
+                existing.value = str(correction["value"])
+            existing.user_confirmed = True
+            existing.confidence = max(existing.confidence, 0.95)
+            existing.lifecycle = "pinned"
+            existing.source_summary = "Edited and confirmed by the user."
+        elif action == "hide":
+            existing.hidden = True
+            existing.source_summary = "Hidden by the user; do not use for prompts or initiative."
+        elif action == "delete":
+            sections[section_key] = [item for item in items if item.id != item_id]
 
 
 def _user_model_response(user_id: str) -> UserModelResponse:
@@ -832,6 +927,8 @@ def _user_model_response(user_id: str) -> UserModelResponse:
     if mood_item is not None:
         sections["mood_trend"].append(mood_item)
 
+    _apply_user_model_corrections(user_id, sections)
+
     populated = sum(len(items) for items in sections.values())
     readable_summary = (
         f"Contract-only user model projection for {user_id}. "
@@ -841,7 +938,7 @@ def _user_model_response(user_id: str) -> UserModelResponse:
         user_id=user_id,
         status="contract_only",
         generated_at=datetime.utcnow().isoformat(),
-        policy=UserModelPolicyResource(),
+        policy=UserModelPolicyResource(correction_supported=True),
         readable_summary=readable_summary,
         sections=[
             _user_model_section(key, sections[key])
@@ -1403,15 +1500,30 @@ async def get_user_model(user_id: str = "default"):
     return _user_model_response(user_id)
 
 
-@router.post("/user-model/correct")
+@router.post("/user-model/correct", response_model=UserModelCorrectionResponse)
 async def correct_user_model(request: UserModelCorrectionRequest, user_id: str = "default"):
-    _ = (request, user_id)
-    raise HTTPException(
-        status_code=501,
-        detail=(
-            "User model correction persistence is not implemented yet. "
-            "The request schema is reserved by docs/user_model_contract.md."
-        ),
+    if request.action in {"confirm", "hide", "delete"} and not request.item_id:
+        raise HTTPException(status_code=400, detail=f"{request.action} requires item_id")
+    if request.action == "edit" and not request.item_id:
+        raise HTTPException(status_code=400, detail="edit requires item_id")
+    if request.action == "edit" and not (request.label or request.value):
+        raise HTTPException(status_code=400, detail="edit requires label or value")
+    if request.action == "add" and not (request.label or request.value):
+        raise HTTPException(status_code=400, detail="add requires label or value")
+
+    record = user_model_corrections.record(
+        user_id=user_id,
+        section_key=request.section_key,
+        action=request.action,
+        item_id=request.item_id,
+        label=request.label,
+        value=request.value,
+        note=request.note,
+    )
+    return UserModelCorrectionResponse(
+        user_id=user_id,
+        correction=_user_model_correction_resource(record),
+        user_model=_user_model_response(user_id),
     )
 
 

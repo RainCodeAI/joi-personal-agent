@@ -396,6 +396,24 @@ class UserModelCorrectionRequest(BaseModel):
     note: Optional[str] = None
 
 
+class UserModelCorrectionResource(BaseModel):
+    id: str
+    user_id: str
+    section_key: UserModelSectionKey
+    action: Literal["confirm", "edit", "hide", "delete", "add"]
+    item_id: Optional[str] = None
+    label: Optional[str] = None
+    value: Optional[str] = None
+    note: Optional[str] = None
+    created_at: str
+
+
+class UserModelCorrectionResponse(V2ResponseBase):
+    user_id: str = "default"
+    correction: UserModelCorrectionResource
+    user_model: UserModelResponse
+
+
 class MoodEntryResource(BaseModel):
     id: int
     user_id: str

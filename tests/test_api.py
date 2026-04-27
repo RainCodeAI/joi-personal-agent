@@ -15,6 +15,7 @@ from app.api import diagnostics as diagnostics_api
 from app.hardware.bridge import HardwareBridgeStore
 from app.hardware import mqtt_bridge as mqtt_bridge_module
 from app.orchestrator.security.approval import ApprovalStatus, PendingApproval
+from app.user_model.store import UserModelCorrectionStore
 
 
 client = TestClient(app)
@@ -1158,7 +1159,12 @@ def test_v2_profile_contract(monkeypatch):
     assert body["contacts"][0]["name"] == "Bob"
 
 
-def test_v2_user_model_contract_only_projection(monkeypatch):
+def test_v2_user_model_contract_only_projection(monkeypatch, tmp_path):
+    monkeypatch.setattr(
+        api_v2,
+        "user_model_corrections",
+        UserModelCorrectionStore(tmp_path / "user_model_corrections.json"),
+    )
     monkeypatch.setattr(
         api_v2.memory_store,
         "get_user_profile",
@@ -1221,7 +1227,7 @@ def test_v2_user_model_contract_only_projection(monkeypatch):
     assert body["api_version"] == "v2"
     assert body["status"] == "contract_only"
     assert body["policy"]["inference_enabled"] is False
-    assert body["policy"]["correction_supported"] is False
+    assert body["policy"]["correction_supported"] is True
     sections = {section["key"]: section for section in body["sections"]}
     assert set(sections) >= {
         "active_projects",
@@ -1238,19 +1244,119 @@ def test_v2_user_model_contract_only_projection(monkeypatch):
     assert sections["mood_trend"]["items"][0]["category"] == "explicit_mood_log"
 
 
-def test_v2_user_model_correction_contract_not_persisted():
+def test_v2_user_model_correction_persists_confirm_edit_hide_delete_add(monkeypatch, tmp_path):
+    monkeypatch.setattr(
+        api_v2,
+        "user_model_corrections",
+        UserModelCorrectionStore(tmp_path / "user_model_corrections.json"),
+    )
+    monkeypatch.setattr(api_v2.memory_store, "get_user_profile", lambda user_id: None)
+    monkeypatch.setattr(
+        api_v2.memory_store,
+        "get_personal_goals",
+        lambda user_id: [
+            SimpleNamespace(
+                id=3,
+                user_id=user_id,
+                name="Ship Joi v2",
+                description="Make Joi feel present",
+                linked_habit_id=None,
+                linked_decision_id=None,
+                status="active",
+            )
+        ],
+    )
+    monkeypatch.setattr(api_v2.memory_store, "get_contacts", lambda user_id, limit=50: [])
+    monkeypatch.setattr(api_v2.memory_store, "get_recent_moods", lambda user_id, limit=14: [])
+
+    confirm = client.post(
+        "/api/v2/user-model/correct",
+        params={"user_id": "default"},
+        json={
+            "section_key": "stated_goals",
+            "action": "confirm",
+            "item_id": "stated_goals:3",
+        },
+    )
+    assert confirm.status_code == 200
+    body = confirm.json()
+    assert body["correction"]["action"] == "confirm"
+    sections = {section["key"]: section for section in body["user_model"]["sections"]}
+    assert sections["stated_goals"]["items"][0]["lifecycle"] == "pinned"
+    assert sections["stated_goals"]["items"][0]["user_confirmed"] is True
+
+    edit = client.post(
+        "/api/v2/user-model/correct",
+        params={"user_id": "default"},
+        json={
+            "section_key": "active_projects",
+            "action": "edit",
+            "item_id": "active_projects:3",
+            "label": "Joi presence",
+            "value": "Make Joi feel more present and emotionally grounded.",
+        },
+    )
+    assert edit.status_code == 200
+    sections = {section["key"]: section for section in edit.json()["user_model"]["sections"]}
+    assert sections["active_projects"]["items"][0]["label"] == "Joi presence"
+    assert sections["active_projects"]["items"][0]["value"] == "Make Joi feel more present and emotionally grounded."
+
+    hide = client.post(
+        "/api/v2/user-model/correct",
+        params={"user_id": "default"},
+        json={
+            "section_key": "active_projects",
+            "action": "hide",
+            "item_id": "active_projects:3",
+        },
+    )
+    assert hide.status_code == 200
+    sections = {section["key"]: section for section in hide.json()["user_model"]["sections"]}
+    assert sections["active_projects"]["items"][0]["hidden"] is True
+
+    add = client.post(
+        "/api/v2/user-model/correct",
+        params={"user_id": "default"},
+        json={
+            "section_key": "communication_preferences",
+            "action": "add",
+            "label": "Tone",
+            "value": "Use a restrained, direct voice.",
+        },
+    )
+    assert add.status_code == 200
+    sections = {section["key"]: section for section in add.json()["user_model"]["sections"]}
+    added = sections["communication_preferences"]["items"][0]
+    assert added["label"] == "Tone"
+    assert added["user_confirmed"] is True
+    assert added["evidence"][0]["source_type"] == "correction"
+
+    delete = client.post(
+        "/api/v2/user-model/correct",
+        params={"user_id": "default"},
+        json={
+            "section_key": "stated_goals",
+            "action": "delete",
+            "item_id": "stated_goals:3",
+        },
+    )
+    assert delete.status_code == 200
+    sections = {section["key"]: section for section in delete.json()["user_model"]["sections"]}
+    assert sections["stated_goals"]["items"] == []
+
+
+def test_v2_user_model_correction_validation():
     response = client.post(
         "/api/v2/user-model/correct",
         params={"user_id": "default"},
         json={
             "section_key": "communication_preferences",
             "action": "confirm",
-            "item_id": "communication_preferences:default:humor",
         },
     )
 
-    assert response.status_code == 501
-    assert "not implemented" in response.json()["detail"]
+    assert response.status_code == 400
+    assert "requires item_id" in response.json()["detail"]
 
 
 def test_v2_profile_patch(monkeypatch):

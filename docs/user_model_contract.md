@@ -1,6 +1,6 @@
 # Joi User Model Contract
 
-Status: Phase 9 contract draft
+Status: Phase 9 contract with durable correction storage
 Last updated: 2026-04-27
 
 ## Purpose
@@ -118,13 +118,21 @@ Returns the current user model in the contract shape. The Phase 9 foundation may
 
 ### `POST /api/v2/user-model/correct?user_id=default`
 
-Accepts the correction request shape. It must not return success until durable correction storage exists.
+Accepts the correction request shape and persists the correction to `data/user_model_corrections.json`.
+
+Supported actions:
+
+- `confirm`: requires `item_id`; marks the item confirmed and pinned
+- `edit`: requires `item_id` plus `label` or `value`; edits and confirms the item
+- `hide`: requires `item_id`; marks the item hidden so it should not feed prompts or initiative
+- `delete`: requires `item_id`; removes the item from the response projection
+- `add`: requires `label` or `value`; adds a user-supplied pinned item
 
 ## Current Foundation
 
-The initial API implementation is intentionally read-only:
+The initial API implementation is intentionally inference-off:
 
 - it projects existing explicit profile, goals, contacts, moods, and preferences into the future user-model response shape
 - every projected item is marked with source metadata
-- correction request schemas exist, but persistence is not enabled yet
-
+- corrections persist in a small JSON store and are merged into the response
+- inference and session synthesis are not enabled yet
