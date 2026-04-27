@@ -16,6 +16,10 @@ import {
   RealtimeEvent,
   Session,
   SnapshotAnalysis,
+  UserModelCorrectionRequest,
+  UserModelCorrectionResponse,
+  UserModelPromptPreview,
+  UserModelResponse,
 } from "@/lib/types";
 
 const API_BASE_URL =
@@ -305,6 +309,27 @@ export async function analyzeSnapshot(
 
 export async function fetchDiagnostics() {
   return apiFetch<DiagnosticsResponse>("/diagnostics/runtime");
+}
+
+export async function fetchUserModel(userId = "default") {
+  const params = new URLSearchParams({ user_id: userId });
+  return apiFetch<UserModelResponse>(`/api/v2/user-model?${params}`);
+}
+
+export async function postUserModelCorrection(
+  payload: UserModelCorrectionRequest,
+  userId = "default",
+) {
+  const params = new URLSearchParams({ user_id: userId });
+  return apiFetch<UserModelCorrectionResponse>(`/api/v2/user-model/correct?${params}`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function fetchUserModelPromptPreview(userId = "default") {
+  const params = new URLSearchParams({ user_id: userId });
+  return apiFetch<UserModelPromptPreview>(`/api/v2/user-model/prompt-preview?${params}`);
 }
 
 export type SettingsShape = {

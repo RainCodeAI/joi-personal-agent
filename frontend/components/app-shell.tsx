@@ -7,6 +7,7 @@ import { NavLink } from "@/components/nav-link";
 const NAV_ITEMS = [
   { href: "/chat",        label: "Chat",        copy: "Realtime conversation and presence." },
   { href: "/memory",      label: "Memory",      copy: "Search, recall, and semantic traces." },
+  { href: "/user-model",  label: "User Model",  copy: "What Joi knows about you." },
   { href: "/planner",     label: "Planner",     copy: "Context-aware day shaping." },
   { href: "/diagnostics", label: "Diagnostics", copy: "Provider, storage, and runtime truth." },
   { href: "/settings",    label: "Settings",    copy: "Mutable runtime controls." },

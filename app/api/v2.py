@@ -1500,6 +1500,15 @@ async def get_user_model(user_id: str = "default"):
     return _user_model_response(user_id)
 
 
+@router.get("/user-model/prompt-preview")
+async def get_user_model_prompt_preview(user_id: str = "default"):
+    from app.user_model.context import UserModelPromptFormatter
+    formatter = UserModelPromptFormatter(correction_store=user_model_corrections)
+    block = formatter.build_prompt_block(user_id=user_id, memory_store=memory_store)
+    lines = [ln for ln in block.split("\n") if ln.strip()] if block else []
+    return {"api_version": "v2", "user_id": user_id, "prompt_block": block, "line_count": len(lines)}
+
+
 @router.post("/user-model/correct", response_model=UserModelCorrectionResponse)
 async def correct_user_model(request: UserModelCorrectionRequest, user_id: str = "default"):
     if request.action in {"confirm", "hide", "delete"} and not request.item_id:
@@ -1815,17 +1824,19 @@ async def record_initiative_activity(
         source="initiative",
     )
     # Re-evaluate life state on presence changes — absence/return are strong signals.
-    new_life_state = life_state_engine.evaluate(
-        last_activity_at=initiative_service.store.last_user_activity_at(),
-        absence_started_at=initiative_service.store.absence_started_at(session_id),
-    )
-    if new_life_state is not None:
-        await event_bus.publish(
-            "avatar.life_state_changed",
-            {"life_state": new_life_state},
-            session_id=session_id,
-            source="presence",
+    initiative_store = getattr(initiative_service, "store", None)
+    if initiative_store is not None:
+        new_life_state = life_state_engine.evaluate(
+            last_activity_at=initiative_store.last_user_activity_at(),
+            absence_started_at=initiative_store.absence_started_at(session_id),
         )
+        if new_life_state is not None:
+            await event_bus.publish(
+                "avatar.life_state_changed",
+                {"life_state": new_life_state},
+                session_id=session_id,
+                source="presence",
+            )
     return {
         "api_version": "v2",
         "state": state,

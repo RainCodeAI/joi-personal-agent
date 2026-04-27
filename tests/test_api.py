@@ -284,7 +284,8 @@ def test_v2_chat_contract(monkeypatch):
     assert body["avatar"]["expression"] == "clingy"
     assert body["avatar"]["voice_hint"] == "whisper"
     assert body["pending_approvals"][0]["tool_name"] == "send_email"
-    assert [event["event"] for event in published_events] == [
+    event_names = [event["event"] for event in published_events]
+    assert [name for name in event_names if name != "avatar.life_state_changed"] == [
         "message.received",
         "response.started",
         "joi.state.changed",
@@ -294,6 +295,7 @@ def test_v2_chat_contract(monkeypatch):
         "joi.state.changed",
         "avatar.state",
     ]
+    assert "avatar.life_state_changed" in event_names
 
 
 def test_v2_chat_with_attachments_and_deltas(monkeypatch):
@@ -430,7 +432,8 @@ def test_v2_chat_with_attachments_and_deltas(monkeypatch):
     assert captured["text"] == "Shared attachment: scene.png"
     assert captured["attachment_contexts"] == ["Image attachment 'scene.png' described as: a city skyline"]
     assert streamed_chunks == ["I see the ", "skyline."]
-    assert [event["event"] for event in published_events] == [
+    event_names = [event["event"] for event in published_events]
+    assert [name for name in event_names if name != "avatar.life_state_changed"] == [
         "message.received",
         "response.started",
         "joi.state.changed",
@@ -441,8 +444,10 @@ def test_v2_chat_with_attachments_and_deltas(monkeypatch):
         "joi.state.changed",
         "avatar.state",
     ]
-    assert published_events[3]["payload"]["content"] == "I see the "
-    assert published_events[4]["payload"]["content"] == "I see the skyline."
+    assert "avatar.life_state_changed" in event_names
+    delta_events = [event for event in published_events if event["event"] == "message.delta"]
+    assert delta_events[0]["payload"]["content"] == "I see the "
+    assert delta_events[1]["payload"]["content"] == "I see the skyline."
     assert published_events[0]["payload"]["attachments"][0]["name"] == "scene.png"
 
 
@@ -1357,6 +1362,20 @@ def test_v2_user_model_correction_validation():
 
     assert response.status_code == 400
     assert "requires item_id" in response.json()["detail"]
+
+
+def test_v2_user_model_prompt_preview(monkeypatch, tmp_path):
+    store_path = tmp_path / "corrections.json"
+    correction_store = UserModelCorrectionStore(path=store_path)
+    monkeypatch.setattr(api_v2, "user_model_corrections", correction_store)
+
+    response = client.get("/api/v2/user-model/prompt-preview", params={"user_id": "default"})
+    assert response.status_code == 200
+    data = response.json()
+    assert data["api_version"] == "v2"
+    assert "prompt_block" in data
+    assert isinstance(data["line_count"], int)
+    assert data["line_count"] >= 0
 
 
 def test_v2_profile_patch(monkeypatch):

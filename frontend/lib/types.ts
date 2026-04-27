@@ -297,3 +297,87 @@ export type PerceptionState = {
   lastSignal: PerceptionSignal | null;
   updatedAt: number;
 };
+
+export type UserModelEvidence = {
+  source_type: string;
+  source_id?: string | null;
+  summary: string;
+  observed_at?: string | null;
+};
+
+export type UserModelItem = {
+  id: string;
+  label: string;
+  value: string;
+  category: string;
+  confidence: number;
+  evidence_count: number;
+  first_seen?: string | null;
+  last_seen?: string | null;
+  lifecycle: "fresh" | "active" | "archive" | "pinned";
+  user_confirmed: boolean;
+  hidden: boolean;
+  source_summary: string;
+  evidence: UserModelEvidence[];
+};
+
+export type UserModelSection = {
+  key: string;
+  title: string;
+  description: string;
+  items: UserModelItem[];
+};
+
+export type UserModelPolicy = {
+  inference_enabled: boolean;
+  correction_supported: boolean;
+  initiative_surface_enabled: boolean;
+  min_confidence_to_surface: number;
+  stores_raw_files: boolean;
+  stores_raw_presence_streams: boolean;
+};
+
+export type UserModelResponse = {
+  api_version: "v2";
+  user_id: string;
+  status: "contract_only" | "active";
+  generated_at: string;
+  policy: UserModelPolicy;
+  readable_summary: string;
+  sections: UserModelSection[];
+};
+
+export type UserModelCorrectionAction = "confirm" | "edit" | "hide" | "delete" | "add";
+
+export type UserModelCorrectionRequest = {
+  section_key: string;
+  action: UserModelCorrectionAction;
+  item_id?: string;
+  label?: string;
+  value?: string;
+  note?: string;
+};
+
+export type UserModelCorrectionResponse = {
+  api_version: "v2";
+  user_id: string;
+  correction: {
+    id: string;
+    user_id: string;
+    section_key: string;
+    action: UserModelCorrectionAction;
+    item_id?: string | null;
+    label?: string | null;
+    value?: string | null;
+    note?: string | null;
+    created_at: string;
+  };
+  user_model: UserModelResponse;
+};
+
+export type UserModelPromptPreview = {
+  api_version: "v2";
+  user_id: string;
+  prompt_block: string;
+  line_count: number;
+};
