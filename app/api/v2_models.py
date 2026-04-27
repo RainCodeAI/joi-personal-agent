@@ -309,6 +309,93 @@ class ProfilePatchRequest(BaseModel):
     humor_level: Optional[int] = None
 
 
+UserModelSectionKey = Literal[
+    "active_projects",
+    "recurring_worries",
+    "stated_goals",
+    "important_people",
+    "mood_trend",
+    "communication_preferences",
+    "recent_wins",
+    "open_loops",
+    "character_notes",
+]
+
+UserModelEvidenceSource = Literal[
+    "chat",
+    "memory",
+    "profile",
+    "mood",
+    "habit",
+    "goal",
+    "contact",
+    "calendar",
+    "notes",
+    "hardware",
+    "correction",
+    "system",
+]
+
+UserModelLifecycle = Literal["fresh", "active", "archive", "pinned"]
+
+
+class UserModelEvidenceResource(BaseModel):
+    source_type: UserModelEvidenceSource
+    source_id: Optional[str] = None
+    summary: str
+    observed_at: Optional[str] = None
+
+
+class UserModelItemResource(BaseModel):
+    id: str
+    label: str
+    value: str
+    category: str
+    confidence: float = Field(ge=0.0, le=1.0)
+    evidence_count: int = Field(default=0, ge=0)
+    first_seen: Optional[str] = None
+    last_seen: Optional[str] = None
+    lifecycle: UserModelLifecycle = "active"
+    user_confirmed: bool = False
+    hidden: bool = False
+    source_summary: str
+    evidence: List[UserModelEvidenceResource] = Field(default_factory=list)
+
+
+class UserModelSectionResource(BaseModel):
+    key: UserModelSectionKey
+    title: str
+    description: str
+    items: List[UserModelItemResource] = Field(default_factory=list)
+
+
+class UserModelPolicyResource(BaseModel):
+    inference_enabled: bool = False
+    correction_supported: bool = False
+    initiative_surface_enabled: bool = False
+    min_confidence_to_surface: float = Field(default=0.75, ge=0.0, le=1.0)
+    stores_raw_files: bool = False
+    stores_raw_presence_streams: bool = False
+
+
+class UserModelResponse(V2ResponseBase):
+    user_id: str = "default"
+    status: Literal["contract_only", "active"] = "contract_only"
+    generated_at: str
+    policy: UserModelPolicyResource = Field(default_factory=UserModelPolicyResource)
+    readable_summary: str = ""
+    sections: List[UserModelSectionResource] = Field(default_factory=list)
+
+
+class UserModelCorrectionRequest(BaseModel):
+    section_key: UserModelSectionKey
+    action: Literal["confirm", "edit", "hide", "delete", "add"]
+    item_id: Optional[str] = None
+    label: Optional[str] = None
+    value: Optional[str] = None
+    note: Optional[str] = None
+
+
 class MoodEntryResource(BaseModel):
     id: int
     user_id: str

@@ -403,6 +403,15 @@ The gap between "assistant with memory" and "companion who knows you" is entirel
 
 Dependency: Phase 7 (initiative gate) must be stable before pattern-surfacing triggers are added.
 
+Update from Monday 2026-04-27:
+
+- Phase 9 user model contract foundation started.
+- Added `docs/user_model_contract.md` defining sections, item/evidence shape, correction semantics, inference boundaries, and initiative-use rules.
+- Added Pydantic contract models for user model sections, items, evidence, policy, response, and correction requests.
+- Added `GET /api/v2/user-model`, returning a read-only `contract_only` projection of existing explicit profile/goals/contacts/mood/preference data into the future user-model shape.
+- Added `POST /api/v2/user-model/correct` request shape, but it returns `501` until durable correction storage exists; corrections must not pretend to save.
+- Added API tests for the contract-only projection and correction non-persistence behavior.
+
 ---
 
 ### Phase 10 — Intent-Driven Initiative

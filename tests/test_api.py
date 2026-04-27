@@ -1158,6 +1158,101 @@ def test_v2_profile_contract(monkeypatch):
     assert body["contacts"][0]["name"] == "Bob"
 
 
+def test_v2_user_model_contract_only_projection(monkeypatch):
+    monkeypatch.setattr(
+        api_v2.memory_store,
+        "get_user_profile",
+        lambda user_id: SimpleNamespace(
+            user_id=user_id,
+            name="Rain",
+            email="rain@example.com",
+            birthday=None,
+            hobbies="coding",
+            relationships=None,
+            notes="night owl",
+            therapeutic_mode=False,
+            personality="Curious",
+            humor_level=8,
+        ),
+    )
+    monkeypatch.setattr(
+        api_v2.memory_store,
+        "get_personal_goals",
+        lambda user_id: [
+            SimpleNamespace(
+                id=3,
+                user_id=user_id,
+                name="Ship Joi v2",
+                description="Make Joi feel present",
+                linked_habit_id=None,
+                linked_decision_id=None,
+                status="active",
+            )
+        ],
+    )
+    monkeypatch.setattr(
+        api_v2.memory_store,
+        "get_contacts",
+        lambda user_id, limit=50: [
+            SimpleNamespace(
+                id=9,
+                user_id=user_id,
+                name="Bob",
+                last_contact=datetime(2026, 1, 2).date(),
+                strength=7,
+                entity_id=None,
+            )
+        ],
+    )
+    monkeypatch.setattr(
+        api_v2.memory_store,
+        "get_recent_moods",
+        lambda user_id, limit=14: [
+            SimpleNamespace(id=1, user_id=user_id, date=datetime(2026, 1, 4, 10, 0, 0), mood=7),
+            SimpleNamespace(id=2, user_id=user_id, date=datetime(2026, 1, 3, 10, 0, 0), mood=6),
+            SimpleNamespace(id=3, user_id=user_id, date=datetime(2026, 1, 2, 10, 0, 0), mood=5),
+        ],
+    )
+
+    response = client.get("/api/v2/user-model", params={"user_id": "default"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["api_version"] == "v2"
+    assert body["status"] == "contract_only"
+    assert body["policy"]["inference_enabled"] is False
+    assert body["policy"]["correction_supported"] is False
+    sections = {section["key"]: section for section in body["sections"]}
+    assert set(sections) >= {
+        "active_projects",
+        "stated_goals",
+        "important_people",
+        "mood_trend",
+        "communication_preferences",
+        "character_notes",
+    }
+    assert sections["stated_goals"]["items"][0]["label"] == "Ship Joi v2"
+    assert sections["stated_goals"]["items"][0]["user_confirmed"] is True
+    assert sections["stated_goals"]["items"][0]["evidence"][0]["source_type"] == "goal"
+    assert sections["important_people"]["items"][0]["label"] == "Bob"
+    assert sections["mood_trend"]["items"][0]["category"] == "explicit_mood_log"
+
+
+def test_v2_user_model_correction_contract_not_persisted():
+    response = client.post(
+        "/api/v2/user-model/correct",
+        params={"user_id": "default"},
+        json={
+            "section_key": "communication_preferences",
+            "action": "confirm",
+            "item_id": "communication_preferences:default:humor",
+        },
+    )
+
+    assert response.status_code == 501
+    assert "not implemented" in response.json()["detail"]
+
+
 def test_v2_profile_patch(monkeypatch):
     state = {
         "profile": SimpleNamespace(

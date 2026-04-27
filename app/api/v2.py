@@ -104,6 +104,12 @@ from app.api.v2_models import (
     TransactionCreateResponse,
     TransactionResource,
     ToolCallResource,
+    UserModelCorrectionRequest,
+    UserModelEvidenceResource,
+    UserModelItemResource,
+    UserModelPolicyResource,
+    UserModelResponse,
+    UserModelSectionResource,
     UserProfileResource,
     V2ChatRequest,
     V2ChatResponse,
@@ -542,6 +548,305 @@ def _contact_resource(contact) -> ContactResource:
         last_contact=contact.last_contact,
         strength=contact.strength,
         entity_id=contact.entity_id,
+    )
+
+
+_USER_MODEL_SECTION_META: Dict[str, tuple[str, str]] = {
+    "active_projects": (
+        "Active projects",
+        "Projects or workstreams that currently matter to the user.",
+    ),
+    "recurring_worries": (
+        "Recurring worries",
+        "Concerns that appear repeatedly across sessions.",
+    ),
+    "stated_goals": (
+        "Stated goals",
+        "Goals the user explicitly stated or confirmed.",
+    ),
+    "important_people": (
+        "Important people",
+        "People the user mentions or marks as important.",
+    ),
+    "mood_trend": (
+        "Mood trend",
+        "Recent emotional baseline and notable changes.",
+    ),
+    "communication_preferences": (
+        "Communication preferences",
+        "How the user prefers Joi to respond.",
+    ),
+    "recent_wins": (
+        "Recent wins",
+        "Positive outcomes worth remembering.",
+    ),
+    "open_loops": (
+        "Open loops",
+        "Unresolved decisions, promises, or follow-ups.",
+    ),
+    "character_notes": (
+        "Character notes",
+        "Joi's cautious read on the user's current tone and state.",
+    ),
+}
+
+
+def _user_model_evidence(
+    source_type: str,
+    *,
+    source_id: str | None = None,
+    summary: str,
+    observed_at: Any | None = None,
+) -> UserModelEvidenceResource:
+    if isinstance(observed_at, (datetime,)):
+        observed = observed_at.isoformat()
+    elif observed_at is not None:
+        observed = str(observed_at)
+    else:
+        observed = None
+    return UserModelEvidenceResource(
+        source_type=source_type,  # type: ignore[arg-type]
+        source_id=source_id,
+        summary=summary,
+        observed_at=observed,
+    )
+
+
+def _user_model_item(
+    *,
+    section_key: str,
+    item_id: str,
+    label: str,
+    value: str,
+    category: str,
+    confidence: float,
+    evidence: List[UserModelEvidenceResource],
+    user_confirmed: bool = False,
+    lifecycle: str = "active",
+) -> UserModelItemResource:
+    observed = [item.observed_at for item in evidence if item.observed_at]
+    return UserModelItemResource(
+        id=f"{section_key}:{item_id}",
+        label=label,
+        value=value,
+        category=category,
+        confidence=confidence,
+        evidence_count=len(evidence),
+        first_seen=min(observed) if observed else None,
+        last_seen=max(observed) if observed else None,
+        lifecycle=lifecycle,  # type: ignore[arg-type]
+        user_confirmed=user_confirmed,
+        hidden=False,
+        source_summary="Projected from explicit profile data; not inferred yet.",
+        evidence=evidence,
+    )
+
+
+def _user_model_section(key: str, items: List[UserModelItemResource]) -> UserModelSectionResource:
+    title, description = _USER_MODEL_SECTION_META[key]
+    return UserModelSectionResource(
+        key=key,  # type: ignore[arg-type]
+        title=title,
+        description=description,
+        items=items,
+    )
+
+
+def _mood_trend_item(user_id: str, moods: List[Any]) -> UserModelItemResource | None:
+    if not moods:
+        return None
+    values = [int(getattr(mood, "mood", 0)) for mood in moods if getattr(mood, "mood", None) is not None]
+    if not values:
+        return None
+    average = sum(values) / len(values)
+    latest = values[0]
+    trend = "steady"
+    if len(values) >= 3:
+        recent_avg = sum(values[:3]) / 3
+        older_avg = sum(values[3:]) / max(1, len(values[3:]))
+        if recent_avg >= older_avg + 1:
+            trend = "improving"
+        elif recent_avg <= older_avg - 1:
+            trend = "lower than usual"
+    evidence = [
+        _user_model_evidence(
+            "mood",
+            source_id=str(getattr(mood, "id", index)),
+            summary=f"Mood entry {getattr(mood, 'mood', '')}/10",
+            observed_at=getattr(mood, "date", None),
+        )
+        for index, mood in enumerate(moods[:5])
+    ]
+    return _user_model_item(
+        section_key="mood_trend",
+        item_id=f"{user_id}:recent",
+        label="Recent mood baseline",
+        value=f"Recent mood averages {average:.1f}/10; latest entry is {latest}/10 and trend appears {trend}.",
+        category="explicit_mood_log",
+        confidence=0.65,
+        evidence=evidence,
+        user_confirmed=False,
+    )
+
+
+def _user_model_response(user_id: str) -> UserModelResponse:
+    profile = memory_store.get_user_profile(user_id)
+    goals = memory_store.get_personal_goals(user_id)
+    contacts = memory_store.get_contacts(user_id, limit=50)
+    moods = memory_store.get_recent_moods(user_id, limit=14)
+
+    sections: Dict[str, List[UserModelItemResource]] = {
+        key: [] for key in _USER_MODEL_SECTION_META
+    }
+
+    for goal in goals:
+        if getattr(goal, "status", "active") != "active":
+            continue
+        label = str(getattr(goal, "name", "") or "").strip()
+        if not label:
+            continue
+        description = str(getattr(goal, "description", "") or "").strip()
+        sections["stated_goals"].append(
+            _user_model_item(
+                section_key="stated_goals",
+                item_id=str(getattr(goal, "id", label)),
+                label=label,
+                value=description or label,
+                category="explicit_goal",
+                confidence=0.95,
+                evidence=[
+                    _user_model_evidence(
+                        "goal",
+                        source_id=str(getattr(goal, "id", "")),
+                        summary="Explicit goal record",
+                    )
+                ],
+                user_confirmed=True,
+                lifecycle="pinned",
+            )
+        )
+        sections["active_projects"].append(
+            _user_model_item(
+                section_key="active_projects",
+                item_id=str(getattr(goal, "id", label)),
+                label=label,
+                value=description or f"{label} is currently active.",
+                category="goal_project",
+                confidence=0.8,
+                evidence=[
+                    _user_model_evidence(
+                        "goal",
+                        source_id=str(getattr(goal, "id", "")),
+                        summary="Active goal projected as active project candidate",
+                    )
+                ],
+                user_confirmed=False,
+            )
+        )
+
+    for contact in contacts:
+        name = str(getattr(contact, "name", "") or "").strip()
+        if not name:
+            continue
+        sections["important_people"].append(
+            _user_model_item(
+                section_key="important_people",
+                item_id=str(getattr(contact, "id", name)),
+                label=name,
+                value=f"{name} appears in the explicit contact list.",
+                category="explicit_contact",
+                confidence=0.85,
+                evidence=[
+                    _user_model_evidence(
+                        "contact",
+                        source_id=str(getattr(contact, "id", "")),
+                        summary="Explicit contact record",
+                        observed_at=getattr(contact, "last_contact", None),
+                    )
+                ],
+                user_confirmed=True,
+            )
+        )
+
+    if profile is not None:
+        if getattr(profile, "personality", None):
+            sections["communication_preferences"].append(
+                _user_model_item(
+                    section_key="communication_preferences",
+                    item_id=f"{user_id}:personality",
+                    label="Persona preference",
+                    value=f"Preferred personality mode: {profile.personality}.",
+                    category="explicit_preference",
+                    confidence=0.9,
+                    evidence=[
+                        _user_model_evidence(
+                            "profile",
+                            source_id=user_id,
+                            summary="Profile personality preference",
+                        )
+                    ],
+                    user_confirmed=True,
+                    lifecycle="pinned",
+                )
+            )
+        sections["communication_preferences"].append(
+            _user_model_item(
+                section_key="communication_preferences",
+                item_id=f"{user_id}:humor",
+                label="Humor level",
+                value=f"Humor level is set to {getattr(profile, 'humor_level', 5)}/10.",
+                category="explicit_preference",
+                confidence=0.9,
+                evidence=[
+                    _user_model_evidence(
+                        "profile",
+                        source_id=user_id,
+                        summary="Profile humor preference",
+                    )
+                ],
+                user_confirmed=True,
+                lifecycle="pinned",
+            )
+        )
+        if getattr(profile, "notes", None):
+            sections["character_notes"].append(
+                _user_model_item(
+                    section_key="character_notes",
+                    item_id=f"{user_id}:profile-notes",
+                    label="Explicit profile notes",
+                    value=str(profile.notes),
+                    category="explicit_note",
+                    confidence=0.75,
+                    evidence=[
+                        _user_model_evidence(
+                            "profile",
+                            source_id=user_id,
+                            summary="Explicit profile notes",
+                        )
+                    ],
+                    user_confirmed=True,
+                )
+            )
+
+    mood_item = _mood_trend_item(user_id, moods)
+    if mood_item is not None:
+        sections["mood_trend"].append(mood_item)
+
+    populated = sum(len(items) for items in sections.values())
+    readable_summary = (
+        f"Contract-only user model projection for {user_id}. "
+        f"{populated} item(s) projected from explicit profile surfaces; no inferred storage is active yet."
+    )
+    return UserModelResponse(
+        user_id=user_id,
+        status="contract_only",
+        generated_at=datetime.utcnow().isoformat(),
+        policy=UserModelPolicyResource(),
+        readable_summary=readable_summary,
+        sections=[
+            _user_model_section(key, sections[key])
+            for key in _USER_MODEL_SECTION_META
+        ],
     )
 
 
@@ -1091,6 +1396,23 @@ async def analyze_vision_snapshot(request: VisionAnalyzeRequest):
 @router.get("/profile", response_model=ProfileResponse)
 async def get_profile(user_id: str = "default"):
     return _profile_response(user_id)
+
+
+@router.get("/user-model", response_model=UserModelResponse)
+async def get_user_model(user_id: str = "default"):
+    return _user_model_response(user_id)
+
+
+@router.post("/user-model/correct")
+async def correct_user_model(request: UserModelCorrectionRequest, user_id: str = "default"):
+    _ = (request, user_id)
+    raise HTTPException(
+        status_code=501,
+        detail=(
+            "User model correction persistence is not implemented yet. "
+            "The request schema is reserved by docs/user_model_contract.md."
+        ),
+    )
 
 
 @router.patch("/profile", response_model=ProfileResponse)
