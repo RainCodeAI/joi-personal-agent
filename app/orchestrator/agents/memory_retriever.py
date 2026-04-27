@@ -9,6 +9,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, TYPE_CHECKING
 
+from app.user_model.context import UserModelPromptFormatter
+
 if TYPE_CHECKING:
     from app.memory.store import MemoryStore
     from app.api.models import ChatMessage
@@ -27,6 +29,9 @@ class ContextBundle:
 
 class MemoryRetrieverAgent:
     """Gathers contextual information from memory, profile, and mood data."""
+
+    def __init__(self, user_model_formatter: UserModelPromptFormatter | None = None) -> None:
+        self._user_model_formatter = user_model_formatter or UserModelPromptFormatter()
 
     # ── public API ────────────────────────────────────────────────────────
 
@@ -86,7 +91,15 @@ class MemoryRetrieverAgent:
         )
         bundle.profile_info = core_prompt
 
-        # 5. Append dynamic situational context
+        # 5. Durable user-model context
+        user_model_block = self._user_model_formatter.build_prompt_block(
+            user_id=session_id,
+            memory_store=memory_store,
+        )
+        if user_model_block:
+            bundle.profile_info += "\n\n" + user_model_block
+
+        # 6. Append dynamic situational context
         if bundle.sentiment == "negative":
             bundle.profile_info += "\n[System Note]: User input is negative. Be empathetic."
         elif bundle.sentiment == "positive":
@@ -96,15 +109,15 @@ class MemoryRetrieverAgent:
         if bundle.avg_mood < 4.0:
             bundle.profile_info += "\n[System Note]: User has been consistently low mood. Prioritize comfort."
 
-        # 6. News / weather on request
+        # 7. News / weather on request
         bundle.profile_info += self._maybe_fetch_news_weather(user_msg)
 
-        # 7. Knowledge graph on trigger
+        # 8. Knowledge graph on trigger
         if "graph" in user_msg.lower() or "connections" in user_msg.lower():
             memory_store.populate_knowledge_graph(session_id)
             bundle.profile_info += "\n[System Note]: Knowledge graph updated."
 
-        # 8. Graph RAG search
+        # 9. Graph RAG search
         bundle.relevant_memories = memory_store.graph_rag_search(user_msg, k=3)
         if bundle.relevant_memories:
             bundle.memory_context = (

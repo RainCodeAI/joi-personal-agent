@@ -56,6 +56,7 @@ class UserModelCorrectionStore:
 
     def list_for_user(self, user_id: str) -> list[dict[str, Any]]:
         with self._lock:
+            self._state = self._load()
             records = [
                 dict(record)
                 for record in self._state.get("corrections", [])

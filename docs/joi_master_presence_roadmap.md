@@ -419,6 +419,13 @@ Update from Monday 2026-04-27, later:
 - `GET /api/v2/user-model` merges corrections into the contract-only projection while keeping inference disabled.
 - Added tests for confirm/edit/hide/delete/add behavior and correction validation.
 
+Update from Monday 2026-04-27, prompt context pass:
+
+- Added `UserModelPromptFormatter` to build a compact `[User Model]` block from safe explicit or user-confirmed items.
+- `MemoryRetrieverAgent` now appends that block to the conversation prompt when usable context exists.
+- Hidden and deleted items are excluded from prompt context; user-added items are included as confirmed context.
+- User-model context remains reply-only; it does not trigger initiative.
+
 ---
 
 ### Phase 10 — Intent-Driven Initiative

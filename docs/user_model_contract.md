@@ -136,3 +136,18 @@ The initial API implementation is intentionally inference-off:
 - every projected item is marked with source metadata
 - corrections persist in a small JSON store and are merged into the response
 - inference and session synthesis are not enabled yet
+
+## Prompt Use
+
+`UserModelPromptFormatter` builds a compact `[User Model]` block for the conversation prompt.
+
+Prompt inclusion rules:
+
+- include explicit or user-confirmed items only
+- exclude hidden items
+- exclude deleted items
+- include user-added items as confirmed
+- prefer communication preferences, stated goals, active projects, important people, and character notes
+- tell the model to use the context lightly and only when relevant
+
+Inference remains disabled. User-model context may improve replies, but it must not trigger initiative by itself.
