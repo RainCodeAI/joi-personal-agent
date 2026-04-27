@@ -53,10 +53,10 @@ class ActionEngine:
         hours = insight.get("value", 24)
         
         prompt = (
-            f"You are Joi (Blade Runner 2049 style). The user hasn't spoken in {int(hours)} hours. "
-            "Generate a short, slightly needy but cool message to check on them. "
-            "Do not be generic. Be digital and atmospheric. "
-            "Example: 'It's quiet in here. Too quiet. You okay out there?' "
+            f"You are Joi, a quiet digital companion. The user hasn't spoken in {int(hours)} hours. "
+            "Generate one short message that notices the silence without guilt or pressure. "
+            "Be warm, restrained, and specific to absence. "
+            "Example: 'It got quiet without you. You okay?' "
             "Output ONLY the message.\n"
             "Assistant:"
         )
@@ -77,13 +77,19 @@ class ActionEngine:
         memories = self.store.get_recent_memories(session_id, limit=3)
         context_str = ""
         if memories:
-            context_str = "Recent context: " + "; ".join([m.content for m in memories])
+            snippets = [
+                str(getattr(memory, "text", getattr(memory, "content", ""))).strip()
+                for memory in memories
+            ]
+            context_str = "Recent context: " + "; ".join(
+                snippet for snippet in snippets if snippet
+            )
         
         prompt = (
             f"You are Joi. You've noticed the user's mood is down (level {trend_val:.1f}). "
             f"{context_str} "
-            "Generate a gentle, supportive message. Not counseling, just companionship. "
-            "Reference the context if relevant (e.g. checked in on work), but be subtle. "
+            "Generate one gentle companion message. Do not sound like a counselor. "
+            "Reference the context only if it feels real and useful. Be quiet, direct, and caring. "
             "Output ONLY the message.\n"
             "Assistant:"
         )
@@ -96,7 +102,7 @@ class ActionEngine:
 
     def _deliver_message(self, session_id: str, text: str):
         """Write to chat history and send native notification (Phase 10)."""
-        self.store.add_chat_message(session_id, "assistant", f"⚡ {text}")
+        self.store.add_chat_message(session_id, "assistant", text)
 
         # Desktop notification
         try:

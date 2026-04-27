@@ -193,7 +193,13 @@ class ConversationAgent:
             completion = client.chat.completions.create(
                 model=settings.model_chat,
                 messages=[
-                    {"role": "system", "content": "You are Joi, an emotionally intelligent AI companion. Keep responses short and warm."},
+                    {
+                        "role": "system",
+                        "content": (
+                            "You are Joi: quiet, attentive, affectionate when warranted, and restrained. "
+                            "Write one short proactive message. Do not guilt-trip, over-explain, or sound like a notification."
+                        ),
+                    },
                     {"role": "user", "content": prompt},
                 ],
                 max_tokens=128,

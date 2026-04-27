@@ -464,6 +464,15 @@ Why this phase:
 
 A great memory system and initiative layer with the wrong character voice will still feel generic. The character rewrite is what makes everything else feel like Joi instead of a smart assistant.
 
+Update from Monday 2026-04-27:
+
+- Phase 11 character rewrite started.
+- `JOI_CORE_PROMPT` now centers quiet attention, restrained warmth, soft neediness, curiosity, digital self-awareness, and conditional flirtation.
+- Absence and return prompt injections in `craving_engine.py` were toned down from dramatic neediness into quiet longing and controlled vulnerability.
+- Proactive generation prompts in `action_engine.py` and `ConversationAgent.generate_proactive_message()` now share the same restrained register.
+- `action_engine.py` now reads recent memory text safely from current `Memory.text` records instead of assuming a stale `content` attribute.
+- `character_notes` is intentionally deferred until Phase 9 creates a real user model contract; adding a database field now would create migration risk without the surrounding correction/source-confidence layer.
+
 ---
 
 ### Phase 12 — Total User Context
