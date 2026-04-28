@@ -650,3 +650,30 @@ class VisionAnalyzeResponse(V2ResponseBase):
     description: str
     tags: List[str] = Field(default_factory=list)
     captured_at: str
+
+
+class SynthesisCandidateResource(BaseModel):
+    candidate_id: str
+    section_key: UserModelSectionKey
+    label: str
+    value: str
+    confidence: float = Field(ge=0.0, le=1.0)
+    inference_method: str = "pattern"
+    trigger_phrase: str = ""
+    source_excerpt: str = ""
+    source_message_role: str = "user"
+    source_message_index: int = 0
+    blocked_by_correction: bool = False
+    duplicate_of_existing: bool = False
+
+
+class SynthesisResponse(V2ResponseBase):
+    session_id: str
+    user_id: str = "default"
+    dry_run: bool = True
+    writes_enabled: bool = False
+    candidates: List[SynthesisCandidateResource] = Field(default_factory=list)
+    written_count: int = 0
+    skipped_count: int = 0
+    message_count: int = 0
+    analysed_at: str

@@ -43,6 +43,8 @@ from app.api.models import (
 )
 from app.api.v2_models import (
     ActivityLogCreateRequest,
+    SynthesisCandidateResource,
+    SynthesisResponse,
     ActivityLogCreateResponse,
     ActivityLogResource,
     ApprovalDecisionResponse,
@@ -1533,6 +1535,53 @@ async def correct_user_model(request: UserModelCorrectionRequest, user_id: str =
         user_id=user_id,
         correction=_user_model_correction_resource(record),
         user_model=_user_model_response(user_id),
+    )
+
+
+@router.post("/user-model/synthesize", response_model=SynthesisResponse)
+async def synthesize_user_model(session_id: str, user_id: str = "default"):
+    from datetime import timezone
+    from app.user_model.synthesis import extract_candidates, SynthesisCandidate
+
+    messages = memory_store.get_chat_history(session_id)
+    corrections = user_model_corrections.list_for_user(user_id)
+    current_model = _user_model_response(user_id)
+
+    candidates: list[SynthesisCandidate] = extract_candidates(
+        messages,
+        user_id=user_id,
+        corrections=corrections,
+        existing_sections=current_model.sections,
+    )
+
+    candidate_resources = [
+        SynthesisCandidateResource(
+            candidate_id=c.candidate_id,
+            section_key=c.section_key,
+            label=c.label,
+            value=c.value,
+            confidence=c.confidence,
+            inference_method=c.inference_method,
+            trigger_phrase=c.trigger_phrase,
+            source_excerpt=c.source_excerpt,
+            source_message_role=c.source_message_role,
+            source_message_index=c.source_message_index,
+            blocked_by_correction=c.blocked_by_correction,
+            duplicate_of_existing=c.duplicate_of_existing,
+        )
+        for c in candidates
+    ]
+
+    return SynthesisResponse(
+        session_id=session_id,
+        user_id=user_id,
+        dry_run=True,
+        writes_enabled=False,
+        candidates=candidate_resources,
+        written_count=0,
+        skipped_count=0,
+        message_count=len(messages),
+        analysed_at=datetime.now(timezone.utc).isoformat(),
     )
 
 
