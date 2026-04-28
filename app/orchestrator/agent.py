@@ -60,6 +60,7 @@ class Agent:
         *,
         on_token: Callable[[str], None] | None = None,
         attachment_contexts: List[str] | None = None,
+        extra_context: str | None = None,
     ) -> ChatResponse:
         import time as _time
         _t0 = _time.perf_counter()
@@ -103,9 +104,13 @@ class Agent:
         tool_calls = self._executor.execute_tools(user_msg, session_id)
 
         # 4. Conversation — generate LLM reply
+        memory_context = context.memory_context
+        if extra_context:
+            memory_context = f"{memory_context}\n{extra_context}".strip()
+
         reply_payload = self._conversation.generate_reply_payload(
             profile_info=context.profile_info,
-            memory_context=context.memory_context,
+            memory_context=memory_context,
             chat_history=chat_history,
             user_msg=user_msg,
             attachment_contexts=attachment_contexts or [],

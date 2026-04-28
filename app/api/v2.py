@@ -1099,6 +1099,19 @@ async def chat_v2(request: V2ChatRequest):
         session_id=request.session_id,
         reason="assistant response in progress",
     )
+    from app.user_model.explicit_share import detect_explicit_share, acknowledgement_hint
+    share = detect_explicit_share(request.text)
+    sharing_extra_context: str | None = None
+    if share is not None:
+        user_model_corrections.record(
+            user_id="default",
+            section_key=share.section_key,
+            action="add",
+            label=share.label,
+            value=share.value,
+        )
+        sharing_extra_context = acknowledgement_hint(share)
+
     loop = asyncio.get_running_loop()
     on_token, flush_deltas = _create_delta_bridge(loop, request.session_id)
     response = await asyncio.to_thread(
@@ -1108,6 +1121,7 @@ async def chat_v2(request: V2ChatRequest):
         request.session_id,
         on_token=on_token,
         attachment_contexts=attachment_contexts,
+        extra_context=sharing_extra_context,
     )
     await flush_deltas()
     session = memory_store.get_session(request.session_id)

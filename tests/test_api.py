@@ -215,7 +215,7 @@ def test_v2_chat_contract(monkeypatch):
     monkeypatch.setattr(
         api_v2.agent,
         "reply",
-        lambda history, text, session_id, on_token=None, attachment_contexts=None: ChatResponse(
+        lambda history, text, session_id, on_token=None, attachment_contexts=None, extra_context=None: ChatResponse(
             text="I can do that once you approve it.",
             session_id=session_id,
             tool_calls=[
@@ -338,7 +338,7 @@ def test_v2_chat_with_attachments_and_deltas(monkeypatch):
     streamed_chunks = []
     captured = {}
 
-    def fake_reply(history, text, session_id, on_token=None, attachment_contexts=None):
+    def fake_reply(history, text, session_id, on_token=None, attachment_contexts=None, extra_context=None):
         captured["text"] = text
         captured["attachment_contexts"] = attachment_contexts
         if on_token is not None:
