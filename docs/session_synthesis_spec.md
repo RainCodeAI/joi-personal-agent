@@ -45,9 +45,11 @@ Two methods are defined. The stub implements method 1. Method 2 is the full impl
 
 Simple regex and keyword patterns applied to individual messages. Fast, deterministic, no LLM cost, testable. Lower recall — misses paraphrased or implicit signals. Used in the stub endpoint for design verification.
 
-### Method 2 — LLM extraction (future)
+### Method 2 — LLM extraction (contract designed, live call disabled)
 
-A single structured extraction call made to the configured chat provider after the session ends. The prompt asks the model to return a JSON list of inferred facts with section keys, labels, values, and confidence. Higher recall, handles paraphrase, but costs tokens and requires async scheduling. Implemented in a follow-up pass once the stub output shape is validated.
+A single structured extraction call made to the configured chat provider after the session ends. The prompt asks the model to return a JSON list of inferred facts with section keys, labels, values, confidence, source excerpts, and message indexes. Higher recall, handles paraphrase, but costs tokens and requires async scheduling.
+
+The prompt contract lives in `docs/session_synthesis_llm_prompt.md`. The local parser/validator lives in `app/user_model/llm_synthesis.py`. No live LLM call is wired yet.
 
 ---
 
@@ -230,7 +232,7 @@ When write mode is eventually enabled, a `dry_run=false` query parameter will ac
 
 The following are deliberate out-of-scope items for this pass:
 
-- **LLM extraction prompt**: designed separately once the output shape is validated against pattern results
+- **Live LLM extraction call**: prompt and parser are defined, but no provider call is wired yet
 - **Automatic post-session scheduling**: depends on session lifecycle events not yet defined
 - **Multi-session aggregation**: recurrence counting across sessions is a follow-up after single-session extraction is stable
 - **`character_notes` synthesis**: this section requires careful LLM judgment; it is excluded from pattern extraction
@@ -242,7 +244,7 @@ The following are deliberate out-of-scope items for this pass:
 
 1. Run the stub endpoint against real sessions and review candidate output quality
 2. Adjust confidence thresholds and trigger phrases based on actual output
-3. Design the LLM extraction prompt against the validated output shape
+3. Wire a dry-run-only LLM extraction call behind an explicit diagnostics endpoint or flag
 4. Add `SynthesisRecord` durable store for written items
 5. Wire automatic post-session trigger through the initiative scheduler
 6. Enable write mode behind `inference_enabled=True` after LLM extraction is validated

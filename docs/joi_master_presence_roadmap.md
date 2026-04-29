@@ -499,6 +499,21 @@ Start here next (Phase 9 remaining work):
 3. Add `SynthesisRecord` durable store for auditability.
 4. Keep write mode disabled until regex + LLM dry-run output is reviewable and correction-safe.
 
+Update from Tuesday 2026-04-28, LLM synthesis prompt contract:
+
+- Added `docs/session_synthesis_llm_prompt.md`, defining the future LLM extraction system/developer prompt, allowed sections, JSON output shape, confidence rules, and "no candidate" behavior.
+- Added `app/user_model/llm_synthesis.py`, a strict local parser/validator for LLM candidate JSON. It accepts only grounded user-message evidence, allowed sections, valid confidence, and required fields.
+- The parser drops malformed JSON, unsupported sections, low-confidence candidates, missing evidence, assistant-role evidence, ungrounded excerpts, existing-model duplicates, and user-hidden/deleted candidates.
+- Added `tests/test_llm_synthesis.py` covering good output and guardrail failures.
+- No live LLM call was wired. No synthesis writes were enabled.
+
+Start here next (Phase 9 remaining work):
+
+1. Wire a dry-run-only LLM extraction call behind an explicit diagnostics endpoint or feature flag.
+2. Compare regex and LLM dry-run output in the validation harness before enabling writes.
+3. Add `SynthesisRecord` durable store for auditability.
+4. Keep `inference_enabled=False` until LLM dry-run output is trustworthy and correction-safe.
+
 ---
 
 ### Phase 10 — Intent-Driven Initiative
