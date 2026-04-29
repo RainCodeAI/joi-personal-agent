@@ -66,6 +66,28 @@ def test_extracts_mood_negative():
     assert any(c.section_key == "mood_trend" for c in results)
 
 
+def test_extracts_important_person():
+    msgs = [_msg("My friend Sarah helped me talk through the hardware problem.")]
+    results = extract_candidates(msgs)
+    people = [c for c in results if c.section_key == "important_people"]
+    assert people
+    assert people[0].label == "Sarah (friend)"
+
+
+def test_preserves_subject_casing():
+    msgs = [_msg("I've been working on a FastAPI backend for Joi.")]
+    results = extract_candidates(msgs)
+    active = [c for c in results if c.section_key == "active_projects"]
+    assert active
+    assert "FastAPI" in active[0].label
+
+
+def test_ignores_conversational_want_to_false_positive():
+    msgs = [_msg("I want to know what you think about this.")]
+    results = extract_candidates(msgs)
+    assert all(c.section_key != "stated_goals" for c in results)
+
+
 # ---------------------------------------------------------------------------
 # Assistant messages are ignored
 # ---------------------------------------------------------------------------
@@ -170,6 +192,18 @@ def test_duplicate_of_existing_excluded():
     assert not active
 
 
+def test_include_skipped_returns_duplicate_with_flag():
+    msgs = [_msg("I'm working on the FastAPI backend.")]
+
+    existing_item = SimpleNamespace(label="FastAPI backend", id="existing-1", hidden=False, user_confirmed=True)
+    existing_section = SimpleNamespace(key="active_projects", items=[existing_item])
+
+    results = extract_candidates(msgs, existing_sections=[existing_section], include_skipped=True)
+    active = [c for c in results if c.section_key == "active_projects"]
+    assert active
+    assert active[0].duplicate_of_existing is True
+
+
 # ---------------------------------------------------------------------------
 # Empty inputs
 # ---------------------------------------------------------------------------
@@ -227,3 +261,29 @@ def test_synthesize_endpoint_session_not_found_returns_empty(monkeypatch):
     data = resp.json()
     assert data["candidates"] == []
     assert data["message_count"] == 0
+
+
+def test_synthesize_endpoint_returns_skipped_duplicates(monkeypatch):
+    from fastapi.testclient import TestClient
+    from app.api.main import app
+    from app.api import v2 as api_v2
+    from app.user_model.store import UserModelCorrectionStore
+    import tempfile, pathlib
+
+    tmp = pathlib.Path(tempfile.mkdtemp()) / "corrections.json"
+    store = UserModelCorrectionStore(path=tmp)
+    monkeypatch.setattr(api_v2, "user_model_corrections", store)
+
+    fake_msg = SimpleNamespace(role="user", content="I'm working on the FastAPI backend.", session_id="s1", timestamp=None)
+    monkeypatch.setattr(api_v2.memory_store, "get_chat_history", lambda sid: [fake_msg])
+
+    existing_item = SimpleNamespace(label="FastAPI backend", id="existing-1", hidden=False, user_confirmed=True)
+    existing_section = SimpleNamespace(key="active_projects", items=[existing_item])
+    monkeypatch.setattr(api_v2, "_user_model_response", lambda user_id: SimpleNamespace(sections=[existing_section]))
+
+    client = TestClient(app)
+    resp = client.post("/api/v2/user-model/synthesize", params={"session_id": "s1", "user_id": "default"})
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["skipped_count"] == 1
+    assert data["candidates"][0]["duplicate_of_existing"] is True

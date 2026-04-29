@@ -220,7 +220,7 @@ Query parameters:
 - `session_id` (required): the session to analyse
 - `user_id` (default `"default"`): the user to synthesise for
 
-Always returns candidates from the pattern-matching extractor. While `inference_enabled=False`, `dry_run` is always `true` and `written_count` is always `0` regardless of request body.
+Always returns candidates from the pattern-matching extractor. Dry-run review includes candidates skipped as duplicates or blocked by correction so tuning can inspect what the extractor found and why it will not be written. While `inference_enabled=False`, `dry_run` is always `true` and `written_count` is always `0` regardless of request body.
 
 When write mode is eventually enabled, a `dry_run=false` query parameter will activate writes. This parameter is accepted but ignored while writes are disabled.
 

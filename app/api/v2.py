@@ -1566,6 +1566,7 @@ async def synthesize_user_model(session_id: str, user_id: str = "default"):
         user_id=user_id,
         corrections=corrections,
         existing_sections=current_model.sections,
+        include_skipped=True,
     )
 
     candidate_resources = [
@@ -1593,7 +1594,9 @@ async def synthesize_user_model(session_id: str, user_id: str = "default"):
         writes_enabled=False,
         candidates=candidate_resources,
         written_count=0,
-        skipped_count=0,
+        skipped_count=sum(
+            1 for c in candidates if c.blocked_by_correction or c.duplicate_of_existing
+        ),
         message_count=len(messages),
         analysed_at=datetime.now(timezone.utc).isoformat(),
     )

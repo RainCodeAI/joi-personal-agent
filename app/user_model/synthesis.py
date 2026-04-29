@@ -95,6 +95,10 @@ _PATTERNS: dict[str, list[str]] = {
         r"feeling (low|down|awful|terrible)",
         r"(drained|struggling) (?:with|to)?",
     ],
+    "important_people": [
+        r"my (friend|partner|wife|husband|girlfriend|boyfriend|mom|dad|mother|father|sister|brother|boss|coworker|colleague)\s+([A-Z][A-Za-z'-]*(?:\s+[A-Z][A-Za-z'-]*)?)",
+        r"([A-Z][A-Za-z'-]*(?:\s+[A-Z][A-Za-z'-]*)?)\s+is my\s+(friend|partner|wife|husband|girlfriend|boyfriend|mom|dad|mother|father|sister|brother|boss|coworker|colleague)",
+    ],
 }
 
 _MOOD_POSITIVE = {"excited", "really excited", "good", "great", "amazing", "fantastic", "pumped", "energised", "energized"}
@@ -108,6 +112,7 @@ _SECTION_LABELS: dict[str, str] = {
     "communication_preferences": "Communication preference",
     "recent_wins": "Recent win",
     "mood_trend": "Mood signal",
+    "important_people": "Important person",
 }
 
 _MIN_CONFIDENCE = 0.55
@@ -122,17 +127,18 @@ def _clean_subject(raw: str | None) -> str:
         return ""
     s = raw.strip().rstrip(".,!?")
     # Truncate at sentence boundary or 80 chars
-    for sep in [".", "!", "?", " because ", " but ", " and "]:
+    for sep in [".", "!", "?", ",", " because ", " but ", " and "]:
         idx = s.find(sep)
         if 0 < idx < 80:
             s = s[:idx]
             break
+    s = re.sub(r"^(?:a|an|the)\s+", "", s, flags=re.IGNORECASE)
     return s[:120].strip()
 
 
 def _sentence_containing(text: str, pattern: re.Pattern) -> str:
     for sentence in re.split(r"[.!?]", text):
-        if pattern.search(sentence.lower()):
+        if pattern.search(sentence):
             return sentence.strip()
     return text[:120]
 
@@ -154,9 +160,65 @@ def _value_for(section: str, subject: str, trigger: str, excerpt: str) -> str:
         return f"User preference noted: {excerpt.strip()}"
     if section == "open_loops":
         return f"Unresolved item: {excerpt.strip()}"
+    if section == "important_people":
+        return f"User mentioned an important person: {excerpt.strip()}"
     if subject:
         return f"{excerpt.strip()}"
     return f"Detected via pattern \"{trigger}\" in session."
+
+
+def _subject_for(section: str, match: re.Match) -> str:
+    if section != "important_people":
+        return _clean_subject(match.group(1) if match.lastindex and match.lastindex >= 1 else "")
+
+    raw_pattern = match.re.pattern
+    if raw_pattern.startswith("my "):
+        name = match.group(2) if match.lastindex and match.lastindex >= 2 else ""
+        relation = match.group(1) if match.lastindex and match.lastindex >= 1 else ""
+    else:
+        name = match.group(1) if match.lastindex and match.lastindex >= 1 else ""
+        relation = match.group(2) if match.lastindex and match.lastindex >= 2 else ""
+
+    name = _clean_person_name(_clean_subject(name))
+    relation = _clean_subject(relation)
+    if name and relation:
+        return f"{name} ({relation})"
+    return name or relation
+
+
+def _clean_person_name(raw: str) -> str:
+    words = raw.split()
+    kept: list[str] = []
+    for word in words:
+        stripped = word.strip(".,;:()[]{}")
+        if not stripped:
+            continue
+        if stripped[0].isupper() or stripped.isupper():
+            kept.append(stripped)
+            continue
+        break
+    return " ".join(kept) or raw
+
+
+def _is_low_value_subject(section: str, subject: str) -> bool:
+    low = subject.lower().strip()
+    if not low:
+        return False
+    if section == "stated_goals":
+        conversational_starts = (
+            "know ",
+            "ask ",
+            "talk ",
+            "chat ",
+            "hear from you",
+            "tell you",
+            "see what",
+            "understand what",
+        )
+        return low.startswith(conversational_starts)
+    if section == "active_projects":
+        return low in {"it", "this", "that", "things", "stuff"}
+    return False
 
 
 # ---------------------------------------------------------------------------
@@ -207,6 +269,7 @@ def extract_candidates(
     user_id: str = "default",
     corrections: list[dict] | None = None,
     existing_sections: list[Any] | None = None,
+    include_skipped: bool = False,
 ) -> list[SynthesisCandidate]:
     """
     Run pattern-based extraction over a list of ChatMessage objects.
@@ -214,7 +277,7 @@ def extract_candidates(
     Returns SynthesisCandidate items above MIN_CONFIDENCE.
     Items blocked by corrections or duplicating existing items are flagged
     (blocked_by_correction / duplicate_of_existing) and excluded from the
-    default return unless include_blocked=True is added in future.
+    default return. Set include_skipped=True for diagnostics and dry-run review.
     """
     corrections = corrections or []
     existing_sections = existing_sections or []
@@ -231,17 +294,17 @@ def extract_candidates(
         content = str(getattr(msg, "content", "") or "")
         if not content.strip():
             continue
-        text = content.lower()
-
         for section, raw_patterns in _PATTERNS.items():
             for raw_pat in raw_patterns:
                 compiled = re.compile(raw_pat, re.IGNORECASE)
-                m = compiled.search(text)
+                m = compiled.search(content)
                 if not m:
                     continue
 
                 trigger = raw_pat
-                subject = _clean_subject(m.group(1) if m.lastindex and m.lastindex >= 1 else "")
+                subject = _subject_for(section, m)
+                if _is_low_value_subject(section, subject):
+                    continue
                 excerpt = _sentence_containing(content, compiled)
                 label = _label_for(section, subject)
                 value = _value_for(section, subject, trigger, excerpt)
@@ -281,7 +344,9 @@ def extract_candidates(
                         seen_labels[label_key] = candidate
 
     for candidate in seen_labels.values():
-        if not candidate.blocked_by_correction and not candidate.duplicate_of_existing:
+        if include_skipped or (
+            not candidate.blocked_by_correction and not candidate.duplicate_of_existing
+        ):
             results.append(candidate)
 
     return results

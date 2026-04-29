@@ -426,6 +426,62 @@ Update from Monday 2026-04-27, prompt context pass:
 - Hidden and deleted items are excluded from prompt context; user-added items are included as confirmed context.
 - User-model context remains reply-only; it does not trigger initiative.
 
+Update from Monday 2026-04-27, evening session:
+
+User Model UI:
+
+- Added `GET /api/v2/user-model/prompt-preview` endpoint returning the live `[User Model]` prompt block and line count as Joi will see it.
+- Built `/user-model` frontend page (`frontend/app/user-model/page.tsx`) — server component, `force-dynamic`, parallel-fetches model and prompt preview, always renders all 9 sections via `EMPTY_SECTIONS` fallback.
+- Built `UserModelPanel` client component (`frontend/components/user-model-panel.tsx`) — per-item confirm/edit/hide/delete controls, inline edit form, per-section "+ Add item" form, collapsible live prompt preview panel.
+- Added nav link in `app-shell.tsx` between Memory and Planner.
+- TypeScript typecheck and `npm run build` both passed with the new page in the route list.
+
+Session Synthesis:
+
+- Created `docs/session_synthesis_spec.md` — full design doc covering trigger phrases per section, confidence table, deduplication algorithm, correction precedence, write semantics, timing, and output shapes.
+- Created `app/user_model/synthesis.py` — pattern-based `extract_candidates()` with regex triggers per section, `SynthesisCandidate` dataclass, deduplication by `{section}:{label.lower()}` key, correction blocking.
+- Added `POST /api/v2/user-model/synthesize` endpoint — always `dry_run=True`, `writes_enabled=False` while `inference_enabled=False` in policy; returns full candidate list for inspection without writing anything.
+- Added `SynthesisCandidateResource` and `SynthesisResponse` Pydantic models in `app/api/v2_models.py`.
+- 20 unit tests in `tests/test_synthesis.py`.
+
+Explicit Sharing Path:
+
+- Created `app/user_model/explicit_share.py` — 11 trigger phrase patterns ("Joi, remember that…", "I want you to know…", "Keep in mind…", etc.), section routing by keyword sets ordered most-specific-first to prevent broad terms shadowing precise matches.
+- Wired detection into `chat_v2` in `app/api/v2.py`: detect → immediately persist as a `UserModelCorrectionStore` `add` correction → pass `acknowledgement_hint()` as `extra_context` to `agent.reply`.
+- Added `extra_context: str | None = None` parameter to `agent.reply()` in `app/orchestrator/agent.py`; merged into `memory_context` before the LLM call.
+- 23 unit tests in `tests/test_explicit_share.py`.
+- Fixed routing order bug (4 test failures caused by `active_projects` keywords like "building" and "project" shadowing more specific sections); fixed two existing mock signatures in `test_api.py` after `extra_context` was added to `agent.reply`.
+- Full suite: **109 passed**.
+- Three commits: `b6798761` (User Model UI), `ea823b6d` (Session Synthesis), `5cf737d7` (Explicit Sharing Path).
+
+Start here next (Phase 9 remaining work):
+
+1. Run `POST /api/v2/user-model/synthesize` against real session data to review candidate quality.
+2. Tune confidence thresholds and trigger phrases based on actual output.
+3. Design the LLM extraction prompt to complement regex for nuanced/indirect signals.
+4. Add `SynthesisRecord` durable store for auditability.
+5. Flip `inference_enabled=True` in user model policy and enable write mode on synthesis.
+
+Update from Tuesday 2026-04-28, synthesis validation pass:
+
+- Ran `POST /api/v2/user-model/synthesize` against the only non-empty real saved session in `data/agent.db` (`f186a560-ea1a-4852-8547-0f26b8440864`): 4 messages, 0 candidates, 0 skipped. This was correct; the session was greeting/small talk and did not contain durable user-model facts.
+- Tuned the pattern extractor for reviewability and quality before enabling writes:
+  - dry-run synthesis now includes duplicate/blocked candidates with flags so review can see skipped extraction output
+  - `skipped_count` now reflects candidates blocked by correction or existing-model duplicates
+  - added first `important_people` pattern extraction
+  - preserved original casing in extracted labels such as `FastAPI`
+  - filtered a common false positive where conversational "I want to know..." was being treated as a stated goal
+- Updated `docs/session_synthesis_spec.md` to clarify dry-run skipped-candidate behavior.
+- Added synthesis tests for important people, casing, conversational false positives, and skipped duplicate reporting.
+
+Start here next (Phase 9 remaining work):
+
+1. Capture or seed several realistic multi-turn sessions and rerun dry-run synthesis for candidate quality.
+2. Continue tuning confidence thresholds and section triggers from that output.
+3. Design the LLM extraction prompt to complement regex for nuanced/indirect signals.
+4. Add `SynthesisRecord` durable store for auditability.
+5. Flip `inference_enabled=True` only after dry-run output quality is trustworthy.
+
 ---
 
 ### Phase 10 — Intent-Driven Initiative
@@ -510,7 +566,7 @@ Scope:
 - **Notes and writing integration**: optional connector to Notion, Obsidian, or a local notes folder. Joi can reference recent notes and journal entries. She does not read everything — she reads what you point her at, or what matches a topic in conversation.
 - **Ambient presence patterns**: Phase 8 hardware will give desk presence data. Over time (weeks), Joi builds a model of your daily rhythm: when you usually arrive, when you go quiet, when you are most talkative. She uses this to calibrate initiative timing and to notice when something is off-schedule ("You're usually here by now").
 - **Structured user model sync** (from Phase 9): the auto-maintained user model is the persistent knowledge layer. Phase 12 expands its inputs — calendar events, note topics, and hardware rhythms all feed into it, not just chat history.
-- **Explicit sharing**: the user can say "Joi, I want you to know about this project" and share a file, note, or paste. This goes directly into the user model as a high-weight, tagged memory. Joi acknowledges it and treats it as known context going forward.
+- **Explicit sharing** ✅ implemented 2026-04-27: trigger phrase detection ("Joi, remember that…", "I want you to know…", etc.) in `app/user_model/explicit_share.py`. Detected shares are immediately persisted to the correction store and Joi receives a natural acknowledgement hint via `extra_context`. File and paste sharing is still a follow-up; the phrase-triggered path is live.
 - **Privacy controls**: every integration has a visible toggle in settings. The user can see exactly what Joi has access to and revoke any connector. No integration is assumed or default-on.
 - **What Joi does not do**: she does not passively monitor browser activity, read private messages, or store raw files. She reads summaries and structured data, not surveillance feeds.
 
