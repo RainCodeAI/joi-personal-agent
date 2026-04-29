@@ -74,6 +74,13 @@ def test_extracts_important_person():
     assert people[0].label == "Sarah (friend)"
 
 
+def test_important_person_requires_name():
+    msgs = [_msg("I need to follow up with Dana because my colleague from hardware is waiting.")]
+    results = extract_candidates(msgs)
+    people = [c for c in results if c.section_key == "important_people"]
+    assert people == []
+
+
 def test_preserves_subject_casing():
     msgs = [_msg("I've been working on a FastAPI backend for Joi.")]
     results = extract_candidates(msgs)
@@ -86,6 +93,14 @@ def test_ignores_conversational_want_to_false_positive():
     msgs = [_msg("I want to know what you think about this.")]
     results = extract_candidates(msgs)
     assert all(c.section_key != "stated_goals" for c in results)
+
+
+def test_deduplicates_multiple_patterns_from_same_sentence():
+    msgs = [_msg("Can you just be more direct when you're giving me implementation options?")]
+    results = extract_candidates(msgs)
+    prefs = [c for c in results if c.section_key == "communication_preferences"]
+    assert len(prefs) == 1
+    assert prefs[0].label == "Be more direct when you're giving me implementation options"
 
 
 # ---------------------------------------------------------------------------

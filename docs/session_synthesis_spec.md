@@ -246,3 +246,15 @@ The following are deliberate out-of-scope items for this pass:
 4. Add `SynthesisRecord` durable store for written items
 5. Wire automatic post-session trigger through the initiative scheduler
 6. Enable write mode behind `inference_enabled=True` after LLM extraction is validated
+
+## Validation Harness
+
+Use `scripts/validate_synthesis.py` to run the extractor against curated realistic multi-turn sessions. The script exits non-zero when curated expected sections do not match actual extracted sections.
+
+```powershell
+.venv-test\Scripts\python.exe scripts\validate_synthesis.py
+.venv-test\Scripts\python.exe scripts\validate_synthesis.py --real-db
+.venv-test\Scripts\python.exe scripts\validate_synthesis.py --json --real-db
+```
+
+The curated cases cover active projects, goals, worries, important people, open loops, recent wins, mood signals, communication preferences, and small-talk negative controls. `--real-db` also samples saved sessions from `data/agent.db`.

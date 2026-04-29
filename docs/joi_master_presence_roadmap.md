@@ -482,6 +482,23 @@ Start here next (Phase 9 remaining work):
 4. Add `SynthesisRecord` durable store for auditability.
 5. Flip `inference_enabled=True` only after dry-run output quality is trustworthy.
 
+Update from Tuesday 2026-04-28, curated validation harness:
+
+- Added `scripts/validate_synthesis.py`, a repeatable curated-session harness for Phase 9 synthesis validation.
+- The harness covers active projects, stated goals, recurring worries, open loops, important people, communication preferences, recent wins, mood signals, and small-talk negative controls.
+- The harness can also sample real saved sessions from `data/agent.db` with `--real-db`; the current real DB still has only one non-empty small-talk session, which correctly returns zero candidates.
+- First curated run exposed two quality issues and both were fixed:
+  - duplicate communication-preference candidates from multiple patterns matching the same sentence
+  - generic important-person candidates such as `Colleague` when no proper name was present
+- Added regression tests for those cases.
+
+Start here next (Phase 9 remaining work):
+
+1. Use the validation harness to grow the curated session set as new real conversations reveal edge cases.
+2. Design the LLM extraction prompt against the validated regex output shape.
+3. Add `SynthesisRecord` durable store for auditability.
+4. Keep write mode disabled until regex + LLM dry-run output is reviewable and correction-safe.
+
 ---
 
 ### Phase 10 — Intent-Driven Initiative

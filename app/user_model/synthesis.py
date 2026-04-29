@@ -2,8 +2,7 @@ from __future__ import annotations
 
 import re
 import uuid
-from dataclasses import dataclass, field
-from datetime import datetime
+from dataclasses import dataclass
 from typing import Any
 
 
@@ -183,7 +182,7 @@ def _subject_for(section: str, match: re.Match) -> str:
     relation = _clean_subject(relation)
     if name and relation:
         return f"{name} ({relation})"
-    return name or relation
+    return name
 
 
 def _clean_person_name(raw: str) -> str:
@@ -197,11 +196,13 @@ def _clean_person_name(raw: str) -> str:
             kept.append(stripped)
             continue
         break
-    return " ".join(kept) or raw
+    return " ".join(kept)
 
 
 def _is_low_value_subject(section: str, subject: str) -> bool:
     low = subject.lower().strip()
+    if section == "important_people" and not low:
+        return True
     if not low:
         return False
     if section == "stated_goals":
@@ -286,6 +287,7 @@ def extract_candidates(
     existing = _existing_labels(existing_sections)
 
     seen_labels: dict[str, SynthesisCandidate] = {}  # label → best candidate
+    seen_excerpts: set[tuple[str, str]] = set()
     results: list[SynthesisCandidate] = []
 
     for msg_idx, msg in enumerate(messages):
@@ -311,6 +313,11 @@ def extract_candidates(
 
                 if not label or not value:
                     continue
+
+                excerpt_key = (section, excerpt.strip().lower())
+                if excerpt_key in seen_excerpts:
+                    continue
+                seen_excerpts.add(excerpt_key)
 
                 confidence = 0.80 if subject else 0.60
                 if confidence < _MIN_CONFIDENCE:
