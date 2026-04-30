@@ -53,3 +53,4 @@ Thumbs.db
 data/agent_traces.jsonl
 data/router_logs.jsonl
 data/action_ledger.jsonl
+data/user_model_synthesis_records.json

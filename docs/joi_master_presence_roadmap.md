@@ -543,6 +543,20 @@ Start here next (Phase 9 remaining work):
 3. Keep write mode disabled until diagnostics and correction safety are trustworthy.
 4. Build the diagnostics surface after records exist.
 
+Update from Thursday 2026-04-30, synthesis record audit store:
+
+- Added `UserModelSynthesisRecordStore`, a JSON-backed audit store at `data/user_model_synthesis_records.json`.
+- `POST /api/v2/user-model/synthesize` now appends audit records for returned candidates while keeping `dry_run=true`, `writes_enabled=false`, and `written_count=0`.
+- Audit records store session id, user id, candidate id, section, label, method, evidence excerpt, confidence, status (`dry_run`/`skipped`/future `written`), skipped reason, written flag, source message index, and timestamp.
+- Added `GET /api/v2/user-model/synthesis-records` for read-only diagnostics inspection.
+- Added tests for record persistence, skipped status, endpoint response records, and record listing.
+
+Start here next (Phase 9 remaining work):
+
+1. Add the synthesis diagnostics surface for selecting/running dry-run synthesis and inspecting candidates/skips/records.
+2. Keep user-model write mode disabled until the diagnostics surface proves output quality and correction safety.
+3. Only after diagnostics are trustworthy, design the controlled transition to `inference_enabled=True`.
+
 ---
 
 ### Phase 10 — Intent-Driven Initiative

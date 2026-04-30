@@ -1,5 +1,7 @@
 """Tests for session synthesis pattern extraction and API stub."""
 import json
+import uuid
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -13,6 +15,12 @@ from app.user_model.synthesis import (
 
 def _msg(content: str, role: str = "user", idx: int = 0) -> SimpleNamespace:
     return SimpleNamespace(role=role, content=content, session_id="test", timestamp=None)
+
+
+def _scratch_json_path(name: str) -> Path:
+    path = Path("build/test-output") / f"{name}-{uuid.uuid4()}.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    return path
 
 
 # ---------------------------------------------------------------------------
@@ -220,6 +228,52 @@ def test_include_skipped_returns_duplicate_with_flag():
     assert active[0].duplicate_of_existing is True
 
 
+def test_synthesis_record_store_persists_dry_run_and_skipped():
+    from app.user_model.store import UserModelSynthesisRecordStore
+
+    store = UserModelSynthesisRecordStore(
+        path=_scratch_json_path("synthesis_records")
+    )
+    accepted = SynthesisCandidate(
+        candidate_id="stated_goals:synth:1",
+        section_key="stated_goals",
+        label="Ship hardware node",
+        value="User wants to ship the hardware node.",
+        confidence=0.82,
+        source_excerpt="My goal is to ship the hardware node.",
+    )
+    duplicate = SynthesisCandidate(
+        candidate_id="active_projects:synth:2",
+        section_key="active_projects",
+        label="FastAPI backend",
+        value="User is working on a FastAPI backend.",
+        confidence=0.8,
+        source_excerpt="I'm working on the FastAPI backend.",
+        duplicate_of_existing=True,
+    )
+
+    records = store.record_candidates(
+        user_id="default",
+        session_id="s1",
+        method="pattern",
+        candidates=[accepted, duplicate],
+        dry_run=True,
+    )
+
+    assert len(records) == 2
+    assert records[0]["status"] == "dry_run"
+    assert records[0]["written"] is False
+    assert records[1]["status"] == "skipped"
+    assert records[1]["skipped_reason"] == "duplicate_of_existing"
+
+    reloaded = UserModelSynthesisRecordStore(path=store.path)
+    listed = reloaded.list_records(user_id="default", session_id="s1")
+    assert [record["candidate_id"] for record in listed] == [
+        "stated_goals:synth:1",
+        "active_projects:synth:2",
+    ]
+
+
 # ---------------------------------------------------------------------------
 # Empty inputs
 # ---------------------------------------------------------------------------
@@ -242,12 +296,15 @@ def test_synthesize_endpoint_returns_dry_run(monkeypatch):
     from fastapi.testclient import TestClient
     from app.api.main import app
     from app.api import v2 as api_v2
-    from app.user_model.store import UserModelCorrectionStore
-    import tempfile, pathlib
+    from app.user_model.store import UserModelCorrectionStore, UserModelSynthesisRecordStore
 
-    tmp = pathlib.Path(tempfile.mkdtemp()) / "corrections.json"
+    tmp = _scratch_json_path("corrections")
     store = UserModelCorrectionStore(path=tmp)
     monkeypatch.setattr(api_v2, "user_model_corrections", store)
+    record_store = UserModelSynthesisRecordStore(
+        path=_scratch_json_path("synthesis_records")
+    )
+    monkeypatch.setattr(api_v2, "user_model_synthesis_records", record_store)
 
     # Patch memory_store to return a fake session with one user message
     fake_msg = SimpleNamespace(role="user", content="My goal is to launch the product.", session_id="s1", timestamp=None)
@@ -262,20 +319,29 @@ def test_synthesize_endpoint_returns_dry_run(monkeypatch):
     assert data["message_count"] == 1
     assert isinstance(data["candidates"], list)
     assert data["written_count"] == 0
+    assert len(data["audit_records"]) == len(data["candidates"])
+    assert data["audit_records"][0]["status"] == "dry_run"
+    assert data["audit_records"][0]["written"] is False
 
 
 def test_synthesize_endpoint_session_not_found_returns_empty(monkeypatch):
     from fastapi.testclient import TestClient
     from app.api.main import app
     from app.api import v2 as api_v2
+    from app.user_model.store import UserModelSynthesisRecordStore
 
     monkeypatch.setattr(api_v2.memory_store, "get_chat_history", lambda sid: [])
+    record_store = UserModelSynthesisRecordStore(
+        path=_scratch_json_path("synthesis_records")
+    )
+    monkeypatch.setattr(api_v2, "user_model_synthesis_records", record_store)
 
     client = TestClient(app)
     resp = client.post("/api/v2/user-model/synthesize", params={"session_id": "nonexistent"})
     assert resp.status_code == 200
     data = resp.json()
     assert data["candidates"] == []
+    assert data["audit_records"] == []
     assert data["message_count"] == 0
 
 
@@ -283,12 +349,15 @@ def test_synthesize_endpoint_returns_skipped_duplicates(monkeypatch):
     from fastapi.testclient import TestClient
     from app.api.main import app
     from app.api import v2 as api_v2
-    from app.user_model.store import UserModelCorrectionStore
-    import tempfile, pathlib
+    from app.user_model.store import UserModelCorrectionStore, UserModelSynthesisRecordStore
 
-    tmp = pathlib.Path(tempfile.mkdtemp()) / "corrections.json"
+    tmp = _scratch_json_path("corrections")
     store = UserModelCorrectionStore(path=tmp)
     monkeypatch.setattr(api_v2, "user_model_corrections", store)
+    record_store = UserModelSynthesisRecordStore(
+        path=_scratch_json_path("synthesis_records")
+    )
+    monkeypatch.setattr(api_v2, "user_model_synthesis_records", record_store)
 
     fake_msg = SimpleNamespace(role="user", content="I'm working on the FastAPI backend.", session_id="s1", timestamp=None)
     monkeypatch.setattr(api_v2.memory_store, "get_chat_history", lambda sid: [fake_msg])
@@ -303,17 +372,22 @@ def test_synthesize_endpoint_returns_skipped_duplicates(monkeypatch):
     data = resp.json()
     assert data["skipped_count"] == 1
     assert data["candidates"][0]["duplicate_of_existing"] is True
+    assert data["audit_records"][0]["status"] == "skipped"
+    assert data["audit_records"][0]["skipped_reason"] == "duplicate_of_existing"
 
 
 def test_synthesize_endpoint_llm_method_is_dry_run_only(monkeypatch):
     from fastapi.testclient import TestClient
     from app.api.main import app
     from app.api import v2 as api_v2
-    from app.user_model.store import UserModelCorrectionStore
-    import tempfile, pathlib
+    from app.user_model.store import UserModelCorrectionStore, UserModelSynthesisRecordStore
 
-    store = UserModelCorrectionStore(path=pathlib.Path(tempfile.mkdtemp()) / "corrections.json")
+    store = UserModelCorrectionStore(path=_scratch_json_path("corrections"))
     monkeypatch.setattr(api_v2, "user_model_corrections", store)
+    record_store = UserModelSynthesisRecordStore(
+        path=_scratch_json_path("synthesis_records")
+    )
+    monkeypatch.setattr(api_v2, "user_model_synthesis_records", record_store)
 
     fake_msg = SimpleNamespace(
         role="user",
@@ -366,7 +440,45 @@ def test_synthesize_endpoint_llm_method_is_dry_run_only(monkeypatch):
     assert data["provider"]["selected"] == "mock-llm"
     assert len(data["candidates"]) == 1
     assert data["candidates"][0]["inference_method"] == "llm"
+    assert len(data["audit_records"]) == 1
+    assert data["audit_records"][0]["method"] == "llm"
+    assert data["audit_records"][0]["status"] == "dry_run"
     assert store.list_for_user("default") == []
+
+
+def test_synthesis_records_endpoint_lists_audit_records(monkeypatch):
+    from fastapi.testclient import TestClient
+    from app.api.main import app
+    from app.api import v2 as api_v2
+    from app.user_model.store import UserModelSynthesisRecordStore
+
+    record_store = UserModelSynthesisRecordStore(
+        path=_scratch_json_path("synthesis_records")
+    )
+    monkeypatch.setattr(api_v2, "user_model_synthesis_records", record_store)
+    candidate = SynthesisCandidate(
+        candidate_id="stated_goals:synth:1",
+        section_key="stated_goals",
+        label="Ship hardware node",
+        value="User wants to ship the hardware node.",
+        confidence=0.82,
+        source_excerpt="My goal is to ship the hardware node.",
+    )
+    record_store.record_candidates(
+        user_id="default",
+        session_id="s1",
+        method="pattern",
+        candidates=[candidate],
+        dry_run=True,
+    )
+
+    client = TestClient(app)
+    resp = client.get("/api/v2/user-model/synthesis-records", params={"session_id": "s1"})
+    assert resp.status_code == 200
+    data = resp.json()
+    assert len(data["records"]) == 1
+    assert data["records"][0]["candidate_id"] == "stated_goals:synth:1"
+    assert data["records"][0]["written"] is False
 
 
 def test_synthesize_endpoint_rejects_unknown_method():

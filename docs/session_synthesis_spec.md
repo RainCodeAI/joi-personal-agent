@@ -147,6 +147,7 @@ Synthesis has two modes:
 
 - Runs the full extraction pipeline
 - Returns the candidate list without writing anything to the user model or correction store
+- Appends diagnostic `SynthesisRecord` audit entries for returned candidates
 - Useful for: design verification, diagnostics, previewing what synthesis would produce
 
 ### Write mode (only when `inference_enabled=True`)
@@ -154,7 +155,7 @@ Synthesis has two modes:
 - Runs the full extraction pipeline
 - Deduplicates against existing items
 - Applies correction blocks
-- Writes surviving candidates as inferred items to a `SynthesisRecord` store (to be defined)
+- Writes surviving candidates as inferred user-model items and marks the matching audit records as written
 - Returns the written items and the skipped count
 
 The `inference_enabled` policy flag is `False` by default. Write mode must not be reachable while it is `False`.
@@ -202,13 +203,38 @@ The initial trigger mechanism is an explicit `POST /api/v2/user-model/synthesize
   "api_version": "v2",
   "session_id": "abc",
   "user_id": "default",
+  "method": "pattern",
   "dry_run": true,
   "writes_enabled": false,
   "candidates": [...],
+  "audit_records": [...],
   "written_count": 0,
   "skipped_count": 2,
   "message_count": 14,
   "analysed_at": "2026-04-27T..."
+}
+```
+
+### `SynthesisRecord`
+
+```json
+{
+  "id": "record-uuid",
+  "run_id": "run-uuid",
+  "user_id": "default",
+  "session_id": "abc",
+  "candidate_id": "stated_goals:...",
+  "section_key": "stated_goals",
+  "label": "Ship hardware node",
+  "method": "pattern",
+  "evidence_excerpt": "My goal is to ship the Joi hardware node.",
+  "confidence": 0.8,
+  "status": "dry_run",
+  "skipped": false,
+  "skipped_reason": "",
+  "written": false,
+  "dry_run": true,
+  "created_at": "2026-04-30T..."
 }
 ```
 
@@ -225,7 +251,18 @@ Query parameters:
 
 Always returns dry-run candidates only. Dry-run review includes candidates skipped as duplicates or blocked by correction so tuning can inspect what the extractor found and why it will not be written. While `inference_enabled=False`, `dry_run` is always `true`, `writes_enabled` is always `false`, and `written_count` is always `0` regardless of request body.
 
+The endpoint appends audit-only records to `data/user_model_synthesis_records.json` for candidates it returns. These records support later diagnostics/debug inspection and do not count as user-model writes.
+
 `method=llm` is an explicit diagnostics path. It builds the prompt in `app/user_model/llm_synthesis.py`, sends it through the existing AI router, validates the returned JSON with `parse_llm_candidates(..., include_skipped=True)`, and returns the surviving/flagged candidates. It does not schedule automatically and does not write to the user model or correction store.
+
+### `GET /api/v2/user-model/synthesis-records`
+
+Query parameters:
+- `user_id` (default `"default"`): filter records for a user
+- `session_id` (optional): filter records for one session
+- `limit` (default `100`, max `500`): newest records to return
+
+Returns audit records only. It does not read or modify the user model.
 
 When write mode is eventually enabled, a `dry_run=false` query parameter will activate writes. This parameter is accepted but ignored while writes are disabled.
 
@@ -246,10 +283,9 @@ The following are deliberate out-of-scope items for this pass:
 
 1. Run the stub endpoint against real sessions and review candidate output quality
 2. Adjust confidence thresholds and trigger phrases based on actual output
-3. Compare regex and LLM dry-run output in the validation harness before enabling writes
-4. Add `SynthesisRecord` durable store for audit/debug records
-5. Wire automatic post-session trigger through the initiative scheduler
-6. Enable write mode behind `inference_enabled=True` after LLM extraction is validated
+3. Add diagnostics UI/API views over synthesis records
+4. Wire automatic post-session trigger through the initiative scheduler
+5. Enable write mode behind `inference_enabled=True` after LLM extraction is validated
 
 ## Validation Harness
 

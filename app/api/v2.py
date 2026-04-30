@@ -31,6 +31,7 @@ from app.api.state import (
     perception_policy,
     runtime_settings,
     user_model_corrections,
+    user_model_synthesis_records,
 )
 from app.api.models import (
     ActivityLog,
@@ -44,6 +45,8 @@ from app.api.models import (
 from app.api.v2_models import (
     ActivityLogCreateRequest,
     SynthesisCandidateResource,
+    SynthesisRecordListResponse,
+    SynthesisRecordResource,
     SynthesisResponse,
     ActivityLogCreateResponse,
     ActivityLogResource,
@@ -689,6 +692,29 @@ def _synthesis_candidate_resources(candidates: Iterable[Any]) -> List[SynthesisC
         )
         for c in candidates
     ]
+
+
+def _synthesis_record_resource(record: Dict[str, Any]) -> SynthesisRecordResource:
+    return SynthesisRecordResource(
+        id=str(record.get("id", "")),
+        run_id=str(record.get("run_id", "")),
+        user_id=str(record.get("user_id", "default")),
+        session_id=str(record.get("session_id", "")),
+        candidate_id=str(record.get("candidate_id", "")),
+        section_key=str(record.get("section_key", "character_notes")),  # type: ignore[arg-type]
+        label=str(record.get("label", "")),
+        method=str(record.get("method", "pattern")),  # type: ignore[arg-type]
+        evidence_excerpt=str(record.get("evidence_excerpt", "")),
+        confidence=float(record.get("confidence", 0.0) or 0.0),
+        status=str(record.get("status", "dry_run")),  # type: ignore[arg-type]
+        skipped=bool(record.get("skipped", False)),
+        skipped_reason=str(record.get("skipped_reason", "")),
+        written=bool(record.get("written", False)),
+        dry_run=bool(record.get("dry_run", True)),
+        source_message_role=str(record.get("source_message_role", "user")),
+        source_message_index=int(record.get("source_message_index", 0) or 0),
+        created_at=str(record.get("created_at", "")),
+    )
 
 
 def _route_synthesis_prompt(prompt: str, context: Dict[str, Any]) -> Dict[str, Any]:
@@ -1631,6 +1657,14 @@ async def synthesize_user_model(
             include_skipped=True,
         )
 
+    audit_records = user_model_synthesis_records.record_candidates(
+        user_id=user_id,
+        session_id=session_id,
+        method=method,
+        candidates=candidates,
+        dry_run=True,
+    )
+
     return SynthesisResponse(
         session_id=session_id,
         user_id=user_id,
@@ -1638,6 +1672,7 @@ async def synthesize_user_model(
         dry_run=True,
         writes_enabled=False,
         candidates=_synthesis_candidate_resources(candidates),
+        audit_records=[_synthesis_record_resource(record) for record in audit_records],
         provider=provider,
         written_count=0,
         skipped_count=sum(
@@ -1645,6 +1680,24 @@ async def synthesize_user_model(
         ),
         message_count=len(messages),
         analysed_at=datetime.now(timezone.utc).isoformat(),
+    )
+
+
+@router.get("/user-model/synthesis-records", response_model=SynthesisRecordListResponse)
+async def get_synthesis_records(
+    user_id: str | None = "default",
+    session_id: str | None = None,
+    limit: int = Query(default=100, ge=1, le=500),
+):
+    records = user_model_synthesis_records.list_records(
+        user_id=user_id,
+        session_id=session_id,
+        limit=limit,
+    )
+    return SynthesisRecordListResponse(
+        user_id=user_id,
+        session_id=session_id,
+        records=[_synthesis_record_resource(record) for record in records],
     )
 
 

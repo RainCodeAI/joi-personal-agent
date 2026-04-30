@@ -7,6 +7,8 @@ from pathlib import Path
 from threading import Lock
 from typing import Any
 
+from app.user_model.synthesis import SynthesisCandidate
+
 
 class UserModelCorrectionStore:
     """Durable JSON store for user model corrections.
@@ -77,6 +79,139 @@ class UserModelCorrectionStore:
             return data
         except Exception:
             return {"corrections": []}
+
+    def _persist(self) -> None:
+        self.path.write_text(json.dumps(self._state, indent=2, sort_keys=True))
+
+
+class UserModelSynthesisRecordStore:
+    """Durable JSON audit store for synthesis dry-run candidates.
+
+    Records are diagnostic only. They do not represent user-model writes and
+    should not be used as trusted profile data.
+    """
+
+    def __init__(self, path: Path | None = None) -> None:
+        self.path = path or Path("data/user_model_synthesis_records.json")
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        self._lock = Lock()
+        self._state = self._load()
+
+    def record_candidates(
+        self,
+        *,
+        user_id: str,
+        session_id: str,
+        method: str,
+        candidates: list[SynthesisCandidate],
+        dry_run: bool = True,
+        created_at: datetime | None = None,
+    ) -> list[dict[str, Any]]:
+        if not candidates:
+            return []
+
+        timestamp = (created_at or datetime.utcnow()).isoformat()
+        run_id = str(uuid.uuid4())
+        records = [
+            self._record_for_candidate(
+                candidate,
+                user_id=user_id,
+                session_id=session_id,
+                method=method,
+                run_id=run_id,
+                dry_run=dry_run,
+                created_at=timestamp,
+            )
+            for candidate in candidates
+        ]
+        with self._lock:
+            self._state.setdefault("records", []).extend(records)
+            self._persist()
+        return records
+
+    def list_records(
+        self,
+        *,
+        user_id: str | None = None,
+        session_id: str | None = None,
+        limit: int = 100,
+    ) -> list[dict[str, Any]]:
+        with self._lock:
+            self._state = self._load()
+            records = [
+                dict(record)
+                for record in self._state.get("records", [])
+                if isinstance(record, dict)
+            ]
+
+        if user_id is not None:
+            records = [record for record in records if record.get("user_id") == user_id]
+        if session_id is not None:
+            records = [record for record in records if record.get("session_id") == session_id]
+
+        records.sort(key=lambda record: str(record.get("created_at") or ""), reverse=True)
+        return records[: max(0, limit)]
+
+    def _record_for_candidate(
+        self,
+        candidate: SynthesisCandidate,
+        *,
+        user_id: str,
+        session_id: str,
+        method: str,
+        run_id: str,
+        dry_run: bool,
+        created_at: str,
+    ) -> dict[str, Any]:
+        skipped_reason = ""
+        if candidate.blocked_by_correction:
+            skipped_reason = "blocked_by_correction"
+        elif candidate.duplicate_of_existing:
+            skipped_reason = "duplicate_of_existing"
+
+        skipped = bool(skipped_reason)
+        written = False if dry_run else not skipped
+        if skipped:
+            status = "skipped"
+        elif written:
+            status = "written"
+        else:
+            status = "dry_run"
+
+        return {
+            "id": str(uuid.uuid4()),
+            "run_id": run_id,
+            "user_id": user_id,
+            "session_id": session_id,
+            "candidate_id": candidate.candidate_id,
+            "section_key": candidate.section_key,
+            "label": candidate.label,
+            "method": method,
+            "evidence_excerpt": candidate.source_excerpt,
+            "confidence": candidate.confidence,
+            "status": status,
+            "skipped": skipped,
+            "skipped_reason": skipped_reason,
+            "written": written,
+            "dry_run": dry_run,
+            "source_message_role": candidate.source_message_role,
+            "source_message_index": candidate.source_message_index,
+            "created_at": created_at,
+        }
+
+    def _load(self) -> dict[str, Any]:
+        if not self.path.exists():
+            return {"records": []}
+        try:
+            data = json.loads(self.path.read_text())
+            if not isinstance(data, dict):
+                return {"records": []}
+            records = data.get("records")
+            if not isinstance(records, list):
+                data["records"] = []
+            return data
+        except Exception:
+            return {"records": []}
 
     def _persist(self) -> None:
         self.path.write_text(json.dumps(self._state, indent=2, sort_keys=True))

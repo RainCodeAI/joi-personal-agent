@@ -667,6 +667,27 @@ class SynthesisCandidateResource(BaseModel):
     duplicate_of_existing: bool = False
 
 
+class SynthesisRecordResource(BaseModel):
+    id: str
+    run_id: str
+    user_id: str = "default"
+    session_id: str
+    candidate_id: str
+    section_key: UserModelSectionKey
+    label: str
+    method: Literal["pattern", "llm"]
+    evidence_excerpt: str = ""
+    confidence: float = Field(ge=0.0, le=1.0)
+    status: Literal["dry_run", "skipped", "written"]
+    skipped: bool = False
+    skipped_reason: str = ""
+    written: bool = False
+    dry_run: bool = True
+    source_message_role: str = "user"
+    source_message_index: int = 0
+    created_at: str
+
+
 class SynthesisResponse(V2ResponseBase):
     session_id: str
     user_id: str = "default"
@@ -674,8 +695,15 @@ class SynthesisResponse(V2ResponseBase):
     dry_run: bool = True
     writes_enabled: bool = False
     candidates: List[SynthesisCandidateResource] = Field(default_factory=list)
+    audit_records: List[SynthesisRecordResource] = Field(default_factory=list)
     provider: ProviderResource = Field(default_factory=ProviderResource)
     written_count: int = 0
     skipped_count: int = 0
     message_count: int = 0
     analysed_at: str
+
+
+class SynthesisRecordListResponse(V2ResponseBase):
+    user_id: Optional[str] = None
+    session_id: Optional[str] = None
+    records: List[SynthesisRecordResource] = Field(default_factory=list)
