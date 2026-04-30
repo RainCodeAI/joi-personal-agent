@@ -4,16 +4,17 @@ import argparse
 import json
 import sqlite3
 import sys
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Iterable
+from typing import Any, Iterable
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from app.user_model.synthesis import SynthesisCandidate, extract_candidates
+from app.user_model.llm_synthesis import build_llm_synthesis_prompt, parse_llm_candidates
 
 
 @dataclass(frozen=True)
@@ -100,27 +101,141 @@ def _summarize_candidates(candidates: Iterable[SynthesisCandidate]) -> list[dict
     ]
 
 
-def run_curated() -> list[dict]:
+def _load_llm_fixture(path: str | None) -> dict[str, Any]:
+    if not path:
+        return {}
+    fixture_path = Path(path)
+    if not fixture_path.is_absolute():
+        fixture_path = ROOT / fixture_path
+    with fixture_path.open("r", encoding="utf-8") as f:
+        payload = json.load(f)
+    return payload if isinstance(payload, dict) else {}
+
+
+def _fixture_response(fixtures: dict[str, Any], group: str, key: str) -> str | None:
+    group_payload = fixtures.get(group)
+    if isinstance(group_payload, dict) and key in group_payload:
+        value = group_payload[key]
+    elif key in fixtures:
+        value = fixtures[key]
+    else:
+        return None
+    if isinstance(value, str):
+        return value
+    return json.dumps(value, ensure_ascii=False)
+
+
+def _run_live_llm(messages: list[Any], *, session_key: str, group: str) -> dict[str, Any]:
+    from services.ai_router import route_request
+
+    prompt = build_llm_synthesis_prompt(messages)
+    routed = route_request(
+        prompt,
+        {
+            "task": "user_model_synthesis_validation",
+            "session_key": session_key,
+            "group": group,
+            "dry_run": True,
+            "writes_enabled": False,
+        },
+    )
+    return {
+        "raw_response": str(routed.get("response") or ""),
+        "provider": {
+            "selected": str(routed.get("model_used") or ""),
+            "route": list(routed.get("route") or []),
+            "errors": list(routed.get("errors") or []),
+        },
+    }
+
+
+def _llm_report(
+    messages: list[Any],
+    *,
+    session_key: str,
+    group: str,
+    fixtures: dict[str, Any] | None = None,
+    live: bool = False,
+) -> dict[str, Any] | None:
+    raw_response = _fixture_response(fixtures or {}, group, session_key)
+    source = "fixture" if raw_response is not None else ""
+    provider: dict[str, Any] = {}
+    if raw_response is None and live:
+        live_response = _run_live_llm(messages, session_key=session_key, group=group)
+        raw_response = live_response["raw_response"]
+        provider = live_response["provider"]
+        source = "live"
+    if raw_response is None:
+        return None
+
+    candidates = parse_llm_candidates(
+        raw_response,
+        messages,
+        include_skipped=True,
+    )
+    return {
+        "source": source,
+        "provider": provider,
+        "sections": sorted({candidate.section_key for candidate in candidates}),
+        "candidate_count": len(candidates),
+        "candidates": _summarize_candidates(candidates),
+    }
+
+
+def _section_delta(regex_sections: set[str], llm_sections: set[str]) -> dict[str, list[str]]:
+    return {
+        "shared": sorted(regex_sections & llm_sections),
+        "regex_only": sorted(regex_sections - llm_sections),
+        "llm_only": sorted(llm_sections - regex_sections),
+    }
+
+
+def run_curated(
+    *,
+    llm_fixtures: dict[str, Any] | None = None,
+    llm_live: bool = False,
+) -> list[dict]:
     reports = []
     for session in CURATED_SESSIONS:
         messages = [_message(content) for content in session.messages]
-        candidates = extract_candidates(messages, include_skipped=True)
-        sections = {candidate.section_key for candidate in candidates}
+        regex_candidates = extract_candidates(messages, include_skipped=True)
+        regex_sections = {candidate.section_key for candidate in regex_candidates}
+        llm = _llm_report(
+            messages,
+            session_key=session.name,
+            group="curated",
+            fixtures=llm_fixtures,
+            live=llm_live,
+        )
+        llm_sections = set(llm["sections"]) if llm else set()
         reports.append(
             {
                 "name": session.name,
                 "message_count": len(messages),
                 "expected_sections": sorted(session.expected_sections),
-                "actual_sections": sorted(sections),
-                "missing_sections": sorted(session.expected_sections - sections),
-                "extra_sections": sorted(sections - session.expected_sections),
-                "candidates": _summarize_candidates(candidates),
+                "actual_sections": sorted(regex_sections),
+                "missing_sections": sorted(session.expected_sections - regex_sections),
+                "extra_sections": sorted(regex_sections - session.expected_sections),
+                "candidates": _summarize_candidates(regex_candidates),
+                "regex": {
+                    "sections": sorted(regex_sections),
+                    "candidate_count": len(regex_candidates),
+                    "candidates": _summarize_candidates(regex_candidates),
+                },
+                "llm": llm,
+                "comparison": _section_delta(regex_sections, llm_sections) if llm else None,
             }
         )
     return reports
 
 
-def run_real_db(db_path: Path, limit: int) -> list[dict]:
+def run_real_db(
+    db_path: Path,
+    limit: int,
+    *,
+    llm_fixtures: dict[str, Any] | None = None,
+    llm_live: bool = False,
+) -> list[dict]:
     if not db_path.exists():
         return []
 
@@ -159,15 +274,31 @@ def run_real_db(db_path: Path, limit: int) -> list[dict]:
                 )
                 for row in rows
             ]
-            candidates = extract_candidates(messages, include_skipped=True)
+            regex_candidates = extract_candidates(messages, include_skipped=True)
+            regex_sections = {candidate.section_key for candidate in regex_candidates}
+            llm = _llm_report(
+                messages,
+                session_key=session["id"],
+                group="real",
+                fixtures=llm_fixtures,
+                live=llm_live,
+            )
+            llm_sections = set(llm["sections"]) if llm else set()
             reports.append(
                 {
                     "id": session["id"],
                     "title": session["title"],
                     "updated_at": session["updated_at"],
                     "message_count": session["message_count"],
-                    "candidate_count": len(candidates),
-                    "candidates": _summarize_candidates(candidates),
+                    "candidate_count": len(regex_candidates),
+                    "candidates": _summarize_candidates(regex_candidates),
+                    "regex": {
+                        "sections": sorted(regex_sections),
+                        "candidate_count": len(regex_candidates),
+                        "candidates": _summarize_candidates(regex_candidates),
+                    },
+                    "llm": llm,
+                    "comparison": _section_delta(regex_sections, llm_sections) if llm else None,
                 }
             )
         return reports
@@ -187,12 +318,13 @@ def print_text_report(curated: list[dict], real: list[dict]) -> None:
             print(f"  missing:  {', '.join(report['missing_sections'])}")
         if report["extra_sections"]:
             print(f"  extra:    {', '.join(report['extra_sections'])}")
-        for candidate in report["candidates"]:
+        for candidate in report["regex"]["candidates"]:
             marker = " skipped" if candidate["skipped"] else ""
             print(
-                f"  - {candidate['section']}: {candidate['label']} "
+                f"  - regex {candidate['section']}: {candidate['label']} "
                 f"({candidate['confidence']:.2f}{marker})"
             )
+        _print_llm_comparison(report)
 
     if not real:
         return
@@ -204,12 +336,35 @@ def print_text_report(curated: list[dict], real: list[dict]) -> None:
             f"\n{report['id']} - {report['message_count']} messages, "
             f"{report['candidate_count']} candidates"
         )
-        for candidate in report["candidates"]:
+        for candidate in report["regex"]["candidates"]:
             marker = " skipped" if candidate["skipped"] else ""
             print(
-                f"  - {candidate['section']}: {candidate['label']} "
+                f"  - regex {candidate['section']}: {candidate['label']} "
                 f"({candidate['confidence']:.2f}{marker})"
             )
+        _print_llm_comparison(report)
+
+
+def _print_llm_comparison(report: dict) -> None:
+    llm = report.get("llm")
+    if not llm:
+        return
+    source = llm.get("source") or "unknown"
+    provider = llm.get("provider") or {}
+    selected = provider.get("selected") or ""
+    provider_suffix = f", provider={selected}" if selected else ""
+    print(f"  llm: {llm['candidate_count']} candidates ({source}{provider_suffix})")
+    comparison = report.get("comparison") or {}
+    if comparison:
+        print(f"  shared:     {', '.join(comparison['shared']) or '-'}")
+        print(f"  regex only: {', '.join(comparison['regex_only']) or '-'}")
+        print(f"  llm only:   {', '.join(comparison['llm_only']) or '-'}")
+    for candidate in llm["candidates"]:
+        marker = " skipped" if candidate["skipped"] else ""
+        print(
+            f"  - llm   {candidate['section']}: {candidate['label']} "
+            f"({candidate['confidence']:.2f}{marker})"
+        )
 
 
 def main() -> int:
@@ -220,10 +375,32 @@ def main() -> int:
     parser.add_argument("--real-db", action="store_true", help="Also sample real sessions from data/agent.db.")
     parser.add_argument("--db-path", default="data/agent.db", help="SQLite database path for --real-db.")
     parser.add_argument("--limit", type=int, default=5, help="Number of real DB sessions to sample.")
+    parser.add_argument(
+        "--llm-fixture",
+        help=(
+            "JSON fixture of raw LLM responses keyed by curated session name and/or real session id. "
+            "May contain top-level keys or {'curated': {...}, 'real': {...}}."
+        ),
+    )
+    parser.add_argument(
+        "--llm-live",
+        action="store_true",
+        help="Call the configured provider through the AI router for LLM comparison.",
+    )
     args = parser.parse_args()
 
-    curated = run_curated()
-    real = run_real_db(ROOT / args.db_path, args.limit) if args.real_db else []
+    llm_fixtures = _load_llm_fixture(args.llm_fixture)
+    curated = run_curated(llm_fixtures=llm_fixtures, llm_live=args.llm_live)
+    real = (
+        run_real_db(
+            ROOT / args.db_path,
+            args.limit,
+            llm_fixtures=llm_fixtures,
+            llm_live=args.llm_live,
+        )
+        if args.real_db
+        else []
+    )
     if args.json:
         print(json.dumps({"curated": curated, "real": real}, indent=2, ensure_ascii=False))
     else:

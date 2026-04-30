@@ -528,6 +528,21 @@ Start here next (Phase 9 remaining work):
 3. Add `SynthesisRecord` durable store for auditability.
 4. Keep `inference_enabled=False` until regex + LLM dry-run output is trustworthy and correction-safe.
 
+Update from Thursday 2026-04-30, regex vs LLM validation harness:
+
+- Extended `scripts/validate_synthesis.py` with optional LLM comparison for curated sessions and `--real-db`.
+- Added `--llm-fixture` for validating saved/mock LLM JSON through `parse_llm_candidates` without provider calls.
+- Added explicit `--llm-live` for provider-backed comparison through the existing AI router.
+- Text and JSON reports now include regex candidates, LLM candidates, shared sections, regex-only sections, and LLM-only sections.
+- Added `tests/fixtures/synthesis_llm_fixture.json` and focused harness tests.
+
+Start here next (Phase 9 remaining work):
+
+1. Add `SynthesisRecord` durable store for auditability.
+2. Store session id, candidate id, method, evidence excerpt, confidence, skipped/written status, and timestamp.
+3. Keep write mode disabled until diagnostics and correction safety are trustworthy.
+4. Build the diagnostics surface after records exist.
+
 ---
 
 ### Phase 10 — Intent-Driven Initiative

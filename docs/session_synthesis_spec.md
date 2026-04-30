@@ -259,6 +259,10 @@ Use `scripts/validate_synthesis.py` to run the extractor against curated realist
 .venv-test\Scripts\python.exe scripts\validate_synthesis.py
 .venv-test\Scripts\python.exe scripts\validate_synthesis.py --real-db
 .venv-test\Scripts\python.exe scripts\validate_synthesis.py --json --real-db
+.venv-test\Scripts\python.exe scripts\validate_synthesis.py --llm-fixture tests\fixtures\synthesis_llm_fixture.json
+.venv-test\Scripts\python.exe scripts\validate_synthesis.py --real-db --llm-live
 ```
 
 The curated cases cover active projects, goals, worries, important people, open loops, recent wins, mood signals, communication preferences, and small-talk negative controls. `--real-db` also samples saved sessions from `data/agent.db`.
+
+LLM comparison is opt-in. `--llm-fixture` reads raw LLM JSON responses keyed by curated session name and/or real session id, validates them through `parse_llm_candidates`, and prints regex-only, LLM-only, and shared sections side by side. `--llm-live` uses the configured AI router for the same comparison and should be used deliberately because it may call external or local providers.

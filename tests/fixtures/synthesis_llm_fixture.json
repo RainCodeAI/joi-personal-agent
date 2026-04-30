@@ -1,0 +1,100 @@
+{
+  "curated": {
+    "project_goal_worry": {
+      "candidates": [
+        {
+          "section_key": "active_projects",
+          "label": "User model diagnostics page",
+          "value": "User is building the user model diagnostics page tonight.",
+          "confidence": 0.87,
+          "source_excerpt": "I'm building the user model diagnostics page tonight.",
+          "source_message_index": 0,
+          "source_message_role": "user"
+        },
+        {
+          "section_key": "stated_goals",
+          "label": "Trustworthy memory",
+          "value": "User wants Joi's memory to feel trustworthy before inference is enabled.",
+          "confidence": 0.9,
+          "source_excerpt": "My goal is to make Joi's memory feel trustworthy before we enable inference.",
+          "source_message_index": 1,
+          "source_message_role": "user"
+        },
+        {
+          "section_key": "recurring_worries",
+          "label": "Storing the wrong thing",
+          "value": "User is worried about storing the wrong thing in synthesis.",
+          "confidence": 0.84,
+          "source_excerpt": "I'm worried about storing the wrong thing and making her feel less careful.",
+          "source_message_index": 2,
+          "source_message_role": "user"
+        }
+      ]
+    },
+    "people_preferences_win": {
+      "candidates": [
+        {
+          "section_key": "important_people",
+          "label": "Sarah",
+          "value": "Sarah is a friend who helped the user think through the hardware node.",
+          "confidence": 0.88,
+          "source_excerpt": "My friend Sarah helped me think through the hardware node.",
+          "source_message_index": 0,
+          "source_message_role": "user"
+        },
+        {
+          "section_key": "communication_preferences",
+          "label": "Direct implementation options",
+          "value": "User prefers direct implementation options.",
+          "confidence": 0.91,
+          "source_excerpt": "Can you just be more direct when you're giving me implementation options?",
+          "source_message_index": 1,
+          "source_message_role": "user"
+        },
+        {
+          "section_key": "recent_wins",
+          "label": "MQTT bridge working",
+          "value": "User got the MQTT bridge working after a few rough attempts.",
+          "confidence": 0.86,
+          "source_excerpt": "I finally got the MQTT bridge working after a few rough attempts.",
+          "source_message_index": 2,
+          "source_message_role": "user"
+        }
+      ]
+    },
+    "open_loop_and_duplicate_shape": {
+      "candidates": [
+        {
+          "section_key": "active_projects",
+          "label": "FastAPI backend for Joi",
+          "value": "User has been working on a FastAPI backend for Joi.",
+          "confidence": 0.86,
+          "source_excerpt": "I've been working on a FastAPI backend for Joi.",
+          "source_message_index": 0,
+          "source_message_role": "user"
+        },
+        {
+          "section_key": "open_loops",
+          "label": "Follow up with Dana",
+          "value": "User needs to follow up with Dana about ESP32 LED behavior.",
+          "confidence": 0.89,
+          "source_excerpt": "I need to follow up with Dana about the ESP32 LED behavior.",
+          "source_message_index": 1,
+          "source_message_role": "user"
+        },
+        {
+          "section_key": "important_people",
+          "label": "Dana",
+          "value": "Dana is the user's colleague from the hardware side.",
+          "confidence": 0.88,
+          "source_excerpt": "Dana is my colleague from the hardware side.",
+          "source_message_index": 2,
+          "source_message_role": "user"
+        }
+      ]
+    },
+    "small_talk_negative_control": {
+      "candidates": []
+    }
+  }
+}
