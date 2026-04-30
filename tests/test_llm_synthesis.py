@@ -101,6 +101,20 @@ def test_parse_llm_candidates_deduplicates_existing_labels():
     assert results == []
 
 
+def test_parse_llm_candidates_can_include_skipped_duplicates_for_diagnostics():
+    messages = [_msg("I'm building a prompt preview panel.")]
+    existing_item = SimpleNamespace(label="Prompt preview panel")
+    existing_section = SimpleNamespace(items=[existing_item])
+    results = parse_llm_candidates(
+        _payload(_candidate()),
+        messages,
+        existing_sections=[existing_section],
+        include_skipped=True,
+    )
+    assert len(results) == 1
+    assert results[0].duplicate_of_existing is True
+
+
 def test_parse_llm_candidates_applies_correction_blocks():
     messages = [_msg("I'm building a prompt preview panel.")]
     first = parse_llm_candidates(_payload(_candidate()), messages)

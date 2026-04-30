@@ -21,6 +21,93 @@ ALLOWED_LLM_SECTIONS = {
 MIN_LLM_CONFIDENCE = 0.75
 
 
+LLM_SYNTHESIS_SYSTEM_PROMPT = """You extract cautious user-model candidates from a single chat session.
+
+Return JSON only. Do not explain.
+
+You may infer only facts directly supported by user messages in the provided session. Do not infer from assistant messages except to understand conversational context. Do not guess. Do not diagnose. Do not label the user's personality. Do not create a candidate when the evidence is weak, generic, playful, or only small talk.
+
+Allowed section_key values:
+- active_projects
+- recurring_worries
+- stated_goals
+- important_people
+- mood_trend
+- communication_preferences
+- recent_wins
+- open_loops
+
+Every candidate must include:
+- section_key
+- label
+- value
+- confidence, from 0.0 to 1.0
+- source_excerpt, copied from a user message
+- source_message_index, the zero-based index of that user message in the provided messages array
+- source_message_role, always "user"
+
+Confidence rules:
+- 0.90-1.00: explicit user instruction or direct statement with durable meaning
+- 0.80-0.89: clear direct evidence with a specific subject
+- 0.75-0.79: likely durable context, but less explicit
+- below 0.75: do not emit
+
+Use the shortest label that preserves meaning. Values should be one plain sentence. Source excerpts must be exact substrings from user messages. If no durable candidates are present, return {"candidates":[]}."""
+
+
+LLM_SYNTHESIS_DEVELOPER_PROMPT = """Analyze this session for durable user-model candidates.
+
+Messages are provided as an array. Use each message's array index as source_message_index. Only user messages may be used as source evidence.
+
+Return exactly this JSON shape:
+{
+  "candidates": [
+    {
+      "section_key": "active_projects",
+      "label": "Short label",
+      "value": "One sentence grounded in the user message.",
+      "confidence": 0.82,
+      "source_excerpt": "Exact substring from a user message.",
+      "source_message_index": 3,
+      "source_message_role": "user"
+    }
+  ]
+}
+
+Extraction guidance:
+- active_projects: ongoing work or projects the user is actively building, writing, planning, debugging, or maintaining.
+- recurring_worries: explicit concern, stress, anxiety, or repeated mental load. Do not diagnose.
+- stated_goals: explicit aims, goals, intentions, or desired outcomes.
+- important_people: named people with personal or work relevance. Do not emit generic roles without a name.
+- mood_trend: explicit self-reported emotional state only.
+- communication_preferences: how the user wants Joi to respond or behave.
+- recent_wins: completed work, breakthroughs, shipped items, or positive outcomes.
+- open_loops: unresolved tasks, follow-ups, reminders, or decisions.
+
+Drop anything that is temporary, vague, generic, or unsupported by an exact user-message excerpt."""
+
+
+def build_llm_synthesis_prompt(messages: list[Any]) -> str:
+    """Build the dry-run extraction prompt for the configured chat provider."""
+    message_payload = [
+        {
+            "role": str(getattr(message, "role", "") or ""),
+            "content": str(getattr(message, "content", "") or ""),
+        }
+        for message in messages
+    ]
+    return "\n\n".join(
+        [
+            "System prompt:",
+            LLM_SYNTHESIS_SYSTEM_PROMPT,
+            "Developer prompt:",
+            LLM_SYNTHESIS_DEVELOPER_PROMPT,
+            "Messages JSON:",
+            json.dumps(message_payload, ensure_ascii=False),
+        ]
+    )
+
+
 def parse_llm_candidates(
     raw_response: str,
     messages: list[Any],
@@ -28,6 +115,7 @@ def parse_llm_candidates(
     user_id: str = "default",
     corrections: list[dict] | None = None,
     existing_sections: list[Any] | None = None,
+    include_skipped: bool = False,
     min_confidence: float = MIN_LLM_CONFIDENCE,
 ) -> list[SynthesisCandidate]:
     """Validate LLM synthesis JSON into safe dry-run candidates.
@@ -105,7 +193,9 @@ def parse_llm_candidates(
     return [
         candidate
         for candidate in accepted.values()
-        if not candidate.blocked_by_correction and not candidate.duplicate_of_existing
+        if include_skipped or (
+            not candidate.blocked_by_correction and not candidate.duplicate_of_existing
+        )
     ]
 
 

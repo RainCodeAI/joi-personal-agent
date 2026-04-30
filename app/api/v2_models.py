@@ -670,9 +670,11 @@ class SynthesisCandidateResource(BaseModel):
 class SynthesisResponse(V2ResponseBase):
     session_id: str
     user_id: str = "default"
+    method: Literal["pattern", "llm"] = "pattern"
     dry_run: bool = True
     writes_enabled: bool = False
     candidates: List[SynthesisCandidateResource] = Field(default_factory=list)
+    provider: ProviderResource = Field(default_factory=ProviderResource)
     written_count: int = 0
     skipped_count: int = 0
     message_count: int = 0

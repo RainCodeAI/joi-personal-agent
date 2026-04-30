@@ -1,4 +1,5 @@
 """Tests for session synthesis pattern extraction and API stub."""
+import json
 from types import SimpleNamespace
 
 import pytest
@@ -302,3 +303,79 @@ def test_synthesize_endpoint_returns_skipped_duplicates(monkeypatch):
     data = resp.json()
     assert data["skipped_count"] == 1
     assert data["candidates"][0]["duplicate_of_existing"] is True
+
+
+def test_synthesize_endpoint_llm_method_is_dry_run_only(monkeypatch):
+    from fastapi.testclient import TestClient
+    from app.api.main import app
+    from app.api import v2 as api_v2
+    from app.user_model.store import UserModelCorrectionStore
+    import tempfile, pathlib
+
+    store = UserModelCorrectionStore(path=pathlib.Path(tempfile.mkdtemp()) / "corrections.json")
+    monkeypatch.setattr(api_v2, "user_model_corrections", store)
+
+    fake_msg = SimpleNamespace(
+        role="user",
+        content="I'm building a prompt preview panel.",
+        session_id="s1",
+        timestamp=None,
+    )
+    monkeypatch.setattr(api_v2.memory_store, "get_chat_history", lambda sid: [fake_msg])
+
+    def fake_route(prompt, context):
+        assert "Messages JSON" in prompt
+        assert "prompt preview panel" in prompt
+        assert context["task"] == "user_model_synthesis"
+        assert context["dry_run"] is True
+        assert context["writes_enabled"] is False
+        return {
+            "response": json.dumps(
+                {
+                    "candidates": [
+                        {
+                            "section_key": "active_projects",
+                            "label": "Prompt preview panel",
+                            "value": "User is building a prompt preview panel.",
+                            "confidence": 0.86,
+                            "source_excerpt": "I'm building a prompt preview panel.",
+                            "source_message_index": 0,
+                            "source_message_role": "user",
+                        }
+                    ]
+                }
+            ),
+            "model_used": "mock-llm",
+            "route": ["mock-llm"],
+            "errors": [],
+        }
+
+    monkeypatch.setattr(api_v2, "_route_synthesis_prompt", fake_route)
+
+    client = TestClient(app)
+    resp = client.post(
+        "/api/v2/user-model/synthesize",
+        params={"session_id": "s1", "user_id": "default", "method": "llm"},
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["method"] == "llm"
+    assert data["dry_run"] is True
+    assert data["writes_enabled"] is False
+    assert data["written_count"] == 0
+    assert data["provider"]["selected"] == "mock-llm"
+    assert len(data["candidates"]) == 1
+    assert data["candidates"][0]["inference_method"] == "llm"
+    assert store.list_for_user("default") == []
+
+
+def test_synthesize_endpoint_rejects_unknown_method():
+    from fastapi.testclient import TestClient
+    from app.api.main import app
+
+    client = TestClient(app)
+    resp = client.post(
+        "/api/v2/user-model/synthesize",
+        params={"session_id": "s1", "method": "automatic"},
+    )
+    assert resp.status_code == 422

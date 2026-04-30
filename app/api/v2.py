@@ -671,6 +671,32 @@ def _user_model_correction_resource(record: Dict[str, Any]) -> UserModelCorrecti
     )
 
 
+def _synthesis_candidate_resources(candidates: Iterable[Any]) -> List[SynthesisCandidateResource]:
+    return [
+        SynthesisCandidateResource(
+            candidate_id=c.candidate_id,
+            section_key=c.section_key,
+            label=c.label,
+            value=c.value,
+            confidence=c.confidence,
+            inference_method=c.inference_method,
+            trigger_phrase=c.trigger_phrase,
+            source_excerpt=c.source_excerpt,
+            source_message_role=c.source_message_role,
+            source_message_index=c.source_message_index,
+            blocked_by_correction=c.blocked_by_correction,
+            duplicate_of_existing=c.duplicate_of_existing,
+        )
+        for c in candidates
+    ]
+
+
+def _route_synthesis_prompt(prompt: str, context: Dict[str, Any]) -> Dict[str, Any]:
+    from services.ai_router import route_request
+
+    return route_request(prompt, context)
+
+
 def _mood_trend_item(user_id: str, moods: List[Any]) -> UserModelItemResource | None:
     if not moods:
         return None
@@ -1553,46 +1579,66 @@ async def correct_user_model(request: UserModelCorrectionRequest, user_id: str =
 
 
 @router.post("/user-model/synthesize", response_model=SynthesisResponse)
-async def synthesize_user_model(session_id: str, user_id: str = "default"):
+async def synthesize_user_model(
+    session_id: str,
+    user_id: str = "default",
+    method: str = Query(default="pattern", pattern="^(pattern|llm)$"),
+):
     from datetime import timezone
-    from app.user_model.synthesis import extract_candidates, SynthesisCandidate
 
     messages = memory_store.get_chat_history(session_id)
     corrections = user_model_corrections.list_for_user(user_id)
     current_model = _user_model_response(user_id)
+    provider = ProviderResource()
 
-    candidates: list[SynthesisCandidate] = extract_candidates(
-        messages,
-        user_id=user_id,
-        corrections=corrections,
-        existing_sections=current_model.sections,
-        include_skipped=True,
-    )
+    if method == "llm" and messages:
+        from app.user_model.llm_synthesis import build_llm_synthesis_prompt, parse_llm_candidates
 
-    candidate_resources = [
-        SynthesisCandidateResource(
-            candidate_id=c.candidate_id,
-            section_key=c.section_key,
-            label=c.label,
-            value=c.value,
-            confidence=c.confidence,
-            inference_method=c.inference_method,
-            trigger_phrase=c.trigger_phrase,
-            source_excerpt=c.source_excerpt,
-            source_message_role=c.source_message_role,
-            source_message_index=c.source_message_index,
-            blocked_by_correction=c.blocked_by_correction,
-            duplicate_of_existing=c.duplicate_of_existing,
+        prompt = build_llm_synthesis_prompt(messages)
+        routed = _route_synthesis_prompt(
+            prompt,
+            {
+                "task": "user_model_synthesis",
+                "session_id": session_id,
+                "user_id": user_id,
+                "dry_run": True,
+                "writes_enabled": False,
+            },
         )
-        for c in candidates
-    ]
+        provider = ProviderResource(
+            selected=str(routed.get("model_used") or ""),
+            route=list(routed.get("route") or []),
+            errors=list(routed.get("errors") or []),
+        )
+        candidates = parse_llm_candidates(
+            str(routed.get("response") or ""),
+            messages,
+            user_id=user_id,
+            corrections=corrections,
+            existing_sections=current_model.sections,
+            include_skipped=True,
+        )
+    elif method == "llm":
+        candidates = []
+    else:
+        from app.user_model.synthesis import extract_candidates
+
+        candidates = extract_candidates(
+            messages,
+            user_id=user_id,
+            corrections=corrections,
+            existing_sections=current_model.sections,
+            include_skipped=True,
+        )
 
     return SynthesisResponse(
         session_id=session_id,
         user_id=user_id,
+        method=method,  # type: ignore[arg-type]
         dry_run=True,
         writes_enabled=False,
-        candidates=candidate_resources,
+        candidates=_synthesis_candidate_resources(candidates),
+        provider=provider,
         written_count=0,
         skipped_count=sum(
             1 for c in candidates if c.blocked_by_correction or c.duplicate_of_existing

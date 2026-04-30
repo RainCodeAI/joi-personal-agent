@@ -49,7 +49,7 @@ Simple regex and keyword patterns applied to individual messages. Fast, determin
 
 A single structured extraction call made to the configured chat provider after the session ends. The prompt asks the model to return a JSON list of inferred facts with section keys, labels, values, confidence, source excerpts, and message indexes. Higher recall, handles paraphrase, but costs tokens and requires async scheduling.
 
-The prompt contract lives in `docs/session_synthesis_llm_prompt.md`. The local parser/validator lives in `app/user_model/llm_synthesis.py`. No live LLM call is wired yet.
+The prompt contract lives in `docs/session_synthesis_llm_prompt.md`. The local parser/validator and prompt builder live in `app/user_model/llm_synthesis.py`. A live dry-run call is available only through the explicit `method=llm` diagnostics path.
 
 ---
 
@@ -221,8 +221,11 @@ The initial trigger mechanism is an explicit `POST /api/v2/user-model/synthesize
 Query parameters:
 - `session_id` (required): the session to analyse
 - `user_id` (default `"default"`): the user to synthesise for
+- `method` (default `"pattern"`): `"pattern"` runs deterministic regex extraction; `"llm"` runs the configured chat-provider extraction prompt and strict local validator
 
-Always returns candidates from the pattern-matching extractor. Dry-run review includes candidates skipped as duplicates or blocked by correction so tuning can inspect what the extractor found and why it will not be written. While `inference_enabled=False`, `dry_run` is always `true` and `written_count` is always `0` regardless of request body.
+Always returns dry-run candidates only. Dry-run review includes candidates skipped as duplicates or blocked by correction so tuning can inspect what the extractor found and why it will not be written. While `inference_enabled=False`, `dry_run` is always `true`, `writes_enabled` is always `false`, and `written_count` is always `0` regardless of request body.
+
+`method=llm` is an explicit diagnostics path. It builds the prompt in `app/user_model/llm_synthesis.py`, sends it through the existing AI router, validates the returned JSON with `parse_llm_candidates(..., include_skipped=True)`, and returns the surviving/flagged candidates. It does not schedule automatically and does not write to the user model or correction store.
 
 When write mode is eventually enabled, a `dry_run=false` query parameter will activate writes. This parameter is accepted but ignored while writes are disabled.
 
@@ -232,7 +235,6 @@ When write mode is eventually enabled, a `dry_run=false` query parameter will ac
 
 The following are deliberate out-of-scope items for this pass:
 
-- **Live LLM extraction call**: prompt and parser are defined, but no provider call is wired yet
 - **Automatic post-session scheduling**: depends on session lifecycle events not yet defined
 - **Multi-session aggregation**: recurrence counting across sessions is a follow-up after single-session extraction is stable
 - **`character_notes` synthesis**: this section requires careful LLM judgment; it is excluded from pattern extraction
@@ -244,8 +246,8 @@ The following are deliberate out-of-scope items for this pass:
 
 1. Run the stub endpoint against real sessions and review candidate output quality
 2. Adjust confidence thresholds and trigger phrases based on actual output
-3. Wire a dry-run-only LLM extraction call behind an explicit diagnostics endpoint or flag
-4. Add `SynthesisRecord` durable store for written items
+3. Compare regex and LLM dry-run output in the validation harness before enabling writes
+4. Add `SynthesisRecord` durable store for audit/debug records
 5. Wire automatic post-session trigger through the initiative scheduler
 6. Enable write mode behind `inference_enabled=True` after LLM extraction is validated
 

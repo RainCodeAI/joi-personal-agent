@@ -514,6 +514,20 @@ Start here next (Phase 9 remaining work):
 3. Add `SynthesisRecord` durable store for auditability.
 4. Keep `inference_enabled=False` until LLM dry-run output is trustworthy and correction-safe.
 
+Update from Thursday 2026-04-30, LLM synthesis dry-run API:
+
+- Added explicit `method=llm` support to `POST /api/v2/user-model/synthesize`; default `method=pattern` remains unchanged.
+- `method=llm` builds the extraction prompt in `app/user_model/llm_synthesis.py`, routes it through the existing AI router, validates JSON with `parse_llm_candidates`, and returns candidates plus provider diagnostics.
+- The path is still dry-run only: `dry_run=true`, `writes_enabled=false`, `written_count=0`, no automatic post-session trigger, and no user-model/correction-store writes.
+- Added tests for the opt-in LLM method, provider diagnostics, dry-run invariants, invalid method validation, and diagnostics inclusion of skipped LLM duplicates.
+
+Start here next (Phase 9 remaining work):
+
+1. Extend `scripts/validate_synthesis.py` to compare regex and LLM dry-run candidates side by side.
+2. Support fixture/mock LLM JSON input in the validation harness for unavailable or expensive live provider calls.
+3. Add `SynthesisRecord` durable store for auditability.
+4. Keep `inference_enabled=False` until regex + LLM dry-run output is trustworthy and correction-safe.
+
 ---
 
 ### Phase 10 — Intent-Driven Initiative

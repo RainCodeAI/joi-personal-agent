@@ -1,13 +1,15 @@
 # Session Synthesis LLM Prompt
 
 Status: Phase 9 prompt contract, dry-run only
-Last updated: 2026-04-28
+Last updated: 2026-04-30
 
 ## Purpose
 
-This prompt is for a future dry-run LLM extraction pass that complements the deterministic regex extractor. It must find nuanced or indirect user-model candidates while staying conservative, evidence-bound, and correction-safe.
+This prompt is for the opt-in dry-run LLM extraction pass that complements the deterministic regex extractor. It must find nuanced or indirect user-model candidates while staying conservative, evidence-bound, and correction-safe.
 
 The LLM must not write to storage. It returns candidate JSON only. The local validator decides what survives.
+
+The dry-run API path is `POST /api/v2/user-model/synthesize?session_id=...&method=llm`. It is opt-in only, uses the existing AI router, and returns provider diagnostics plus validated candidates without writing to the user model or correction store.
 
 ## Allowed Sections
 
@@ -107,8 +109,8 @@ Drop anything that is temporary, vague, generic, or unsupported by an exact user
 - missing label, value, source excerpt, or source index is dropped
 - assistant-role evidence is dropped
 - source excerpts that are not grounded in user messages are dropped
-- existing-model duplicates are dropped
-- user-hidden or user-deleted candidate IDs are dropped
+- existing-model duplicates are dropped by default; diagnostics dry-run may include them with `duplicate_of_existing=true`
+- user-hidden or user-deleted candidate IDs are dropped by default; diagnostics dry-run may include them with `blocked_by_correction=true`
 
 ## Example No-Op
 
