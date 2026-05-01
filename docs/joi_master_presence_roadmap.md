@@ -578,6 +578,8 @@ Start here next (Phase 9 remaining work):
 
 Goal: replace time/absence-triggered initiative with initiative that feels earned.
 
+Design status: drafted in `docs/initiative_quality_gate_spec.md` on 2026-04-30. No Phase 10 runtime implementation has been started.
+
 Current state: initiative fires on schedule — morning window, late night, prolonged silence, absence. These are necessary but mechanical. The result is a companion that checks in on a timer, not one that notices something.
 
 Scope:
@@ -597,6 +599,13 @@ Why this phase:
 Initiative that references something real feels like attention. Initiative that fires on a timer feels like a notification. The goal is for Joi to occasionally say something that makes you think "she was paying attention" — that is the quality bar.
 
 Dependency: Phase 9 (weighted memory and user model) must exist before content-triggered candidates can reference real patterns.
+
+Update from Thursday 2026-04-30, Phase 10 design-only pass:
+
+- Added `docs/initiative_quality_gate_spec.md`.
+- Defined the Phase 10 candidate flow: candidate builder -> quality gate -> existing policy gate -> emit/suppress.
+- Defined candidate families (`open_loop_followup`, `project_checkin`, `mood_pattern_notice`, `win_acknowledgement`), evidence requirements, quality scoring dimensions, hard suppression rules, emission memory, feedback tracking, diagnostics shape, rollout gates, and non-goals.
+- Confirmed no proactive user-model initiative implementation was added.
 
 ---
 
