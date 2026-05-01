@@ -1,8 +1,17 @@
 "use client";
 
 import { useState } from "react";
-import { fetchUserModelPromptPreview, postUserModelCorrection } from "@/lib/api";
 import {
+  fetchSynthesisRecords,
+  fetchUserModelPromptPreview,
+  postUserModelCorrection,
+  runUserModelSynthesis,
+} from "@/lib/api";
+import {
+  SynthesisCandidate,
+  SynthesisMethod,
+  SynthesisRecord,
+  SynthesisResponse,
   UserModelCorrectionRequest,
   UserModelItem,
   UserModelResponse,
@@ -24,6 +33,25 @@ function lifecycleTone(l: UserModelItem["lifecycle"]): string {
   if (l === "pinned") return "ok";
   if (l === "fresh") return "warn";
   return "";
+}
+
+function flagTone(candidate: Pick<SynthesisCandidate, "blocked_by_correction" | "duplicate_of_existing">): string {
+  if (candidate.blocked_by_correction) return "warn";
+  if (candidate.duplicate_of_existing) return "warn";
+  return "ok";
+}
+
+function statusTone(status: SynthesisRecord["status"]): string {
+  if (status === "skipped") return "warn";
+  if (status === "written") return "ok";
+  return "";
+}
+
+function formatTime(value: string): string {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString();
 }
 
 function ItemRow({
@@ -152,6 +180,225 @@ function ItemRow({
         </>
       )}
     </div>
+  );
+}
+
+function CandidateRow({ candidate }: { candidate: SynthesisCandidate }) {
+  const flag = candidate.blocked_by_correction
+    ? "blocked"
+    : candidate.duplicate_of_existing
+      ? "duplicate"
+      : "candidate";
+
+  return (
+    <div className="list-row" style={{ flexDirection: "column", alignItems: "stretch", gap: 8 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "flex-start" }}>
+        <div style={{ minWidth: 0 }}>
+          <strong style={{ display: "block", marginBottom: 4 }}>{candidate.label}</strong>
+          <p style={{ margin: 0, color: "var(--muted)", fontSize: "0.82rem", lineHeight: 1.45 }}>
+            {candidate.value}
+          </p>
+        </div>
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", justifyContent: "flex-end", flexShrink: 0 }}>
+          <span className="badge" style={{ padding: "4px 10px", fontSize: "0.72rem" }}>
+            {candidate.inference_method}
+          </span>
+          <span className={`badge ${confidenceTone(candidate.confidence)}`} style={{ padding: "4px 10px", fontSize: "0.72rem" }}>
+            {Math.round(candidate.confidence * 100)}%
+          </span>
+          <span className={`badge ${flagTone(candidate)}`} style={{ padding: "4px 10px", fontSize: "0.72rem" }}>
+            {flag}
+          </span>
+        </div>
+      </div>
+      <div style={{ display: "grid", gap: 4, color: "var(--muted)", fontSize: "0.76rem", lineHeight: 1.45 }}>
+        <span>{candidate.section_key.replace(/_/g, " ")} · message {candidate.source_message_index}</span>
+        {candidate.source_excerpt && <span style={{ wordBreak: "break-word" }}>{candidate.source_excerpt}</span>}
+      </div>
+    </div>
+  );
+}
+
+function RecordRow({ record }: { record: SynthesisRecord }) {
+  return (
+    <div className="list-row" style={{ flexDirection: "column", alignItems: "stretch", gap: 8 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "flex-start" }}>
+        <div style={{ minWidth: 0 }}>
+          <strong style={{ display: "block", marginBottom: 4 }}>{record.label}</strong>
+          <p style={{ margin: 0, color: "var(--muted)", fontSize: "0.78rem", lineHeight: 1.45, wordBreak: "break-word" }}>
+            {record.evidence_excerpt || record.candidate_id}
+          </p>
+        </div>
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", justifyContent: "flex-end", flexShrink: 0 }}>
+          <span className="badge" style={{ padding: "4px 10px", fontSize: "0.72rem" }}>
+            {record.method}
+          </span>
+          <span className={`badge ${statusTone(record.status)}`} style={{ padding: "4px 10px", fontSize: "0.72rem" }}>
+            {record.status}
+          </span>
+        </div>
+      </div>
+      <div style={{ display: "flex", gap: 10, flexWrap: "wrap", color: "var(--muted)", fontSize: "0.72rem" }}>
+        <span>{record.section_key.replace(/_/g, " ")}</span>
+        <span>{Math.round(record.confidence * 100)}%</span>
+        {record.skipped_reason && <span>{record.skipped_reason}</span>}
+        <span>{formatTime(record.created_at)}</span>
+      </div>
+    </div>
+  );
+}
+
+function SynthesisDiagnostics() {
+  const [sessionId, setSessionId] = useState("");
+  const [method, setMethod] = useState<SynthesisMethod>("pattern");
+  const [result, setResult] = useState<SynthesisResponse | null>(null);
+  const [records, setRecords] = useState<SynthesisRecord[]>([]);
+  const [busy, setBusy] = useState(false);
+  const [recordsBusy, setRecordsBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function runSynthesis() {
+    const trimmed = sessionId.trim();
+    if (!trimmed) {
+      setError("Session id is required.");
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      const response = await runUserModelSynthesis(trimmed, method);
+      setResult(response);
+      setRecords(response.audit_records);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Synthesis failed");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function loadRecords() {
+    setRecordsBusy(true);
+    setError(null);
+    try {
+      const response = await fetchSynthesisRecords({
+        sessionId: sessionId.trim() || undefined,
+        limit: 25,
+      });
+      setRecords(response.records);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Record load failed");
+    } finally {
+      setRecordsBusy(false);
+    }
+  }
+
+  const skipped = result?.candidates.filter((c) => c.blocked_by_correction || c.duplicate_of_existing).length ?? 0;
+
+  return (
+    <section className="panel">
+      <div style={{ display: "flex", justifyContent: "space-between", gap: 16, alignItems: "flex-start", flexWrap: "wrap" }}>
+        <div>
+          <p className="eyebrow" style={{ marginBottom: 4 }}>Synthesis diagnostics</p>
+          <h3 style={{ margin: 0 }}>Dry-run extraction</h3>
+        </div>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          <span className="badge" style={{ padding: "4px 10px", fontSize: "0.72rem" }}>
+            writes off
+          </span>
+          {result && (
+            <span className="badge ok" style={{ padding: "4px 10px", fontSize: "0.72rem" }}>
+              {result.candidates.length} candidates
+            </span>
+          )}
+          {result && skipped > 0 && (
+            <span className="badge warn" style={{ padding: "4px 10px", fontSize: "0.72rem" }}>
+              {skipped} skipped
+            </span>
+          )}
+        </div>
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 10, alignItems: "end", marginTop: 16 }}>
+        <div className="field">
+          <label>Session id</label>
+          <input
+            className="input"
+            value={sessionId}
+            onChange={(e) => setSessionId(e.target.value)}
+            placeholder="session id"
+            style={{ fontSize: "0.88rem" }}
+          />
+        </div>
+        <div className="field">
+          <label>Method</label>
+          <select
+            className="input"
+            value={method}
+            onChange={(e) => setMethod(e.target.value as SynthesisMethod)}
+            style={{ fontSize: "0.88rem" }}
+          >
+            <option value="pattern">pattern</option>
+            <option value="llm">llm</option>
+          </select>
+        </div>
+        <button className="button primary" onClick={runSynthesis} disabled={busy || !sessionId.trim()} style={{ padding: "10px 16px", fontSize: "0.82rem" }}>
+          {busy ? "Running" : "Run"}
+        </button>
+        <button className="button ghost" onClick={loadRecords} disabled={recordsBusy} style={{ padding: "10px 16px", fontSize: "0.82rem" }}>
+          {recordsBusy ? "Loading" : "Records"}
+        </button>
+      </div>
+
+      {error && (
+        <div style={{ marginTop: 14, padding: "10px 14px", borderRadius: 10, border: "1px solid rgba(255,123,136,0.35)", background: "rgba(255,123,136,0.08)", color: "var(--rose)", fontSize: "0.82rem" }}>
+          {error}
+        </div>
+      )}
+
+      {result && (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: 10, marginTop: 16 }}>
+          {[
+            ["Messages", result.message_count],
+            ["Written", result.written_count],
+            ["Skipped", result.skipped_count],
+            ["Provider", result.provider.selected || "none"],
+          ].map(([label, value]) => (
+            <div className="status-card" key={String(label)}>
+              <span>{label}</span>
+              <strong style={{ fontSize: "1rem", wordBreak: "break-word" }}>{value}</strong>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {result && result.candidates.length > 0 && (
+        <div style={{ marginTop: 16 }}>
+          <p className="eyebrow" style={{ marginBottom: 10 }}>Candidates</p>
+          <div className="list">
+            {result.candidates.map((candidate) => (
+              <CandidateRow key={candidate.candidate_id} candidate={candidate} />
+            ))}
+          </div>
+        </div>
+      )}
+
+      {result && result.candidates.length === 0 && (
+        <p style={{ margin: "16px 0 0", color: "var(--muted)", fontSize: "0.82rem" }}>
+          No candidates returned for this dry run.
+        </p>
+      )}
+
+      {records.length > 0 && (
+        <div style={{ marginTop: 16 }}>
+          <p className="eyebrow" style={{ marginBottom: 10 }}>Audit records</p>
+          <div className="list">
+            {records.map((record) => (
+              <RecordRow key={record.id} record={record} />
+            ))}
+          </div>
+        </div>
+      )}
+    </section>
   );
 }
 
@@ -327,6 +574,8 @@ export function UserModelPanel({ initialUserModel, initialPromptBlock }: Props) 
             {error}
           </div>
         )}
+
+        <SynthesisDiagnostics />
 
         <section className="panel">
           <div

@@ -557,6 +557,21 @@ Start here next (Phase 9 remaining work):
 2. Keep user-model write mode disabled until the diagnostics surface proves output quality and correction safety.
 3. Only after diagnostics are trustworthy, design the controlled transition to `inference_enabled=True`.
 
+Update from Thursday 2026-04-30, synthesis diagnostics surface:
+
+- Added a synthesis diagnostics panel to `/user-model`.
+- The panel accepts a session id, supports `pattern` and `llm` dry-run methods, runs `POST /api/v2/user-model/synthesize`, and displays candidates, confidence, evidence excerpts, duplicate/blocked status, skipped count, provider, and audit records.
+- Added read-only record loading through `GET /api/v2/user-model/synthesis-records`.
+- Added typed frontend synthesis API helpers and response types.
+- Frontend typecheck and production build passed; backend Phase 9 regression tests passed.
+- Write mode remains disabled: the UI only calls dry-run/audit endpoints.
+
+Start here next (Phase 9 remaining work):
+
+1. Run the diagnostics surface against several real sessions and tune extraction quality.
+2. Keep user-model write mode disabled while reviewing audit records and correction behavior.
+3. Start Phase 10 design only after diagnostics review, unless more Phase 9 tuning is needed.
+
 ---
 
 ### Phase 10 — Intent-Driven Initiative

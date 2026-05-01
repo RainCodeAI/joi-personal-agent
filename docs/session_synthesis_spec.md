@@ -264,6 +264,15 @@ Query parameters:
 
 Returns audit records only. It does not read or modify the user model.
 
+### Diagnostics Surface
+
+`/user-model` includes a Phase 9 synthesis diagnostics panel:
+
+- accepts a session id and method (`pattern` or `llm`)
+- runs the same dry-run endpoint described above
+- displays candidate method, section, confidence, evidence excerpt, duplicate/blocked status, skipped count, provider, and audit records
+- can load recent audit records for a session without running synthesis
+
 When write mode is eventually enabled, a `dry_run=false` query parameter will activate writes. This parameter is accepted but ignored while writes are disabled.
 
 ---
@@ -283,9 +292,8 @@ The following are deliberate out-of-scope items for this pass:
 
 1. Run the stub endpoint against real sessions and review candidate output quality
 2. Adjust confidence thresholds and trigger phrases based on actual output
-3. Add diagnostics UI/API views over synthesis records
-4. Wire automatic post-session trigger through the initiative scheduler
-5. Enable write mode behind `inference_enabled=True` after LLM extraction is validated
+3. Wire automatic post-session trigger through the initiative scheduler
+4. Enable write mode behind `inference_enabled=True` after LLM extraction is validated
 
 ## Validation Harness
 

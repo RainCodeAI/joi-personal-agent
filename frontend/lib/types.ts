@@ -381,3 +381,64 @@ export type UserModelPromptPreview = {
   prompt_block: string;
   line_count: number;
 };
+
+export type SynthesisMethod = "pattern" | "llm";
+
+export type SynthesisCandidate = {
+  candidate_id: string;
+  section_key: string;
+  label: string;
+  value: string;
+  confidence: number;
+  inference_method: SynthesisMethod | string;
+  trigger_phrase: string;
+  source_excerpt: string;
+  source_message_role: string;
+  source_message_index: number;
+  blocked_by_correction: boolean;
+  duplicate_of_existing: boolean;
+};
+
+export type SynthesisRecord = {
+  id: string;
+  run_id: string;
+  user_id: string;
+  session_id: string;
+  candidate_id: string;
+  section_key: string;
+  label: string;
+  method: SynthesisMethod;
+  evidence_excerpt: string;
+  confidence: number;
+  status: "dry_run" | "skipped" | "written";
+  skipped: boolean;
+  skipped_reason: string;
+  written: boolean;
+  dry_run: boolean;
+  source_message_role: string;
+  source_message_index: number;
+  created_at: string;
+};
+
+export type SynthesisResponse = {
+  api_version: "v2";
+  session_id: string;
+  user_id: string;
+  method: SynthesisMethod;
+  dry_run: boolean;
+  writes_enabled: boolean;
+  candidates: SynthesisCandidate[];
+  audit_records: SynthesisRecord[];
+  provider: ProviderInfo;
+  written_count: number;
+  skipped_count: number;
+  message_count: number;
+  analysed_at: string;
+};
+
+export type SynthesisRecordListResponse = {
+  api_version: "v2";
+  user_id?: string | null;
+  session_id?: string | null;
+  records: SynthesisRecord[];
+};

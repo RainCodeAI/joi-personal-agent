@@ -16,6 +16,9 @@ import {
   RealtimeEvent,
   Session,
   SnapshotAnalysis,
+  SynthesisMethod,
+  SynthesisRecordListResponse,
+  SynthesisResponse,
   UserModelCorrectionRequest,
   UserModelCorrectionResponse,
   UserModelPromptPreview,
@@ -330,6 +333,30 @@ export async function postUserModelCorrection(
 export async function fetchUserModelPromptPreview(userId = "default") {
   const params = new URLSearchParams({ user_id: userId });
   return apiFetch<UserModelPromptPreview>(`/api/v2/user-model/prompt-preview?${params}`);
+}
+
+export async function runUserModelSynthesis(
+  sessionId: string,
+  method: SynthesisMethod,
+  userId = "default",
+) {
+  const params = new URLSearchParams({ session_id: sessionId, user_id: userId, method });
+  return apiFetch<SynthesisResponse>(`/api/v2/user-model/synthesize?${params}`, {
+    method: "POST",
+  });
+}
+
+export async function fetchSynthesisRecords(
+  payload: { userId?: string; sessionId?: string; limit?: number } = {},
+) {
+  const params = new URLSearchParams({
+    user_id: payload.userId ?? "default",
+    limit: String(payload.limit ?? 25),
+  });
+  if (payload.sessionId?.trim()) {
+    params.set("session_id", payload.sessionId.trim());
+  }
+  return apiFetch<SynthesisRecordListResponse>(`/api/v2/user-model/synthesis-records?${params}`);
 }
 
 export type SettingsShape = {
