@@ -602,6 +602,113 @@ def test_v2_desktop_actions_execute_and_audit(monkeypatch):
     audit_path.unlink(missing_ok=True)
 
 
+def test_desktop_action_broker_blocks_unsupported_actions_and_audits():
+    audit_path = _test_audit_path("test_desktop_actions_unsupported.jsonl")
+    broker = DesktopActionBroker(
+        audit_path=audit_path,
+        browser_open=lambda url: True,
+        notifier=lambda title, message: None,
+    )
+
+    result = broker.execute(
+        "open_app",
+        {"app": "calc.exe"},
+        confirmed=True,
+        session_id="session-chat",
+        source="test",
+    )
+
+    assert result.status == "blocked"
+    assert "not allowlisted" in result.summary
+    assert result.result == {}
+    audit_record = json.loads(audit_path.read_text(encoding="utf-8"))
+    assert audit_record["action"] == "open_app"
+    assert audit_record["status"] == "blocked"
+    assert audit_record["confirmed"] is True
+    assert audit_record["session_id"] == "session-chat"
+    assert audit_record["source"] == "test"
+    assert audit_record["args"] == {"app": "calc.exe"}
+    audit_path.unlink(missing_ok=True)
+
+
+def test_desktop_action_broker_open_url_rejects_relative_and_javascript_urls():
+    opened_urls = []
+    audit_path = _test_audit_path("test_desktop_actions_url_edges.jsonl")
+    broker = DesktopActionBroker(
+        audit_path=audit_path,
+        browser_open=lambda url: opened_urls.append(url) or True,
+        notifier=lambda title, message: None,
+    )
+
+    relative = broker.execute("open_url", {"url": "example.com"}, confirmed=True)
+    javascript = broker.execute("open_url", {"url": "javascript:alert(1)"}, confirmed=True)
+
+    assert relative.status == "blocked"
+    assert javascript.status == "blocked"
+    assert opened_urls == []
+    audit_records = [json.loads(line) for line in audit_path.read_text(encoding="utf-8").splitlines()]
+    assert [record["status"] for record in audit_records] == ["blocked", "blocked"]
+    assert all("http/https" in record["error"] for record in audit_records)
+    audit_path.unlink(missing_ok=True)
+
+
+def test_desktop_action_broker_sanitizes_audit_args_and_notification_text():
+    notifications = []
+    audit_path = _test_audit_path("test_desktop_actions_sanitized.jsonl")
+    broker = DesktopActionBroker(
+        audit_path=audit_path,
+        browser_open=lambda url: True,
+        notifier=lambda title, message: notifications.append((title, message)),
+    )
+
+    result = broker.execute(
+        "show_notification",
+        {
+            "title": "T" * 200,
+            "message": "M" * 700,
+            "metadata": {"nested": "value"},
+        },
+        confirmed=True,
+    )
+
+    assert result.status == "success"
+    assert notifications == [("T" * 120, "M" * 500)]
+    audit_record = json.loads(audit_path.read_text(encoding="utf-8"))
+    assert len(audit_record["args"]["title"]) == 200
+    assert len(audit_record["args"]["message"]) == 500
+    assert audit_record["args"]["metadata"] == "{'nested': 'value'}"
+    assert audit_record["result"]["title"] == "T" * 120
+    assert audit_record["result"]["message"] == "M" * 500
+    audit_path.unlink(missing_ok=True)
+
+
+def test_desktop_action_broker_records_notifier_errors_without_leaking_to_success():
+    audit_path = _test_audit_path("test_desktop_actions_notifier_error.jsonl")
+
+    def failing_notifier(title, message):
+        raise RuntimeError("notification backend unavailable")
+
+    broker = DesktopActionBroker(
+        audit_path=audit_path,
+        browser_open=lambda url: True,
+        notifier=failing_notifier,
+    )
+
+    result = broker.execute(
+        "show_notification",
+        {"title": "Joi", "message": "Phase 4 test"},
+        confirmed=True,
+    )
+
+    assert result.status == "error"
+    assert "notification backend unavailable" in result.summary
+    audit_record = json.loads(audit_path.read_text(encoding="utf-8"))
+    assert audit_record["status"] == "error"
+    assert audit_record["action"] == "show_notification"
+    assert audit_record["args"] == {"message": "Phase 4 test", "title": "Joi"}
+    audit_path.unlink(missing_ok=True)
+
+
 def test_v2_media_session_contract(monkeypatch):
     class FakeMediaSessions:
         def __init__(self):
