@@ -21,8 +21,10 @@ class OAuthStartResponse(BaseModel):
     state: str = ""
 
 class OAuthCallbackResponse(BaseModel):
-    code: str
+    code: str = ""
     state: str = ""
+    success: bool = False
+    message: str = ""
     # Optional: error if auth fails
     error: str = None
 

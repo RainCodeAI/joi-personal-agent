@@ -5,6 +5,7 @@ from app.api.perception_policy import PerceptionPolicyStore
 from app.api.realtime import RealtimeEventBus
 from app.api.runtime_settings import RuntimeSettingsStore
 from app.avatar.life_state import LifeStateEngine
+from app.desktop_actions import DesktopActionBroker
 from app.initiative.service import InitiativeService
 from app.initiative.scheduler import InitiativeScheduler
 from app.memory.store import MemoryStore
@@ -17,6 +18,7 @@ memory_store = MemoryStore()
 agent = Agent(memory_store=memory_store)
 approval_manager = ToolApprovalManager()
 runtime_settings = RuntimeSettingsStore()
+desktop_action_broker = DesktopActionBroker()
 perception_policy = PerceptionPolicyStore()
 event_bus = RealtimeEventBus()
 media_sessions = MediaSessionStore()

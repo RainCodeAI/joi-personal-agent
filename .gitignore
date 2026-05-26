@@ -39,6 +39,17 @@ frontend/.next/
 # Pytest
 .pytest_cache/
 
+# Runtime data
+data/*.db
+data/index/
+data/vault/
+data/perception_policy.json
+data/runtime_settings.json
+data/desktop_shell.json
+data/initiative_state.json
+data/user_model_corrections.json
+frontend/tsconfig.tsbuildinfo
+
 # IDEs
 .idea/
 .vscode/
@@ -53,4 +64,5 @@ Thumbs.db
 data/agent_traces.jsonl
 data/router_logs.jsonl
 data/action_ledger.jsonl
+data/desktop_action_audit.jsonl
 data/user_model_synthesis_records.json

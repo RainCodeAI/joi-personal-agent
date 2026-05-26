@@ -1,6 +1,6 @@
 import type { RefObject } from "react";
 
-import type { AvatarSyncPayload, LifeStateName } from "@/lib/types";
+import type { AvatarSyncPayload, LifeStateName, PerceptionState } from "@/lib/types";
 import type { AvatarAssetKind } from "./avatar-constants";
 
 export type AvatarModelProps = {
@@ -12,6 +12,7 @@ export type AvatarModelProps = {
   assetKind: AvatarAssetKind;
   compact?: boolean;
   lifeState?: LifeStateName;
+  perceptionState?: PerceptionState | null;
 };
 
 export type AvatarSceneProps = AvatarModelProps;
@@ -23,6 +24,7 @@ export type AvatarRendererProps = {
   playing: boolean;
   compact?: boolean;
   lifeState?: LifeStateName;
+  perceptionState?: PerceptionState | null;
 };
 
 export type AvatarLoadState = "loading" | "ready" | "fallback" | "error";

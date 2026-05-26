@@ -96,6 +96,7 @@ export function HologramScene({
   assetKind,
   compact,
   lifeState,
+  perceptionState,
 }: AvatarSceneProps) {
   const ringRef = useRef<THREE.Group>(null);
   const haloMatRef = useRef<THREE.MeshBasicMaterial>(null);
@@ -181,6 +182,7 @@ export function HologramScene({
         audioRef={audioRef}
         assetKind={assetKind}
         lifeState={lifeState}
+        perceptionState={perceptionState}
       />
 
       <AvatarPostEffects assetKind={assetKind} />

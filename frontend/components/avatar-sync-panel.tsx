@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import { createPortal } from "react-dom";
 
-import { AvatarCue, AvatarSyncPayload, LifeStateName } from "@/lib/types";
+import { AvatarCue, AvatarSyncPayload, LifeStateName, PerceptionState } from "@/lib/types";
 import type { VrmAuditOutput } from "@/components/avatar/avatar-audit";
 
 const AvatarRenderer = dynamic(
@@ -18,6 +18,7 @@ type AvatarSyncPanelProps = {
   loading: boolean;
   compact?: boolean;
   perceptionExpression?: string | null;
+  perceptionState?: PerceptionState | null;
   lifeState?: LifeStateName;
   onToggleCompact?: () => void;
   onPlaybackStateChange?: (state: {
@@ -32,6 +33,7 @@ export function AvatarSyncPanel({
   loading,
   compact = false,
   perceptionExpression,
+  perceptionState,
   lifeState,
   onToggleCompact,
   onPlaybackStateChange,
@@ -152,6 +154,7 @@ export function AvatarSyncPanel({
             playing={playing}
             compact={compact}
             lifeState={lifeState}
+            perceptionState={perceptionState}
           />
           <div className="avatar-badges-overlay">
             <span className="badge avatar-badge">{cue?.voice_hint ?? "default"}</span>

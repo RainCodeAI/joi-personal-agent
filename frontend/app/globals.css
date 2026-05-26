@@ -741,6 +741,13 @@ textarea {
   align-items: flex-start;
 }
 
+.approval-badges {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
 .approval-card-kicker {
   display: block;
   margin-bottom: 6px;
@@ -1147,6 +1154,61 @@ textarea {
   background: rgba(127, 29, 29, 0.22);
   border: 1px solid rgba(248, 113, 113, 0.24);
   color: #fecaca;
+}
+
+.desktop-action-panel {
+  display: grid;
+  gap: 14px;
+}
+
+.desktop-action-form {
+  display: grid;
+  gap: 8px;
+}
+
+.desktop-action-form label {
+  color: var(--muted);
+  font-size: 0.76rem;
+  text-transform: uppercase;
+}
+
+.desktop-action-inline {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.desktop-action-textarea {
+  min-height: 76px;
+}
+
+.desktop-action-review {
+  margin-top: 2px;
+}
+
+.desktop-action-result {
+  padding: 10px 12px;
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  border-radius: 12px;
+  background: rgba(10, 16, 28, 0.46);
+}
+
+.desktop-action-result strong {
+  display: block;
+  color: var(--success);
+  font-size: 0.76rem;
+  text-transform: uppercase;
+}
+
+.desktop-action-result p {
+  margin: 6px 0 0;
+  color: rgba(218, 231, 248, 0.78);
+  font-size: 0.88rem;
+}
+
+.desktop-action-result.blocked strong,
+.desktop-action-result.error strong {
+  color: var(--amber);
 }
 
 /* ── Collapsed nav group ──────────────────────────────────────────────────── */

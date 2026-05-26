@@ -6,7 +6,7 @@ services:
       POSTGRES_USER: joi
       POSTGRES_PASSWORD: ${DB_PASSWORD:-joi_local}
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -21,7 +21,7 @@ services:
       context: .
       dockerfile: Dockerfile
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
     environment:
       DATABASE_URL: postgresql+asyncpg://joi:${DB_PASSWORD:-joi_local}@db:5432/joi
       DB_PATH: /app/data/joi_v1.db
@@ -31,6 +31,7 @@ services:
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       XAI_API_KEY: ${XAI_API_KEY:-}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      JOI_API_TOKEN: ${JOI_API_TOKEN:?Set JOI_API_TOKEN before starting Joi}
       AIRGAP: ${AIRGAP:-false}
       APP_ENV: ${APP_ENV:-production}
     volumes:
@@ -52,11 +53,14 @@ services:
       dockerfile: Dockerfile
       args:
         NEXT_PUBLIC_API_BASE_URL: http://localhost:8000
+        NEXT_PUBLIC_JOI_API_TOKEN: ${JOI_API_TOKEN:?Set JOI_API_TOKEN before starting Joi}
     ports:
-      - "3000:3000"
+      - "127.0.0.1:3000:3000"
     environment:
       # Server-side fetches go directly to the api container over the compose network
       API_BASE_URL: http://api:8000
+      JOI_API_TOKEN: ${JOI_API_TOKEN:?Set JOI_API_TOKEN before starting Joi}
+      NEXT_PUBLIC_JOI_API_TOKEN: ${JOI_API_TOKEN:?Set JOI_API_TOKEN before starting Joi}
       NODE_ENV: production
     depends_on:
       api:

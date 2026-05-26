@@ -9,7 +9,12 @@ class Settings(BaseSettings):
     db_path: str = Field(default="./data/joi_v1.db")
     chroma_path: str = Field(default="./data/index", validation_alias="AGENT_CHROMA_PATH")
     chroma_collection: str = Field(default="memories", validation_alias="AGENT_CHROMA_COLLECTION")
+    chroma_server_host: str = Field(default="")
+    chroma_server_port: int = Field(default=8001)
     airgap: bool = Field(default=False)
+    cors_allowed_origins: str = Field(
+        default="http://localhost:3000,http://localhost:3001,http://localhost:8501"
+    )
     google_client_id: str = Field(default="")
     google_client_secret: str = Field(default="")
     oauth_redirect_uri: str = Field(default="http://localhost:8000/oauth/callback")
@@ -20,6 +25,8 @@ class Settings(BaseSettings):
     openai_api_key: str = Field(default="")
     xai_api_key: str = Field(default="")
     gemini_api_key: str = Field(default="")
+    joi_api_token: str = Field(default="")
+    vault_passphrase: str = Field(default="")
     router_timeout: int = Field(default=30)
     autonomy_level: str = Field(default="medium")  # low, medium, high
     enable_proactive_messaging: bool = Field(default=True)
@@ -46,6 +53,10 @@ class Settings(BaseSettings):
     mqtt_client_id: str = Field(default="joi-pc-runtime")
     mqtt_topic_prefix: str = Field(default="joi")
     mqtt_node_id: str = Field(default="desk")
+    file_ingest_roots: str = Field(default="./data/ingest")
+    file_ingest_max_files: int = Field(default=500)
+    file_ingest_max_file_bytes: int = Field(default=1_000_000)
+    file_ingest_max_depth: int = Field(default=6)
     # Phase 11: GGUF local model
     gguf_model_path: str = Field(default="")  # Path to .gguf file
     gguf_n_ctx: int = Field(default=2048)

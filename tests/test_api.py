@@ -1,6 +1,7 @@
 import asyncio
 import json
 from datetime import datetime
+from pathlib import Path
 from types import SimpleNamespace
 
 from fastapi.testclient import TestClient
@@ -16,9 +17,16 @@ from app.hardware.bridge import HardwareBridgeStore
 from app.hardware import mqtt_bridge as mqtt_bridge_module
 from app.orchestrator.security.approval import ApprovalStatus, PendingApproval
 from app.user_model.store import UserModelCorrectionStore
+from app.desktop_actions import DesktopActionBroker
 
 
 client = TestClient(app)
+
+
+def _test_audit_path(name: str) -> Path:
+    path = Path("data") / name
+    path.unlink(missing_ok=True)
+    return path
 
 
 def test_health(monkeypatch):
@@ -284,6 +292,7 @@ def test_v2_chat_contract(monkeypatch):
     assert body["avatar"]["expression"] == "clingy"
     assert body["avatar"]["voice_hint"] == "whisper"
     assert body["pending_approvals"][0]["tool_name"] == "send_email"
+    assert body["pending_approvals"][0]["local_only"] is True
     event_names = [event["event"] for event in published_events]
     assert [name for name in event_names if name != "avatar.life_state_changed"] == [
         "message.received",
@@ -473,12 +482,124 @@ def test_v2_approve_action(monkeypatch):
         },
     )
 
-    response = client.post("/api/v2/approvals/approval-2/approve")
+    response = client.post(
+        "/api/v2/approvals/approval-2/approve",
+        json={"confirmed": True, "client_surface": "web"},
+    )
 
     assert response.status_code == 200
     body = response.json()
     assert body["approval"]["status"] == "approved"
     assert body["tool_result"]["result"]["status"] == "Email sent"
+
+
+def test_v2_approval_decision_requires_explicit_confirmation():
+    response = client.post("/api/v2/approvals/approval-2/approve")
+
+    assert response.status_code == 422
+
+
+def test_v2_desktop_open_url_requires_confirmation(monkeypatch):
+    opened_urls = []
+    audit_path = _test_audit_path("test_desktop_actions_confirmation.jsonl")
+    broker = DesktopActionBroker(
+        audit_path=audit_path,
+        browser_open=lambda url: opened_urls.append(url) or True,
+        notifier=lambda title, message: None,
+    )
+    monkeypatch.setattr(api_v2, "desktop_action_broker", broker)
+
+    response = client.post(
+        "/api/v2/desktop/actions",
+        json={
+            "session_id": "session-chat",
+            "action": "open_url",
+            "args": {"url": "https://example.com"},
+        },
+    )
+
+    assert response.status_code == 400
+    assert "requires explicit confirmation" in response.text
+    assert opened_urls == []
+    audit_path.unlink(missing_ok=True)
+
+
+def test_v2_desktop_open_url_blocks_non_http_urls(monkeypatch):
+    opened_urls = []
+    audit_path = _test_audit_path("test_desktop_actions_blocked_url.jsonl")
+    broker = DesktopActionBroker(
+        audit_path=audit_path,
+        browser_open=lambda url: opened_urls.append(url) or True,
+        notifier=lambda title, message: None,
+    )
+    monkeypatch.setattr(api_v2, "desktop_action_broker", broker)
+
+    response = client.post(
+        "/api/v2/desktop/actions",
+        json={
+            "session_id": "session-chat",
+            "action": "open_url",
+            "confirmed": True,
+            "args": {"url": "file:///C:/Windows/System32/calc.exe"},
+        },
+    )
+
+    assert response.status_code == 400
+    assert "http/https" in response.text
+    assert opened_urls == []
+    audit_path.unlink(missing_ok=True)
+
+
+def test_v2_desktop_actions_execute_and_audit(monkeypatch):
+    opened_urls = []
+    notifications = []
+    published_events = []
+    audit_path = _test_audit_path("test_desktop_actions_success.jsonl")
+    broker = DesktopActionBroker(
+        audit_path=audit_path,
+        browser_open=lambda url: opened_urls.append(url) or True,
+        notifier=lambda title, message: notifications.append((title, message)),
+    )
+
+    async def fake_publish(event, payload, session_id=None, source="system"):
+        published_events.append((event, payload, session_id, source))
+
+    monkeypatch.setattr(api_v2, "desktop_action_broker", broker)
+    monkeypatch.setattr(api_v2.event_bus, "publish", fake_publish)
+
+    response = client.post(
+        "/api/v2/desktop/actions",
+        json={
+            "session_id": "session-chat",
+            "action": "open_url",
+            "confirmed": True,
+            "args": {"url": "https://example.com"},
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["desktop_action"]["status"] == "success"
+    assert opened_urls == ["https://example.com"]
+    assert published_events[-1][0] == "desktop.action.completed"
+
+    response = client.post(
+        "/api/v2/desktop/actions",
+        json={
+            "session_id": "session-chat",
+            "action": "show_notification",
+            "confirmed": True,
+            "args": {"title": "Joi", "message": "Phase 4 test"},
+        },
+    )
+
+    assert response.status_code == 200
+    assert notifications == [("Joi", "Phase 4 test")]
+    audit_lines = audit_path.read_text(encoding="utf-8").splitlines()
+    assert len(audit_lines) == 2
+    assert '"action": "open_url"' in audit_lines[0]
+    assert '"action": "show_notification"' in audit_lines[1]
+    audit_path.unlink(missing_ok=True)
 
 
 def test_v2_media_session_contract(monkeypatch):

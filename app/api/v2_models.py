@@ -52,14 +52,41 @@ class ToolCallResource(BaseModel):
     status: str = "success"
 
 
+class DesktopActionRequest(BaseModel):
+    session_id: Optional[str] = None
+    action: Literal["open_url", "show_notification"]
+    args: Dict[str, Any] = Field(default_factory=dict)
+    confirmed: bool = False
+    source: Literal["web", "native", "api"] = "web"
+
+
+class DesktopActionResultResource(BaseModel):
+    action_id: str
+    action: str
+    status: Literal["success", "blocked", "error"]
+    summary: str
+    result: Dict[str, Any] = Field(default_factory=dict)
+    audit_record: Dict[str, Any] = Field(default_factory=dict)
+
+
+class DesktopActionResponse(V2ResponseBase):
+    desktop_action: DesktopActionResultResource
+
+
 class ApprovalResource(BaseModel):
     id: str
     session_id: Optional[str] = None
     tool_name: str
     args: Dict[str, Any] = Field(default_factory=dict)
+    local_only: bool = True
     status: str
     created_at: str
     resolved_at: Optional[str] = None
+
+
+class ApprovalDecisionRequest(BaseModel):
+    confirmed: bool
+    client_surface: Literal["web"] = "web"
 
 
 class ApprovalListResponse(V2ResponseBase):

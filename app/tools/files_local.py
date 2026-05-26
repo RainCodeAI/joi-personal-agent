@@ -20,13 +20,32 @@ class FileIngester:
             chunks.append(chunk)
         return chunks
 
+    def _allowed_roots(self) -> List[Path]:
+        roots = [
+            Path(raw.strip()).resolve()
+            for raw in settings.file_ingest_roots.split(",")
+            if raw.strip()
+        ]
+        return roots or [Path("./data/ingest").resolve()]
+
+    def _resolve_allowed_path(self, path: str | Path) -> Path:
+        resolved = Path(path).resolve()
+        if not any(resolved == root or root in resolved.parents for root in self._allowed_roots()):
+            raise ValueError(
+                "Path is outside configured FILE_INGEST_ROOTS"
+            )
+        return resolved
+
     def ingest_file(self, file_path: Path):
+        file_path = self._resolve_allowed_path(file_path)
         if not file_path.exists() or not file_path.is_file():
+            return
+        if file_path.stat().st_size > settings.file_ingest_max_file_bytes:
             return
         try:
             with open(file_path, 'r', encoding='utf-8') as f:
                 content = f.read()
-        except:
+        except (OSError, UnicodeDecodeError):
             return  # Skip non-text files
         
         chunks = self.chunk_text(content)
@@ -39,11 +58,26 @@ class FileIngester:
             )
 
     def ingest_directory(self, dir_path: str):
-        path = Path(dir_path)
+        path = self._resolve_allowed_path(dir_path)
+        if not path.exists() or not path.is_dir():
+            raise ValueError("Ingest path is not a directory")
+        root_depth = len(path.parts)
+        ingested = 0
         for root, dirs, files in os.walk(path):
+            current = Path(root)
+            depth = len(current.parts) - root_depth
+            if depth >= settings.file_ingest_max_depth:
+                dirs[:] = []
+            dirs[:] = [
+                d for d in dirs
+                if d not in {".git", ".hg", ".svn", "node_modules", ".venv", "venv", "__pycache__"}
+            ]
             for file in files:
+                if ingested >= settings.file_ingest_max_files:
+                    return
                 file_path = Path(root) / file
                 self.ingest_file(file_path)
+                ingested += 1
 
     def search(self, query: str, k: int = 5) -> List[Dict[str, Any]]:
         query_embedding = self.memory_store.embed_text(query)

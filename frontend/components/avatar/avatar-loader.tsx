@@ -82,7 +82,15 @@ function useVrm(url: string): VRM | null {
   return (gltf.userData.vrm as VRM | undefined) ?? null;
 }
 
-function VrmBust({ expression, deliveryStyle, playing, sync, audioRef, lifeState }: AvatarModelProps) {
+function VrmBust({
+  expression,
+  deliveryStyle,
+  playing,
+  sync,
+  audioRef,
+  lifeState,
+  perceptionState,
+}: AvatarModelProps) {
   const vrm = useVrm(VRM_MODEL_URL);
   const rigRef = useRef<THREE.Group>(null);
   const loggedRef = useRef(false);
@@ -141,6 +149,7 @@ function VrmBust({ expression, deliveryStyle, playing, sync, audioRef, lifeState
       expression,
       motionScale,
       playing,
+      perceptionState,
     });
 
     expressionWeightsRef.current = smoothWeights(
@@ -177,7 +186,7 @@ function VrmBust({ expression, deliveryStyle, playing, sync, audioRef, lifeState
   );
 }
 
-function StaticGlbBust({ deliveryStyle, playing, lifeState }: AvatarModelProps) {
+function StaticGlbBust({ deliveryStyle, playing, lifeState, perceptionState }: AvatarModelProps) {
   const { scene } = useGLTF(GLB_MODEL_URL);
   const model = scene;
   const rigRef = useRef<THREE.Group>(null);
@@ -209,17 +218,19 @@ function StaticGlbBust({ deliveryStyle, playing, lifeState }: AvatarModelProps) 
     const lifeMultiplier = playing ? 1 : (LIFE_STATE_IDLE_MOTION_SCALE[lifeState ?? "calm"] ?? 1);
     const motionScale = baseMotionScale * lifeMultiplier;
     const speakingBoost = playing ? 1.24 : 1;
+    const attentive = perceptionState?.userPresent ? (perceptionState.leanedIn ? 1 : 0.45) : 0;
+    const away = !perceptionState?.userPresent && perceptionState?.lastSignal ? 1 : 0;
     const breathing = Math.sin(elapsed * 0.86) * 0.038 * motionScale;
     const settle = Math.sin(elapsed * 0.26) * 0.024 * motionScale;
 
-    rigRef.current.position.y = GLB_BUST_GROUP_OFFSET.y - 0.22 + breathing;
+    rigRef.current.position.y = GLB_BUST_GROUP_OFFSET.y - 0.22 + breathing + attentive * 0.04 - away * 0.035;
     rigRef.current.position.x =
       GLB_BUST_GROUP_OFFSET.x + Math.sin(elapsed * 0.21) * 0.045 * motionScale;
     rigRef.current.position.z = GLB_BUST_GROUP_OFFSET.z;
     rigRef.current.rotation.y =
-      GLB_Y_ROTATION - 0.08 + Math.sin(elapsed * 0.23) * 0.06 * motionScale;
-    rigRef.current.rotation.x = -0.02 + Math.sin(elapsed * 0.33) * 0.014 * motionScale;
-    rigRef.current.rotation.z = settle;
+      GLB_Y_ROTATION - 0.08 + Math.sin(elapsed * 0.23) * 0.06 * motionScale - away * 0.08;
+    rigRef.current.rotation.x = -0.02 + Math.sin(elapsed * 0.33) * 0.014 * motionScale - attentive * 0.02 + away * 0.025;
+    rigRef.current.rotation.z = settle + attentive * 0.01 - away * 0.03;
 
     const pulse = 1 + Math.sin(elapsed * 0.86) * 0.004 * motionScale;
     const emphasis = 1 + (playing ? Math.sin(elapsed * 3.8) * 0.01 : 0);

@@ -4,6 +4,8 @@ import {
   BackendHealth,
   ChatAttachmentInput,
   ChatResponse,
+  DesktopActionRequest,
+  DesktopActionResponse,
   DiagnosticsResponse,
   MediaSession,
   MediaTranscriptionResponse,
@@ -29,6 +31,7 @@ const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_BASE_URL ||
   process.env.API_BASE_URL ||
   "http://127.0.0.1:8000";
+const API_TOKEN = process.env.NEXT_PUBLIC_JOI_API_TOKEN || process.env.JOI_API_TOKEN || "";
 
 const REQUEST_TIMEOUT_MS = 35_000;
 const RETRY_ATTEMPTS = 3;
@@ -37,6 +40,10 @@ const HEALTH_TIMEOUT_MS = 1_800;
 
 function toUrl(path: string) {
   return `${API_BASE_URL}${path}`;
+}
+
+function authHeaders(): Record<string, string> {
+  return API_TOKEN ? { "X-Joi-Api-Token": API_TOKEN } : {};
 }
 
 function isRetryable(status: number): boolean {
@@ -55,6 +62,7 @@ async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
         ...init,
         headers: {
           "Content-Type": "application/json",
+          ...authHeaders(),
           ...(init?.headers ?? {}),
         },
         cache: "no-store",
@@ -153,15 +161,28 @@ export async function listApprovals(sessionId: string) {
 export async function approveAction(approvalId: string) {
   return apiFetch<{ api_version: "v2"; approval: Approval; tool_result?: unknown }>(
     `/api/v2/approvals/${approvalId}/approve`,
-    { method: "POST" },
+    {
+      method: "POST",
+      body: JSON.stringify({ confirmed: true, client_surface: "web" }),
+    },
   );
 }
 
 export async function denyAction(approvalId: string) {
   return apiFetch<{ api_version: "v2"; approval: Approval }>(
     `/api/v2/approvals/${approvalId}/deny`,
-    { method: "POST" },
+    {
+      method: "POST",
+      body: JSON.stringify({ confirmed: true, client_surface: "web" }),
+    },
   );
+}
+
+export async function runDesktopAction(payload: DesktopActionRequest) {
+  return apiFetch<DesktopActionResponse>("/api/v2/desktop/actions", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
 }
 
 export async function syncAvatar(sessionId: string, text: string) {
@@ -280,6 +301,7 @@ export function postActivityState(
   fetch(toUrl(`/api/v2/initiative/activity?${params}`), {
     method: "POST",
     cache: "no-store",
+    headers: authHeaders(),
   }).catch(() => null);
 }
 
@@ -421,6 +443,8 @@ const SSE_EVENT_NAMES = [
   "initiative.suppressed",
   "initiative.activity",
   "avatar.life_state_changed",
+  "desktop.action.completed",
+  "desktop.action.blocked",
   "heartbeat",
 ] as const;
 
@@ -442,6 +466,9 @@ export function createEventStream(
     const streamUrl = new URL(toUrl("/api/v2/events/stream"));
     streamUrl.searchParams.set("session_id", sessionId);
     streamUrl.searchParams.set("backfill", retries === 0 ? "8" : "0");
+    if (API_TOKEN) {
+      streamUrl.searchParams.set("api_token", API_TOKEN);
+    }
 
     source = new EventSource(streamUrl.toString());
 

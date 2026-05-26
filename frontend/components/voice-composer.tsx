@@ -9,11 +9,16 @@ type VoiceComposerProps = {
   sessionId: string | null;
   mediaSession: MediaSession | null;
   spokenRepliesEnabled: boolean;
+  autoSendVoiceEnabled: boolean;
   onMediaSession: (session: MediaSession) => void;
-  onTranscript: (transcript: string) => void;
+  onTranscript: (transcript: string) => Promise<void> | void;
   onInterruptPlayback: (statusMessage?: string) => Promise<void> | void;
   onToggleSpokenReplies: () => void;
+  onToggleAutoSendVoice: () => void;
 };
+
+const NATIVE_PTT_START_EVENT = "joi:native-ptt-start";
+const NATIVE_PTT_STOP_EVENT = "joi:native-ptt-stop";
 
 function isPushToTalkHotkey(event: KeyboardEvent) {
   return (
@@ -43,10 +48,12 @@ export function VoiceComposer({
   sessionId,
   mediaSession,
   spokenRepliesEnabled,
+  autoSendVoiceEnabled,
   onMediaSession,
   onTranscript,
   onInterruptPlayback,
   onToggleSpokenReplies,
+  onToggleAutoSendVoice,
 }: VoiceComposerProps) {
   const recorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -54,6 +61,7 @@ export function VoiceComposer({
   const startedAtRef = useRef<number>(0);
   const hotkeyActiveRef = useRef(false);
   const pendingStopRef = useRef(false);
+  const cancelRequestedRef = useRef(false);
 
   const [isSupported, setIsSupported] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -90,6 +98,21 @@ export function VoiceComposer({
     recorderRef.current.stop();
   }, []);
 
+  const cancelRecording = useCallback(() => {
+    cancelRequestedRef.current = true;
+    chunksRef.current = [];
+    if (!recorderRef.current || recorderRef.current.state === "inactive") {
+      pendingStopRef.current = false;
+      streamRef.current?.getTracks().forEach((track) => track.stop());
+      streamRef.current = null;
+      recorderRef.current = null;
+      return;
+    }
+    pendingStopRef.current = false;
+    setBusy(true);
+    recorderRef.current.stop();
+  }, []);
+
   const startRecording = useCallback(async () => {
     if (!sessionId || busy || !isSupported) {
       return;
@@ -97,6 +120,7 @@ export function VoiceComposer({
 
     setError(null);
     pendingStopRef.current = false;
+    cancelRequestedRef.current = false;
     setBusy(true);
 
     try {
@@ -138,6 +162,15 @@ export function VoiceComposer({
         recorderRef.current = null;
 
         try {
+          if (cancelRequestedRef.current) {
+            await syncSession({
+              session_id: sessionId,
+              mic_state: "idle",
+              last_error: "",
+            });
+            return;
+          }
+
           const response = await transcribeAudioBlob(sessionId, blob, durationMs);
           onMediaSession(response.media_session);
           if (response.transcript.trim()) {
@@ -159,6 +192,7 @@ export function VoiceComposer({
           }
         } finally {
           pendingStopRef.current = false;
+          cancelRequestedRef.current = false;
           setBusy(false);
         }
       });
@@ -179,6 +213,7 @@ export function VoiceComposer({
       const message = cause instanceof Error ? cause.message : "Microphone capture failed";
       setError(message);
       pendingStopRef.current = false;
+      cancelRequestedRef.current = false;
       if (sessionId) {
         try {
           await syncSession({
@@ -193,6 +228,14 @@ export function VoiceComposer({
       setBusy(false);
     }
   }, [busy, isSupported, mediaSession?.speaking_state, onInterruptPlayback, sessionId, stopRecording, syncSession]);
+
+  const isRecording = mediaSession?.mic_state === "recording";
+  const isCapturing =
+    mediaSession?.mic_state === "requesting" ||
+    mediaSession?.mic_state === "recording" ||
+    mediaSession?.mic_state === "processing";
+  const canStopSpeaking =
+    mediaSession?.speaking_state === "playing" || mediaSession?.speaking_state === "queued";
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -215,17 +258,55 @@ export function VoiceComposer({
       stopRecording();
     };
 
+    const handleCancelOrInterrupt = (event: KeyboardEvent) => {
+      if (event.code !== "Escape") {
+        return;
+      }
+
+      if (recorderRef.current && recorderRef.current.state !== "inactive") {
+        event.preventDefault();
+        hotkeyActiveRef.current = false;
+        cancelRecording();
+        return;
+      }
+
+      if (canStopSpeaking) {
+        event.preventDefault();
+        void onInterruptPlayback("Voice playback interrupted");
+      }
+    };
+
+    const handleNativeStart = (event: Event) => {
+      event.preventDefault();
+      if (hotkeyActiveRef.current) {
+        return;
+      }
+      hotkeyActiveRef.current = true;
+      void startRecording();
+    };
+
+    const handleNativeStop = (event: Event) => {
+      event.preventDefault();
+      if (!hotkeyActiveRef.current) {
+        return;
+      }
+      hotkeyActiveRef.current = false;
+      stopRecording();
+    };
+
     window.addEventListener("keydown", handleKeyDown);
     window.addEventListener("keyup", handleKeyUp);
+    window.addEventListener("keydown", handleCancelOrInterrupt);
+    window.addEventListener(NATIVE_PTT_START_EVENT, handleNativeStart);
+    window.addEventListener(NATIVE_PTT_STOP_EVENT, handleNativeStop);
     return () => {
       window.removeEventListener("keydown", handleKeyDown);
       window.removeEventListener("keyup", handleKeyUp);
+      window.removeEventListener("keydown", handleCancelOrInterrupt);
+      window.removeEventListener(NATIVE_PTT_START_EVENT, handleNativeStart);
+      window.removeEventListener(NATIVE_PTT_STOP_EVENT, handleNativeStop);
     };
-  }, [startRecording, stopRecording]);
-
-  const isRecording = mediaSession?.mic_state === "recording";
-  const canStopSpeaking =
-    mediaSession?.speaking_state === "playing" || mediaSession?.speaking_state === "queued";
+  }, [canStopSpeaking, cancelRecording, onInterruptPlayback, startRecording, stopRecording]);
 
   async function handleStopSpeaking() {
     if (!sessionId || busy || !canStopSpeaking) {
@@ -252,6 +333,14 @@ export function VoiceComposer({
           >
             Spoken replies {spokenRepliesEnabled ? "on" : "off"}
           </button>
+          <button
+            className={`button ${autoSendVoiceEnabled ? "secondary" : "ghost"} voice-default-toggle`}
+            type="button"
+            aria-pressed={autoSendVoiceEnabled}
+            onClick={onToggleAutoSendVoice}
+          >
+            Voice sends {autoSendVoiceEnabled ? "on" : "off"}
+          </button>
           <span className={`badge ${isRecording ? "warn" : "ok"}`}>
             mic {mediaSession?.mic_state ?? "idle"}
           </span>
@@ -276,6 +365,16 @@ export function VoiceComposer({
             onClick={() => void handleStopSpeaking()}
           >
             Stop speaking
+          </button>
+        ) : null}
+        {isCapturing ? (
+          <button
+            className="button ghost"
+            type="button"
+            disabled={busy && mediaSession?.mic_state !== "recording"}
+            onClick={cancelRecording}
+          >
+            Cancel recording
           </button>
         ) : null}
         {mediaSession?.recognition_latency_ms ? (

@@ -64,6 +64,7 @@ Important backend variables live in `.env`. The frontend defaults to `http://127
 Terminal 1:
 
 ```powershell
+$env:JOI_API_TOKEN="replace-with-a-long-random-token"
 uvicorn app.api.main:app --reload
 ```
 
@@ -71,6 +72,7 @@ Terminal 2:
 
 ```powershell
 cd frontend
+$env:NEXT_PUBLIC_JOI_API_TOKEN=$env:JOI_API_TOKEN
 npm run dev
 ```
 
@@ -93,13 +95,33 @@ Open:
 
 ### Desktop Tray App
 
-The tray app is still wired to the legacy client path during the migration window:
+The native tray launcher starts the local API and Next.js UI, passes the local API token to both processes, and opens Joi in a native desktop shell when both services are ready:
+
+```powershell
+.\StartJoiNative.bat
+```
+
+The desktop shell uses `pywebview` to wrap the existing Next.js UI. If `pywebview` is not installed, Joi falls back to the default browser. Window size, position, always-on-top, and start-minimized preferences are stored in `data/desktop_shell.json`.
+
+When the desktop shell is open, hold `Ctrl+Shift+Space` to record a short voice prompt and release to transcribe it. With `Voice sends` enabled, a clean voice prompt sends automatically; if there is already draft text or an attachment, Joi appends the transcript for review. Press `Esc` to cancel an active recording or interrupt voice playback. The same hotkeys also work while the web UI has focus.
+
+You can also run the tray launcher directly:
 
 ```powershell
 python desktop/tray_app.py
 ```
 
-Or use `StartJoiLegacy.bat` for the legacy internal launcher.
+Open only the desktop shell against an already-running frontend:
+
+```powershell
+python desktop/window_shell.py --url http://localhost:3000
+```
+
+Or use `StartJoiLegacy.bat` only when validating the legacy internal client.
+
+### Safe Desktop Actions
+
+Phase 4 has started with a narrow local desktop action broker. The current allowlist is limited to `open_url` and `show_notification`, both require explicit confirmation through the API, and every attempt is written to `data/desktop_action_audit.jsonl`.
 
 ## Docker
 

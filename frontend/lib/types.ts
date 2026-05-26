@@ -21,6 +21,30 @@ export type ToolCall = {
   status: string;
 };
 
+export type DesktopActionName = "open_url" | "show_notification";
+
+export type DesktopActionRequest = {
+  session_id?: string | null;
+  action: DesktopActionName;
+  args: Record<string, unknown>;
+  confirmed: boolean;
+  source: "web" | "native" | "api";
+};
+
+export type DesktopActionResult = {
+  action_id: string;
+  action: string;
+  status: "success" | "blocked" | "error";
+  summary: string;
+  result: Record<string, unknown>;
+  audit_record: Record<string, unknown>;
+};
+
+export type DesktopActionResponse = {
+  api_version: "v2";
+  desktop_action: DesktopActionResult;
+};
+
 export type ChatAttachment = {
   id: string;
   kind: "image" | "text" | "file";
@@ -45,6 +69,7 @@ export type Approval = {
   session_id?: string | null;
   tool_name: string;
   args: Record<string, unknown>;
+  local_only: boolean;
   status: string;
   created_at: string;
   resolved_at?: string | null;

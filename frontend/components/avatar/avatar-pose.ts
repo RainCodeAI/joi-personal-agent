@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { VRM, VRMExpressionPresetName, VRMHumanBoneName } from "@pixiv/three-vrm";
 
+import type { PerceptionState } from "@/lib/types";
 import { VRM_BUST_GROUP_OFFSET, VRM_Y_ROTATION } from "./avatar-constants";
 import { setExpressionIfAvailable } from "./avatar-expression";
 
@@ -16,12 +17,14 @@ export type IdlePoseState = {
   gestureStartedAt: number | null;
   gestureDuration: number;
   gestureKind: "none" | "softNod" | "weightShift" | "listenTilt";
+  attentionCurrent: THREE.Vector4;
 };
 
 export type PoseFrameInput = {
   motionScale: number;
   playing: boolean;
   expression: string;
+  perceptionState?: PerceptionState | null;
 };
 
 export function createIdlePoseState(): IdlePoseState {
@@ -37,6 +40,7 @@ export function createIdlePoseState(): IdlePoseState {
     gestureStartedAt: null,
     gestureDuration: 0,
     gestureKind: "none",
+    attentionCurrent: new THREE.Vector4(0, 0, 0, 0),
   };
 }
 
@@ -81,6 +85,32 @@ function updateGaze(state: IdlePoseState, elapsed: number, delta: number, playin
   state.gazeCurrent.lerp(state.gazeTarget, t);
 }
 
+function getAttentionTarget(perceptionState?: PerceptionState | null): THREE.Vector4 {
+  if (!perceptionState?.lastSignal) {
+    return new THREE.Vector4(0, 0, 0, 0.15);
+  }
+
+  if (!perceptionState.userPresent || !perceptionState.faceVisible) {
+    return new THREE.Vector4(-0.12, -0.08, -0.72, 0.5);
+  }
+
+  if (perceptionState.leanedIn) {
+    return new THREE.Vector4(0, 0.025, 0.82, 0.78);
+  }
+
+  return new THREE.Vector4(0, 0.005, 0.36, 0.48);
+}
+
+function updateAttention(
+  state: IdlePoseState,
+  delta: number,
+  perceptionState?: PerceptionState | null,
+): void {
+  const target = getAttentionTarget(perceptionState);
+  const t = 1 - Math.exp(-3.6 * delta);
+  state.attentionCurrent.lerp(target, t);
+}
+
 function updateGesture(state: IdlePoseState, elapsed: number): number {
   if (state.gestureStartedAt === null && elapsed >= state.nextGestureAt) {
     const roll = Math.random();
@@ -123,16 +153,27 @@ function applyRelaxedUpperBodyPose(
   motionScale: number,
   gestureAmount: number,
   gestureKind: IdlePoseState["gestureKind"],
+  postureBias: number,
 ): void {
   const armSway = Math.sin(elapsed * 0.62) * 0.018 * motionScale;
   const shoulderSway = Math.sin(elapsed * 0.52) * 0.012 * motionScale;
   const listenTilt = gestureKind === "listenTilt" ? gestureAmount * 0.035 : 0;
   const weightShift = gestureKind === "weightShift" ? gestureAmount * 0.03 : 0;
+  const attentiveLift = Math.max(0, postureBias);
+  const awayDrop = Math.min(0, postureBias);
 
-  setBoneRotation(vrm, VRMHumanBoneName.LeftShoulder, [0.04, 0.04, -0.1 + shoulderSway + weightShift]);
-  setBoneRotation(vrm, VRMHumanBoneName.RightShoulder, [0.04, -0.04, 0.1 - shoulderSway + listenTilt]);
-  setBoneRotation(vrm, VRMHumanBoneName.LeftUpperArm, [0.12, 0.02, -0.96 + armSway]);
-  setBoneRotation(vrm, VRMHumanBoneName.RightUpperArm, [0.12, -0.02, 0.96 - armSway]);
+  setBoneRotation(vrm, VRMHumanBoneName.LeftShoulder, [
+    0.04 - attentiveLift * 0.018 - awayDrop * 0.025,
+    0.04,
+    -0.1 + shoulderSway + weightShift - attentiveLift * 0.018 + awayDrop * 0.02,
+  ]);
+  setBoneRotation(vrm, VRMHumanBoneName.RightShoulder, [
+    0.04 - attentiveLift * 0.018 - awayDrop * 0.025,
+    -0.04,
+    0.1 - shoulderSway + listenTilt + attentiveLift * 0.018 - awayDrop * 0.02,
+  ]);
+  setBoneRotation(vrm, VRMHumanBoneName.LeftUpperArm, [0.12 - attentiveLift * 0.018, 0.02, -0.96 + armSway]);
+  setBoneRotation(vrm, VRMHumanBoneName.RightUpperArm, [0.12 - attentiveLift * 0.018, -0.02, 0.96 - armSway]);
   setBoneRotation(vrm, VRMHumanBoneName.LeftLowerArm, [0.03, 0.02, -0.24 + armSway * 0.5]);
   setBoneRotation(vrm, VRMHumanBoneName.RightLowerArm, [0.03, -0.02, 0.24 - armSway * 0.5]);
   setBoneRotation(vrm, VRMHumanBoneName.LeftHand, [0.02, 0, -0.04]);
@@ -145,23 +186,31 @@ export function updateVrmIdlePose(
   idle: IdlePoseState,
   elapsed: number,
   delta: number,
-  { motionScale, playing, expression }: PoseFrameInput,
+  { motionScale, playing, expression, perceptionState }: PoseFrameInput,
 ): number {
   const blinkWeight = updateBlink(idle, elapsed);
   updateGaze(idle, elapsed, delta, playing);
+  updateAttention(idle, delta, perceptionState);
   const gestureAmount = updateGesture(idle, elapsed);
   const speakingBoost = playing ? 1.025 : 1;
   const concernBias = ["stress", "concern", "negative", "missing"].includes(expression) ? 0.75 : 1;
+  const attentionX = idle.attentionCurrent.x;
+  const attentionY = idle.attentionCurrent.y;
+  const postureBias = idle.attentionCurrent.z;
+  const focus = idle.attentionCurrent.w;
+  const randomGazeScale = THREE.MathUtils.lerp(1, 0.42, focus);
   const breathing = Math.sin(elapsed * 0.78) * 0.03 * motionScale * concernBias;
-  const drift = Math.sin(elapsed * 0.2) * 0.03 * motionScale;
+  const drift = Math.sin(elapsed * 0.2) * 0.03 * motionScale * THREE.MathUtils.lerp(1, 0.55, focus);
   const nod = idle.gestureKind === "softNod" ? gestureAmount * 0.04 : 0;
   const weightShift = idle.gestureKind === "weightShift" ? gestureAmount * 0.018 : 0;
+  const attentiveLift = Math.max(0, postureBias);
+  const awayDrop = Math.min(0, postureBias);
 
-  rig.position.y = VRM_BUST_GROUP_OFFSET.y + 0.02 + breathing;
+  rig.position.y = VRM_BUST_GROUP_OFFSET.y + 0.02 + breathing + attentiveLift * 0.035 + awayDrop * 0.04;
   rig.position.x = VRM_BUST_GROUP_OFFSET.x + drift + weightShift;
   rig.position.z = VRM_BUST_GROUP_OFFSET.z;
-  rig.rotation.y = VRM_Y_ROTATION + Math.sin(elapsed * 0.18) * 0.028 * motionScale;
-  rig.rotation.z = Math.sin(elapsed * 0.28) * 0.01 * motionScale + weightShift * 0.3;
+  rig.rotation.y = VRM_Y_ROTATION + Math.sin(elapsed * 0.18) * 0.028 * motionScale * randomGazeScale + attentionX * 0.2;
+  rig.rotation.z = Math.sin(elapsed * 0.28) * 0.01 * motionScale + weightShift * 0.3 + awayDrop * 0.025;
   rig.scale.setScalar(speakingBoost);
 
   const head = vrm.humanoid.getNormalizedBoneNode(VRMHumanBoneName.Head);
@@ -169,24 +218,31 @@ export function updateVrmIdlePose(
   const chest = vrm.humanoid.getNormalizedBoneNode(VRMHumanBoneName.Chest);
   const leftEye = vrm.humanoid.getNormalizedBoneNode(VRMHumanBoneName.LeftEye);
   const rightEye = vrm.humanoid.getNormalizedBoneNode(VRMHumanBoneName.RightEye);
-  const gazeX = idle.gazeCurrent.x;
-  const gazeY = idle.gazeCurrent.y;
+  const gazeX = idle.gazeCurrent.x * randomGazeScale + attentionX;
+  const gazeY = idle.gazeCurrent.y * randomGazeScale + attentionY;
 
   if (head) {
-    head.rotation.x = -0.045 + gazeY + nod + Math.sin(elapsed * 0.31) * 0.012 * motionScale;
-    head.rotation.y = gazeX + Math.sin(elapsed * 0.23) * 0.038 * motionScale;
+    head.rotation.x =
+      -0.045 + gazeY + nod + Math.sin(elapsed * 0.31) * 0.012 * motionScale * randomGazeScale -
+      attentiveLift * 0.035 -
+      awayDrop * 0.04;
+    head.rotation.y = gazeX + Math.sin(elapsed * 0.23) * 0.038 * motionScale * randomGazeScale;
     head.rotation.z =
-      Math.sin(elapsed * 0.2) * 0.019 * motionScale +
-      (idle.gestureKind === "listenTilt" ? gestureAmount * 0.05 : 0);
+      Math.sin(elapsed * 0.2) * 0.019 * motionScale * randomGazeScale +
+      (idle.gestureKind === "listenTilt" ? gestureAmount * 0.05 : 0) +
+      awayDrop * 0.035;
   }
 
   if (neck) {
-    neck.rotation.x = -0.018 + gazeY * 0.32 + Math.sin(elapsed * 0.29) * 0.007 * motionScale;
-    neck.rotation.y = gazeX * 0.42 + Math.sin(elapsed * 0.22) * 0.02 * motionScale;
+    neck.rotation.x =
+      -0.018 + gazeY * 0.32 + Math.sin(elapsed * 0.29) * 0.007 * motionScale * randomGazeScale -
+      attentiveLift * 0.015 -
+      awayDrop * 0.025;
+    neck.rotation.y = gazeX * 0.42 + Math.sin(elapsed * 0.22) * 0.02 * motionScale * randomGazeScale;
   }
 
   if (chest) {
-    chest.rotation.x = Math.sin(elapsed * 0.78) * 0.011 * motionScale;
+    chest.rotation.x = Math.sin(elapsed * 0.78) * 0.011 * motionScale - attentiveLift * 0.018 - awayDrop * 0.025;
     chest.rotation.z = Math.sin(elapsed * 0.24) * 0.008 * motionScale + weightShift * 0.28;
   }
 
@@ -200,7 +256,7 @@ export function updateVrmIdlePose(
     rightEye.rotation.y = gazeX * 1.15;
   }
 
-  applyRelaxedUpperBodyPose(vrm, elapsed, motionScale, gestureAmount, idle.gestureKind);
+  applyRelaxedUpperBodyPose(vrm, elapsed, motionScale, gestureAmount, idle.gestureKind, postureBias);
   setExpressionIfAvailable(vrm, VRMExpressionPresetName.Blink, blinkWeight);
 
   return blinkWeight;

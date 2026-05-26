@@ -37,6 +37,7 @@ openai-whisper
 pystray
 keyboard
 win10toast
+pywebview
 pyinstaller
 # Phase 11: GGUF Optimization
 llama-cpp-python

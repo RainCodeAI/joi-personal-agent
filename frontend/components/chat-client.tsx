@@ -17,6 +17,7 @@ import {
   listMessages,
   patchMediaSession,
   postActivityState,
+  runDesktopAction,
   sendChatMessageWithAttachments,
   syncAvatar,
 } from "@/lib/api";
@@ -28,6 +29,8 @@ import {
   ChatAttachment,
   ChatAttachmentInput,
   ChatResponse,
+  DesktopActionName,
+  DesktopActionResult,
   LifeStateName,
   MediaSession,
   Message,
@@ -40,6 +43,7 @@ import {
 
 const SESSION_STORAGE_KEY = "joi-v2-session";
 const SPOKEN_REPLIES_STORAGE_KEY = "joi-v2-spoken-replies";
+const AUTO_SEND_VOICE_STORAGE_KEY = "joi-v2-auto-send-voice";
 
 type ChatClientProps = {
   initialSessionId?: string | null;
@@ -69,6 +73,11 @@ type ApprovalPresentation = {
   riskTone: "ok" | "warn";
   fields: ApprovalField[];
   preview?: string;
+};
+
+type DesktopActionDraft = {
+  action: DesktopActionName;
+  args: Record<string, unknown>;
 };
 
 const RUNTIME_READINESS_KEYS = [
@@ -290,6 +299,14 @@ function toAttachmentResource(draft: AttachmentDraft): ChatAttachment {
   };
 }
 
+function mergePendingApprovals(current: Approval[], incoming: Approval[]): Approval[] {
+  const byId = new Map(current.map((approval) => [approval.id, approval]));
+  for (const approval of incoming) {
+    byId.set(approval.id, approval);
+  }
+  return Array.from(byId.values()).filter((approval) => approval.status === "pending");
+}
+
 export function ChatClient({ initialSessionId }: ChatClientProps) {
   const [sessionId, setSessionId] = useState<string | null>(initialSessionId ?? null);
   const sessionIdRef = useRef<string | null>(initialSessionId ?? null);
@@ -297,6 +314,12 @@ export function ChatClient({ initialSessionId }: ChatClientProps) {
   const [events, setEvents] = useState<RealtimeEvent[]>([]);
   const [approvals, setApprovals] = useState<Approval[]>([]);
   const [selectedApprovalId, setSelectedApprovalId] = useState<string | null>(null);
+  const [desktopUrlDraft, setDesktopUrlDraft] = useState("https://example.com");
+  const [desktopNotificationTitle, setDesktopNotificationTitle] = useState("Joi");
+  const [desktopNotificationMessage, setDesktopNotificationMessage] = useState("Joi is running locally.");
+  const [pendingDesktopAction, setPendingDesktopAction] = useState<DesktopActionDraft | null>(null);
+  const [desktopActionResult, setDesktopActionResult] = useState<DesktopActionResult | null>(null);
+  const [desktopActionBusy, setDesktopActionBusy] = useState(false);
   const [draft, setDraft] = useState("");
   const [attachments, setAttachments] = useState<AttachmentDraft[]>([]);
   const [status, setStatus] = useState("Checking backend");
@@ -311,6 +334,7 @@ export function ChatClient({ initialSessionId }: ChatClientProps) {
   const [mediaSession, setMediaSession] = useState<MediaSession | null>(null);
   const [spokenRepliesEnabled, setSpokenRepliesEnabled] = useState(true);
   const spokenRepliesEnabledRef = useRef(true);
+  const [autoSendVoiceEnabled, setAutoSendVoiceEnabled] = useState(true);
   const [avatarSyncLoading, setAvatarSyncLoading] = useState(false);
   const [isSending, setIsSending] = useState(false);
   const [perceptionState, setPerceptionState] = useState<PerceptionState>({
@@ -440,6 +464,10 @@ export function ChatClient({ initialSessionId }: ChatClientProps) {
     if (stored === "off") {
       setSpokenRepliesEnabled(false);
     }
+    const storedAutoSend = window.localStorage.getItem(AUTO_SEND_VOICE_STORAGE_KEY);
+    if (storedAutoSend === "off") {
+      setAutoSendVoiceEnabled(false);
+    }
   }, []);
 
   useEffect(() => {
@@ -453,6 +481,17 @@ export function ChatClient({ initialSessionId }: ChatClientProps) {
     );
     spokenRepliesEnabledRef.current = spokenRepliesEnabled;
   }, [spokenRepliesEnabled]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    window.localStorage.setItem(
+      AUTO_SEND_VOICE_STORAGE_KEY,
+      autoSendVoiceEnabled ? "on" : "off",
+    );
+  }, [autoSendVoiceEnabled]);
 
   // Keep ref in sync so stable callbacks (handlePerceptionSignal) always read the current sessionId.
   useEffect(() => {
@@ -643,6 +682,13 @@ export function ChatClient({ initialSessionId }: ChatClientProps) {
           }
         }
       }
+
+      if (event.event === "desktop.action.completed" || event.event === "desktop.action.blocked") {
+        const payload = event.payload.desktop_action as DesktopActionResult | undefined;
+        if (payload) {
+          setDesktopActionResult(payload);
+        }
+      }
     });
 
     return () => {
@@ -711,9 +757,30 @@ export function ChatClient({ initialSessionId }: ChatClientProps) {
     }
   }
 
-  function handleVoiceTranscript(transcript: string) {
-    setDraft((current) => (current.trim() ? `${current.trim()} ${transcript}` : transcript));
-    setStatus("Voice transcript appended to draft");
+  async function handleVoiceTranscript(transcript: string) {
+    const cleanedTranscript = transcript.trim();
+    if (!cleanedTranscript) {
+      return;
+    }
+
+    if (
+      autoSendVoiceEnabled &&
+      sessionId &&
+      !isSending &&
+      !draft.trim() &&
+      attachments.length === 0
+    ) {
+      setStatus("Sending voice message");
+      await submitChatMessage(cleanedTranscript, []);
+      return;
+    }
+
+    setDraft((current) => (current.trim() ? `${current.trim()} ${cleanedTranscript}` : cleanedTranscript));
+    setStatus(
+      autoSendVoiceEnabled && (draft.trim() || attachments.length > 0)
+        ? "Voice transcript appended for review"
+        : "Voice transcript appended to draft",
+    );
   }
 
   async function handleInterruptPlayback(statusMessage = "Voice playback interrupted") {
@@ -749,20 +816,28 @@ export function ChatClient({ initialSessionId }: ChatClientProps) {
     setStatus("Spoken replies enabled");
   }
 
-  async function onSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!sessionId || isSending || (!draft.trim() && attachments.length === 0)) {
+  function handleAutoSendVoiceToggle() {
+    const nextEnabled = !autoSendVoiceEnabled;
+    setAutoSendVoiceEnabled(nextEnabled);
+    setStatus(nextEnabled ? "Voice auto-send enabled" : "Voice auto-send disabled");
+  }
+
+  async function submitChatMessage(
+    text: string,
+    attachmentDrafts: AttachmentDraft[],
+  ) {
+    if (!sessionId || isSending || (!text.trim() && attachmentDrafts.length === 0)) {
       return;
     }
 
-    const text = draft.trim();
+    const cleanedText = text.trim();
     const optimisticUser: DisplayMessage = {
       id: Date.now(),
       session_id: sessionId,
       role: "user",
-      content: text || (attachments.length === 1 ? `Shared attachment: ${attachments[0].name}` : `Shared ${attachments.length} attachments`),
+      content: cleanedText || (attachmentDrafts.length === 1 ? `Shared attachment: ${attachmentDrafts[0].name}` : `Shared ${attachmentDrafts.length} attachments`),
       timestamp: new Date().toISOString(),
-      attachments: attachments.map(toAttachmentResource),
+      attachments: attachmentDrafts.map(toAttachmentResource),
     };
 
     startTransition(() => {
@@ -776,12 +851,12 @@ export function ChatClient({ initialSessionId }: ChatClientProps) {
     try {
       const response: ChatResponse = await sendChatMessageWithAttachments(
         sessionId,
-        text,
-        attachments.map(({ preview_url, preview_text, ...attachment }) => attachment),
+        cleanedText,
+        attachmentDrafts.map(({ preview_url, preview_text, ...attachment }) => attachment),
       );
 
       setProvider(response.provider.selected || "router");
-      setApprovals(response.pending_approvals);
+      setApprovals((current) => mergePendingApprovals(current, response.pending_approvals));
       startTransition(() => {
         setMessages((current) => [
           ...current.filter((message) => message.id !== optimisticUser.id),
@@ -789,7 +864,7 @@ export function ChatClient({ initialSessionId }: ChatClientProps) {
           response.assistant_message,
         ]);
       });
-      setAttachments([]);
+      setAttachments((current) => (current === attachmentDrafts ? [] : current));
       setStreamingText("");
       setStatus(response.pending_approvals.length ? "Awaiting approval" : "Response complete");
       await handleAvatarSync(
@@ -807,19 +882,63 @@ export function ChatClient({ initialSessionId }: ChatClientProps) {
     }
   }
 
+  async function onSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    await submitChatMessage(draft, attachments);
+  }
+
   async function handleApprovalAction(approvalId: string, decision: "approve" | "deny") {
     setStatus(`${decision === "approve" ? "Approving" : "Denying"} action`);
     try {
       if (decision === "approve") {
-        await approveAction(approvalId);
+        const response = await approveAction(approvalId);
+        const toolResult = response.tool_result as { status?: string; result?: { status?: string } } | undefined;
+        const resultStatus = toolResult?.result?.status ?? toolResult?.status;
+        if (resultStatus) {
+          setStatus(`Approval approved: ${resultStatus}`);
+        }
       } else {
         await denyAction(approvalId);
       }
       setApprovals((current) => current.filter((approval) => approval.id !== approvalId));
       setSelectedApprovalId((current) => (current === approvalId ? null : current));
-      setStatus(`Approval ${decision}d`);
+      if (decision === "deny") {
+        setStatus("Approval denied");
+      }
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Approval action failed");
+    }
+  }
+
+  function stageDesktopAction(action: DesktopActionName, args: Record<string, unknown>) {
+    setPendingDesktopAction({ action, args });
+    setDesktopActionResult(null);
+    setStatus(`Review ${humanizeKey(action).toLowerCase()} action`);
+  }
+
+  async function executePendingDesktopAction() {
+    if (!pendingDesktopAction || desktopActionBusy) {
+      return;
+    }
+
+    setDesktopActionBusy(true);
+    setDesktopActionResult(null);
+    setStatus(`Running ${humanizeKey(pendingDesktopAction.action).toLowerCase()}`);
+    try {
+      const response = await runDesktopAction({
+        session_id: sessionId,
+        action: pendingDesktopAction.action,
+        args: pendingDesktopAction.args,
+        confirmed: true,
+        source: "web",
+      });
+      setDesktopActionResult(response.desktop_action);
+      setPendingDesktopAction(null);
+      setStatus(response.desktop_action.summary);
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Desktop action failed");
+    } finally {
+      setDesktopActionBusy(false);
     }
   }
 
@@ -948,10 +1067,12 @@ export function ChatClient({ initialSessionId }: ChatClientProps) {
               sessionId={sessionId}
               mediaSession={mediaSession}
               spokenRepliesEnabled={spokenRepliesEnabled}
+              autoSendVoiceEnabled={autoSendVoiceEnabled}
               onMediaSession={setMediaSession}
               onTranscript={handleVoiceTranscript}
               onInterruptPlayback={handleInterruptPlayback}
               onToggleSpokenReplies={() => void handleSpokenRepliesToggle()}
+              onToggleAutoSendVoice={handleAutoSendVoiceToggle}
             />
 
             {attachments.length ? (
@@ -994,6 +1115,7 @@ export function ChatClient({ initialSessionId }: ChatClientProps) {
               sync={avatarSyncPayload}
               compact={presenceMode === "mini"}
               perceptionExpression={perceptionExpression}
+              perceptionState={perceptionState}
               lifeState={lifeState}
               onToggleCompact={() =>
                 setPresenceMode((mode) => (mode === "mini" ? "full" : "mini"))
@@ -1131,9 +1253,12 @@ export function ChatClient({ initialSessionId }: ChatClientProps) {
                             <span className="approval-card-kicker">Joi wants permission</span>
                             <strong>{presentation.title}</strong>
                           </div>
-                          <span className={`badge ${presentation.riskTone}`}>
-                            {presentation.riskLabel}
-                          </span>
+                          <div className="approval-badges">
+                            {approval.local_only ? <span className="badge ok">local only</span> : null}
+                            <span className={`badge ${presentation.riskTone}`}>
+                              {presentation.riskLabel}
+                            </span>
+                          </div>
                         </div>
                         <p>{presentation.summary}</p>
                         {presentation.fields.length ? (
@@ -1230,6 +1355,105 @@ export function ChatClient({ initialSessionId }: ChatClientProps) {
                 </div>
               </section>
             ) : null}
+
+            <section className="joi-approvals">
+              <div className="aside-section-head">
+                <p className="eyebrow">Desktop</p>
+                <h3>Safe actions</h3>
+              </div>
+              <div className="desktop-action-panel">
+                <div className="desktop-action-form">
+                  <label htmlFor="desktop-url">Open URL</label>
+                  <div className="desktop-action-inline">
+                    <input
+                      id="desktop-url"
+                      className="input"
+                      type="url"
+                      value={desktopUrlDraft}
+                      onChange={(event) => setDesktopUrlDraft(event.target.value)}
+                    />
+                    <button
+                      className="button ghost"
+                      type="button"
+                      disabled={!desktopUrlDraft.trim()}
+                      onClick={() => stageDesktopAction("open_url", { url: desktopUrlDraft.trim() })}
+                    >
+                      Review
+                    </button>
+                  </div>
+                </div>
+
+                <div className="desktop-action-form">
+                  <label htmlFor="desktop-notification-message">Notification</label>
+                  <input
+                    className="input"
+                    type="text"
+                    value={desktopNotificationTitle}
+                    onChange={(event) => setDesktopNotificationTitle(event.target.value)}
+                  />
+                  <textarea
+                    id="desktop-notification-message"
+                    className="textarea desktop-action-textarea"
+                    value={desktopNotificationMessage}
+                    onChange={(event) => setDesktopNotificationMessage(event.target.value)}
+                  />
+                  <button
+                    className="button ghost"
+                    type="button"
+                    disabled={!desktopNotificationMessage.trim()}
+                    onClick={() =>
+                      stageDesktopAction("show_notification", {
+                        title: desktopNotificationTitle.trim() || "Joi",
+                        message: desktopNotificationMessage.trim(),
+                      })
+                    }
+                  >
+                    Review notification
+                  </button>
+                </div>
+
+                {pendingDesktopAction ? (
+                  <div className="approval-card desktop-action-review">
+                    <div className="approval-card-header">
+                      <div>
+                        <span className="approval-card-kicker">Explicit confirmation required</span>
+                        <strong>{humanizeKey(pendingDesktopAction.action)}</strong>
+                      </div>
+                      <span className="badge ok">local only</span>
+                    </div>
+                    <details className="approval-raw" open>
+                      <summary>Action payload</summary>
+                      <pre>{JSON.stringify(pendingDesktopAction.args, null, 2)}</pre>
+                    </details>
+                    <div className="button-row">
+                      <button
+                        className="button secondary"
+                        type="button"
+                        disabled={desktopActionBusy}
+                        onClick={() => void executePendingDesktopAction()}
+                      >
+                        {desktopActionBusy ? "Running..." : "Run action"}
+                      </button>
+                      <button
+                        className="button ghost"
+                        type="button"
+                        disabled={desktopActionBusy}
+                        onClick={() => setPendingDesktopAction(null)}
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                ) : null}
+
+                {desktopActionResult ? (
+                  <div className={`desktop-action-result ${desktopActionResult.status}`}>
+                    <strong>{desktopActionResult.status}</strong>
+                    <p>{desktopActionResult.summary}</p>
+                  </div>
+                ) : null}
+              </div>
+            </section>
           </section>
 
           <section className="panel chat-feed-panel">

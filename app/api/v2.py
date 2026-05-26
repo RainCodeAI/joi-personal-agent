@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import binascii
 import json
 import io
 import os
@@ -21,6 +22,7 @@ from app.api.realtime import format_sse_event
 from app.api.state import (
     agent,
     approval_manager,
+    desktop_action_broker,
     event_bus,
     hardware_bridge,
     initiative_service,
@@ -44,6 +46,7 @@ from app.api.models import (
 )
 from app.api.v2_models import (
     ActivityLogCreateRequest,
+    ApprovalDecisionRequest,
     SynthesisCandidateResource,
     SynthesisRecordListResponse,
     SynthesisRecordResource,
@@ -65,6 +68,9 @@ from app.api.v2_models import (
     ContactCreateResponse,
     ContactResource,
     DecisionResource,
+    DesktopActionRequest,
+    DesktopActionResponse,
+    DesktopActionResultResource,
     EmotionResource,
     GoalCreateRequest,
     GoalCreateResponse,
@@ -136,6 +142,12 @@ from app.tools.voice import voice_tools
 
 router = APIRouter(prefix="/api/v2", tags=["v2"])
 
+MAX_DATA_URL_CHARS = 16_000_000
+MAX_ATTACHMENT_BYTES = 8 * 1024 * 1024
+MAX_AUDIO_BYTES = 12 * 1024 * 1024
+MAX_IMAGE_BYTES = 8 * 1024 * 1024
+MAX_IMAGE_PIXELS = 20_000_000
+
 
 def _session_resource(session) -> SessionResource:
     return SessionResource(
@@ -163,6 +175,7 @@ def _approval_resource(approval: PendingApproval) -> ApprovalResource:
         session_id=approval.session_id,
         tool_name=approval.tool_name,
         args=approval.args,
+        local_only=approval.local_only,
         status=approval.status.value if isinstance(approval.status, ApprovalStatus) else str(approval.status),
         created_at=approval.created_at,
         resolved_at=approval.resolved_at,
@@ -181,12 +194,37 @@ def _tool_call_resources(tool_calls: Iterable[Dict[str, Any]]) -> List[ToolCallR
     ]
 
 
+def _desktop_action_resource(result: Any) -> DesktopActionResultResource:
+    return DesktopActionResultResource(
+        action_id=result.action_id,
+        action=result.action,
+        status=result.status,
+        summary=result.summary,
+        result=result.result,
+        audit_record=result.audit_record,
+    )
+
+
 def _settings_resource() -> SettingsResource:
     return SettingsResource(**runtime_settings.get())
 
 
 def _hardware_contract_response() -> HardwareBridgeContractResponse:
     return HardwareBridgeContractResponse(**hardware_bridge.get_contract())
+
+
+def _require_local_approval_request(request: Request) -> None:
+    client_host = request.client.host if request.client else ""
+    local_hosts = {"127.0.0.1", "::1", "localhost", "testclient"}
+    if client_host not in local_hosts:
+        raise HTTPException(status_code=403, detail="Approvals are local-only")
+
+
+def _require_local_desktop_action_request(request: Request) -> None:
+    client_host = request.client.host if request.client else ""
+    local_hosts = {"127.0.0.1", "::1", "localhost", "testclient"}
+    if client_host not in local_hosts:
+        raise HTTPException(status_code=403, detail="Desktop actions are local-only")
 
 
 def _event_resource(event: Dict[str, Any]) -> RealtimeEventEnvelope:
@@ -255,11 +293,22 @@ async def _publish_media_session(session_id: str, state: Dict[str, Any]) -> None
     )
 
 
-def _decode_data_url(data_url: str) -> tuple[str, bytes]:
+def _decode_data_url(data_url: str, *, max_bytes: int = MAX_ATTACHMENT_BYTES) -> tuple[str, bytes]:
+    if len(data_url) > MAX_DATA_URL_CHARS:
+        raise ValueError("Payload is too large")
     match = re.match(r"^data:(?P<mime>[^;]+);base64,(?P<data>.+)$", data_url, re.DOTALL)
     if not match:
         raise ValueError("Unsupported attachment encoding")
-    raw = base64.b64decode(match.group("data"))
+    encoded = re.sub(r"\s+", "", match.group("data"))
+    estimated_size = (len(encoded) * 3) // 4
+    if estimated_size > max_bytes:
+        raise ValueError(f"Payload exceeds {max_bytes // (1024 * 1024)}MB limit")
+    try:
+        raw = base64.b64decode(encoded, validate=True)
+    except binascii.Error as exc:
+        raise ValueError("Invalid base64 payload") from exc
+    if len(raw) > max_bytes:
+        raise ValueError(f"Payload exceeds {max_bytes // (1024 * 1024)}MB limit")
     return match.group("mime"), raw
 
 
@@ -341,6 +390,7 @@ def _attachment_context(attachment: ChatAttachmentRequest) -> tuple[ChatAttachme
         try:
             from PIL import Image
 
+            Image.MAX_IMAGE_PIXELS = MAX_IMAGE_PIXELS
             image = Image.open(io.BytesIO(raw_bytes)).convert("RGB")
             preview_text = vision_clip.describe_image(image)
             context_text = (
@@ -1295,7 +1345,15 @@ async def list_approvals(session_id: str | None = None):
 
 
 @router.post("/approvals/{approval_id}/approve", response_model=ApprovalDecisionResponse)
-async def approve_action(approval_id: str):
+async def approve_action(
+    approval_id: str,
+    decision: ApprovalDecisionRequest,
+    request: Request,
+):
+    _require_local_approval_request(request)
+    if not decision.confirmed:
+        raise HTTPException(status_code=400, detail="Approval decision must be explicitly confirmed")
+
     approval = approval_manager.approve(approval_id)
     if approval is None:
         raise HTTPException(status_code=404, detail="Approval not found")
@@ -1327,7 +1385,15 @@ async def approve_action(approval_id: str):
 
 
 @router.post("/approvals/{approval_id}/deny", response_model=ApprovalDecisionResponse)
-async def deny_action(approval_id: str):
+async def deny_action(
+    approval_id: str,
+    decision: ApprovalDecisionRequest,
+    request: Request,
+):
+    _require_local_approval_request(request)
+    if not decision.confirmed:
+        raise HTTPException(status_code=400, detail="Approval decision must be explicitly confirmed")
+
     approval = approval_manager.deny(approval_id)
     if approval is None:
         raise HTTPException(status_code=404, detail="Approval not found")
@@ -1342,6 +1408,30 @@ async def deny_action(approval_id: str):
         source="approvals",
     )
     return ApprovalDecisionResponse(approval=approval_resource)
+
+
+@router.post("/desktop/actions", response_model=DesktopActionResponse)
+async def run_desktop_action(action_request: DesktopActionRequest, request: Request):
+    _require_local_desktop_action_request(request)
+    result = desktop_action_broker.execute(
+        action_request.action,
+        action_request.args,
+        session_id=action_request.session_id,
+        confirmed=action_request.confirmed,
+        source=action_request.source,
+    )
+    resource = _desktop_action_resource(result)
+    await event_bus.publish(
+        "desktop.action.completed" if result.status == "success" else "desktop.action.blocked",
+        {"desktop_action": resource.model_dump(mode="json")},
+        session_id=action_request.session_id,
+        source="desktop",
+    )
+    if result.status == "error":
+        raise HTTPException(status_code=500, detail=result.summary)
+    if result.status == "blocked":
+        raise HTTPException(status_code=400, detail=result.summary)
+    return DesktopActionResponse(desktop_action=resource)
 
 
 @router.get("/media/session", response_model=MediaSessionResponse)
@@ -1365,7 +1455,7 @@ async def patch_media_session(request: MediaSessionPatchRequest):
 @router.post("/media/transcribe", response_model=MediaTranscribeResponse)
 async def transcribe_media(request: MediaTranscribeRequest):
     try:
-        decoded_type, raw_bytes = _decode_data_url(request.data_url)
+        decoded_type, raw_bytes = _decode_data_url(request.data_url, max_bytes=MAX_AUDIO_BYTES)
     except Exception as exc:
         state = media_sessions.update(
             request.session_id,
@@ -1514,7 +1604,9 @@ async def patch_perception_policy(request: PerceptionPolicyPatchRequest):
 async def analyze_vision_snapshot(request: VisionAnalyzeRequest):
     try:
         from PIL import Image
-        _, raw_bytes = _decode_data_url(request.data_url)
+
+        Image.MAX_IMAGE_PIXELS = MAX_IMAGE_PIXELS
+        _, raw_bytes = _decode_data_url(request.data_url, max_bytes=MAX_IMAGE_BYTES)
         image = Image.open(io.BytesIO(raw_bytes)).convert("RGB")
         description = vision_clip.describe_image(image)
     except Exception as exc:

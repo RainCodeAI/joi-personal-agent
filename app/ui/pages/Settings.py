@@ -14,7 +14,10 @@ def main():
         st.subheader("Google OAuth")
         if st.button("Connect Gmail"):
             # Call backend /oauth/start
-            response = requests.get("http://localhost:8000/oauth/start")
+            headers = {}
+            if os.environ.get("JOI_API_TOKEN"):
+                headers["X-Joi-Api-Token"] = os.environ["JOI_API_TOKEN"]
+            response = requests.get("http://localhost:8000/oauth/start", headers=headers)
             if response.status_code == 200:
                 auth_url = response.json()["auth_url"]
                 st.markdown(f"[Authorize here]({auth_url})")

@@ -1,5 +1,7 @@
 import base64
+import os
 from cryptography.fernet import Fernet
+from cryptography.fernet import InvalidToken
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 from pathlib import Path
@@ -8,12 +10,22 @@ from app.config import settings
 
 VAULT_DIR = Path("./data/vault")
 VAULT_FILE = VAULT_DIR / "secrets.json"
+SALT_FILE = VAULT_DIR / "salt.bin"
+LEGACY_STATIC_SALT = b'static_salt_for_mvp'
 
-def _get_key() -> bytes:
+def _get_salt() -> bytes:
+    VAULT_DIR.mkdir(parents=True, exist_ok=True)
+    if SALT_FILE.exists():
+        return SALT_FILE.read_bytes()
+    salt = os.urandom(16)
+    SALT_FILE.write_bytes(salt)
+    return salt
+
+
+def _derive_key(salt: bytes) -> bytes:
     passphrase = settings.vault_passphrase
     if not passphrase:
         raise ValueError("VAULT_PASSPHRASE not set in .env")
-    salt = b'static_salt_for_mvp'  # In production, use a random salt per user
     kdf = PBKDF2HMAC(
         algorithm=hashes.SHA256(),
         length=32,
@@ -23,13 +35,21 @@ def _get_key() -> bytes:
     key = base64.urlsafe_b64encode(kdf.derive(passphrase.encode()))
     return key
 
+
+def _get_key() -> bytes:
+    return _derive_key(_get_salt())
+
 def encrypt_data(data: str) -> str:
     f = Fernet(_get_key())
     return f.encrypt(data.encode()).decode()
 
 def decrypt_data(encrypted: str) -> str:
-    f = Fernet(_get_key())
-    return f.decrypt(encrypted.encode()).decode()
+    current = Fernet(_get_key())
+    try:
+        return current.decrypt(encrypted.encode()).decode()
+    except InvalidToken:
+        legacy = Fernet(_derive_key(LEGACY_STATIC_SALT))
+        return legacy.decrypt(encrypted.encode()).decode()
 
 def store_secret(key: str, value: str):
     VAULT_DIR.mkdir(parents=True, exist_ok=True)

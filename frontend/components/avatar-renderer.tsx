@@ -52,7 +52,15 @@ class AvatarErrorBoundary extends Component<AvatarErrorBoundaryProps, AvatarErro
   }
 }
 
-export function AvatarRenderer({ expression, sync, audioRef, playing, compact = false, lifeState }: AvatarRendererProps) {
+export function AvatarRenderer({
+  expression,
+  sync,
+  audioRef,
+  playing,
+  compact = false,
+  lifeState,
+  perceptionState,
+}: AvatarRendererProps) {
   const deliveryStyle = sync?.delivery_style ?? "normal";
   const [assetKind, setAssetKind] = useState<AvatarAssetKind>(ACTIVE_AVATAR_ASSET);
   const [renderError, setRenderError] = useState<Error | null>(null);
@@ -105,6 +113,7 @@ export function AvatarRenderer({ expression, sync, audioRef, playing, compact = 
               assetKind={assetKind}
               compact={compact}
               lifeState={lifeState}
+              perceptionState={perceptionState}
             />
           </Suspense>
         </AvatarErrorBoundary>
