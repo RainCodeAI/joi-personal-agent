@@ -272,6 +272,9 @@ JSON:
 
     def graph_rag_search(self, query: str, k: int = 5) -> List[Dict[str, Any]]:
         """3-stage Graph RAG: vector search + entity graph expansion + merge/re-rank."""
+        if not self.collection:
+            return []
+
         # Compute embedding once and reuse across both stages
         query_embedding = self.embed_text(query)
 
@@ -411,14 +414,15 @@ JSON:
         memory_type: str = None,
         _precomputed_embedding: List[float] | None = None,
     ) -> List[Dict[str, Any]]:
+        if not self.collection:
+            return []
+
         query_embedding = _precomputed_embedding if _precomputed_embedding is not None else self.embed_text(query)
         where_clause = {}
         if filter_type:
             where_clause["type"] = filter_type
         if memory_type:
             where_clause["memory_type"] = memory_type
-        if not self.collection:
-            return []
             
         results = self.collection.query(
             query_embeddings=[query_embedding],

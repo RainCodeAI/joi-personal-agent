@@ -296,7 +296,7 @@ async def _publish_media_session(session_id: str, state: Dict[str, Any]) -> None
 def _decode_data_url(data_url: str, *, max_bytes: int = MAX_ATTACHMENT_BYTES) -> tuple[str, bytes]:
     if len(data_url) > MAX_DATA_URL_CHARS:
         raise ValueError("Payload is too large")
-    match = re.match(r"^data:(?P<mime>[^;]+);base64,(?P<data>.+)$", data_url, re.DOTALL)
+    match = re.match(r"^data:(?P<mime>[^;,]+)(?P<params>(?:;[^,]+)*);base64,(?P<data>.+)$", data_url, re.DOTALL)
     if not match:
         raise ValueError("Unsupported attachment encoding")
     encoded = re.sub(r"\s+", "", match.group("data"))
@@ -312,22 +312,36 @@ def _decode_data_url(data_url: str, *, max_bytes: int = MAX_ATTACHMENT_BYTES) ->
     return match.group("mime"), raw
 
 
+def _normalize_media_type(media_type: str) -> str:
+    return media_type.split(";", 1)[0].strip().lower()
+
+
 def _audio_suffix(media_type: str) -> str:
-    if media_type == "audio/webm":
+    normalized = _normalize_media_type(media_type)
+    if normalized == "audio/webm":
         return ".webm"
-    if media_type == "audio/mp4" or media_type == "audio/m4a":
+    if normalized == "audio/mp4" or normalized == "audio/m4a":
         return ".m4a"
-    if media_type == "audio/mpeg":
+    if normalized == "audio/mpeg":
         return ".mp3"
-    if media_type == "audio/ogg":
+    if normalized == "audio/ogg":
         return ".ogg"
-    if media_type == "audio/wav":
+    if normalized in {"audio/wav", "audio/x-wav"}:
         return ".wav"
+    if normalized == "audio/flac":
+        return ".flac"
     return ".bin"
 
 
 def _convert_audio_to_wav(input_path: str) -> str:
     ffmpeg = shutil.which("ffmpeg")
+    if ffmpeg is None:
+        try:
+            import imageio_ffmpeg
+
+            ffmpeg = imageio_ffmpeg.get_ffmpeg_exe()
+        except Exception:
+            ffmpeg = None
     if ffmpeg is None:
         return input_path
 
@@ -343,15 +357,16 @@ def _convert_audio_to_wav(input_path: str) -> str:
 
 
 def _transcribe_browser_audio(raw_bytes: bytes, media_type: str) -> str:
+    normalized_media_type = _normalize_media_type(media_type)
     source_path = None
     converted_path = None
     try:
-        with tempfile.NamedTemporaryFile(suffix=_audio_suffix(media_type), delete=False) as source_file:
+        with tempfile.NamedTemporaryFile(suffix=_audio_suffix(normalized_media_type), delete=False) as source_file:
             source_file.write(raw_bytes)
             source_path = source_file.name
 
         transcription_path = source_path
-        if media_type not in {"audio/wav", "audio/x-wav", "audio/flac"}:
+        if normalized_media_type not in {"audio/wav", "audio/x-wav", "audio/flac"}:
             converted_path = _convert_audio_to_wav(source_path)
             transcription_path = converted_path
 

@@ -30,6 +30,7 @@ torch>=2.6
 Pillow
 sentence-transformers
 pydub
+imageio-ffmpeg
 streamlit-webrtc
 av
 openai-whisper

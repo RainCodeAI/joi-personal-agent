@@ -852,6 +852,63 @@ def test_v2_media_transcribe_contract(monkeypatch):
     ]
 
 
+def test_v2_media_transcribe_accepts_browser_media_recorder_data_url(monkeypatch):
+    class FakeMediaSessions:
+        def __init__(self):
+            self.state = {
+                "session_id": "session-chat",
+                "mic_state": "idle",
+                "speaking_state": "idle",
+                "capture_source": "browser",
+                "last_transcript": "",
+                "recognition_latency_ms": None,
+                "playback_latency_ms": None,
+                "interruption_count": 0,
+                "last_error": None,
+                "updated_at": "2026-01-03T12:00:01",
+            }
+
+        def get(self, session_id):
+            return dict(self.state, session_id=session_id)
+
+        def update(self, session_id, **patch):
+            self.state.update({"session_id": session_id, **patch, "updated_at": "2026-01-03T12:00:03"})
+            return dict(self.state)
+
+    captured = {}
+
+    def fake_transcribe(raw_bytes, media_type):
+        captured["raw_bytes"] = raw_bytes
+        captured["media_type"] = media_type
+        return "browser recorder transcript"
+
+    async def fake_publish(*args, **kwargs):
+        return None
+
+    monkeypatch.setattr(api_v2, "media_sessions", FakeMediaSessions())
+    monkeypatch.setattr(api_v2, "_transcribe_browser_audio", fake_transcribe)
+    monkeypatch.setattr(api_v2.event_bus, "publish", fake_publish)
+
+    response = client.post(
+        "/api/v2/media/transcribe",
+        json={
+            "session_id": "session-chat",
+            "media_type": "audio/webm;codecs=opus",
+            "data_url": "data:audio/webm;codecs=opus;base64,ZmFrZQ==",
+            "duration_ms": 840,
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["transcript"] == "browser recorder transcript"
+    assert body["media_type"] == "audio/webm;codecs=opus"
+    assert captured == {
+        "raw_bytes": b"fake",
+        "media_type": "audio/webm;codecs=opus",
+    }
+
+
 def test_v2_settings_patch(monkeypatch):
     class FakeRuntimeSettings:
         def __init__(self):

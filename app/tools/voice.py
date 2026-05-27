@@ -2,16 +2,22 @@ import streamlit as st
 
 try:
     import speech_recognition as sr
-    import pyttsx3
 except ImportError:
     sr = None
+    print("Warning: SpeechRecognition not found. Speech-to-text will be disabled.")
+
+try:
+    import pyttsx3
+except ImportError:
     pyttsx3 = None
-    print("Warning: Voice dependencies (SpeechRecognition, pyttsx3) not found. Voice mode will be disabled.")
+    print("Warning: pyttsx3 not found. Local text-to-speech will be disabled.")
 
 # Singleton voice_tools
 class VoiceTools:
     def __init__(self):
         self.enabled = False
+        self.file_stt_enabled = sr is not None
+        self.microphone_stt_enabled = sr is not None
         self.stt_enabled = sr is not None
         self.local_tts_enabled = pyttsx3 is not None
         self.recognizer = sr.Recognizer() if sr is not None else None
@@ -37,14 +43,15 @@ class VoiceTools:
         except Exception as e:
             print(f"Voice initialization failed: {e}")
             if self.microphone is None:
-                self.stt_enabled = False
+                self.microphone_stt_enabled = False
             if self.tts_engine is None:
                 self.local_tts_enabled = False
+            self.stt_enabled = self.file_stt_enabled or self.microphone_stt_enabled
             self.enabled = self.stt_enabled or self.local_tts_enabled
     
     def speech_to_text(self):
         """Capture mic, transcribe via Google STT. Returns str or None."""
-        if not self.stt_enabled or self.recognizer is None or self.microphone is None:
+        if not self.microphone_stt_enabled or self.recognizer is None or self.microphone is None:
             st.error("Voice tools are not initialized. Check server logs.")
             return None
 
@@ -86,7 +93,7 @@ class VoiceTools:
                 # Fallback to Google below
         
         # Google STT (Default)
-        if not self.stt_enabled or self.recognizer is None:
+        if not self.file_stt_enabled or self.recognizer is None:
             return None
         try:
             with sr.AudioFile(file_path) as source:
