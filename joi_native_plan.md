@@ -88,7 +88,7 @@ Success criteria:
 
 ## Phase 3 - Voice Loop
 
-Status: In progress.
+Status: Core loop validated; follow-up QA remains.
 
 Purpose: let Joi be spoken to naturally without overbuilding wake-word complexity too early.
 
@@ -116,6 +116,9 @@ Success criteria:
 - [x] Add explicit recording cancellation and Escape-to-interrupt behavior.
 - [ ] Add a packaged-window QA pass once `pywebview` is installed in the active runtime.
 - [x] Decide whether voice requests should auto-send after transcription or keep appending to the draft.
+- [x] Manually validate click-to-record browser voice capture, transcription, auto-send, and assistant response.
+- [ ] Manually validate focused-web `Ctrl+Shift+Space` push-to-talk.
+- [ ] Manually validate `Esc` cancel while recording and `Esc` interrupt during spoken playback.
 
 ## Phase 3 Implementation Notes
 
@@ -125,6 +128,13 @@ Success criteria:
 - The native hotkey does not start background listening by itself; it only triggers the visible web recorder in the active Joi window.
 - `Voice sends` defaults on and is stored in browser local storage. Clean voice transcripts submit immediately; transcripts append for review when a draft or attachment is already present.
 - `Esc` cancels an active recording without sending audio to transcription. When Joi is speaking, `Esc` interrupts playback through the existing media-session update path.
+- Manual QA on 2026-05-27 confirmed click-to-record voice capture, browser `webm/opus` upload, transcription, voice auto-send, text chat, and provider-backed assistant responses.
+- Runtime fixes from QA:
+  - Data URL parsing accepts browser media parameters like `audio/webm;codecs=opus`.
+  - Browser audio conversion uses bundled `imageio-ffmpeg` when system `ffmpeg` is unavailable.
+  - Browser/file STT remains enabled even when server-side PyAudio microphone support is missing.
+  - Vector memory retrieval skips cleanly when embeddings/index are unavailable so chat can continue.
+  - The local QA runtime needs declared provider SDKs installed when cloud routes are configured.
 - Wake word remains out of scope until the privacy model is stronger.
 
 ## Phase 4 - Safe Desktop Actions
@@ -180,16 +190,20 @@ Success criteria:
 
 ## Next Session - Recommended Tasks
 
-1. Run the pending manual Phase 3 voice QA:
-   - Grant browser mic permission.
-   - Hold `Ctrl+Shift+Space`, speak, release.
-   - Confirm transcript, `Voice sends`, spoken reply playback, and `Esc` cancel/interrupt behavior.
-2. Run a quick browser pass for the new Phase 4 Safe actions panel:
+1. Finish the remaining Phase 3 manual QA checks:
+   - Hold focused-web `Ctrl+Shift+Space`, speak, release, and confirm it follows the same voice auto-send path.
+   - Start recording, press `Esc`, and confirm it cancels without submitting audio.
+   - Confirm spoken reply playback works, then press `Esc` during playback and confirm interruption.
+2. Run a quick browser pass for the Phase 4 Safe actions panel:
    - Stage and run `show_notification`.
    - Stage and run `open_url` with an `https` URL.
    - Confirm blocked behavior for a non-http URL.
    - Confirm `desktop.action.completed` / `desktop.action.blocked` events appear in the feed.
-3. Decide the next safe broker expansion:
+3. Harden the local runtime/dev launcher:
+   - Ensure the active Python runtime installs all declared voice/provider dependencies.
+   - Make API/frontend startup avoid ad hoc elevated launch steps.
+   - Re-check token-protected launch through `StartJoiNative.bat`.
+4. Decide the next safe broker expansion:
    - Prefer `read_clipboard` / `write_clipboard` only after adding visible opt-in state and tests.
    - Defer `screenshot_once` until the screen-awareness privacy controls are designed.
    - Keep `open_app`, `open_file`, and filesystem writes out until the approval review surface is stronger.
