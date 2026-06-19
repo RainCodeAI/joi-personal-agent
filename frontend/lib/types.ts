@@ -75,6 +75,14 @@ export type Approval = {
   resolved_at?: string | null;
 };
 
+export type Connector = {
+  id: "gmail" | "calendar";
+  label: string;
+  connected: boolean;
+  capabilities: string[];
+  scopes: string[];
+};
+
 export type ProviderInfo = {
   selected: string;
   route: string[];

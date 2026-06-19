@@ -15,15 +15,25 @@ import webbrowser
 from pathlib import Path
 from typing import Any
 
+try:
+    from desktop.local_control import LocalControlServer, WINDOW_CONTROL_PORT, send_command
+except ModuleNotFoundError:
+    from local_control import LocalControlServer, WINDOW_CONTROL_PORT, send_command
+
 log = logging.getLogger("joi.window")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
-if getattr(sys, "frozen", False):
+FROZEN = bool(getattr(sys, "frozen", False))
+if FROZEN:
     BASE_DIR = Path(getattr(sys, "_MEIPASS")).resolve()
+    USER_DATA_DIR = Path(os.environ.get("LOCALAPPDATA", Path.home())) / "Joi"
 else:
     BASE_DIR = Path(__file__).resolve().parents[1]
+    USER_DATA_DIR = BASE_DIR / "data"
 
-DEFAULT_CONFIG_PATH = BASE_DIR / "data" / "desktop_shell.json"
+DEFAULT_CONFIG_PATH = Path(
+    os.environ.get("JOI_DESKTOP_CONFIG", USER_DATA_DIR / "desktop_shell.json")
+)
 DEFAULT_URL = os.environ.get("JOI_APP_URL", "http://localhost:3000")
 DEFAULT_API_URL = os.environ.get("NEXT_PUBLIC_API_BASE_URL", "http://127.0.0.1:8000")
 VOICE_PTT_START_EVENT = "joi:native-ptt-start"
@@ -161,6 +171,10 @@ def launch_window(
         log.info("Desktop shell is configured to start minimized; no window opened.")
         return 0
 
+    if send_command(WINDOW_CONTROL_PORT, "show"):
+        log.info("Existing Joi desktop window focused.")
+        return 0
+
     try:
         import webview
     except ImportError:
@@ -189,7 +203,14 @@ def launch_window(
     if y is not None:
         window_kwargs["y"] = y
 
-    window = webview.create_window("Joi", url, **window_kwargs)
+    try:
+        window = webview.create_window("Joi", url, **window_kwargs)
+    except Exception as exc:
+        log.exception("Could not create the Joi desktop window: %s", exc)
+        if browser_fallback:
+            open_browser_fallback(url)
+            return 0
+        return 3
 
     def persist_current_window(*_: Any) -> None:
         next_state = load_window_state(config_path)
@@ -209,12 +230,44 @@ def launch_window(
             except Exception as exc:
                 log.debug("Could not bind %s event: %s", event_name, exc)
 
+    control_server: LocalControlServer | None = None
+
+    def handle_command(command: str) -> bool:
+        try:
+            if command in {"show", "focus"}:
+                window.show()
+                return True
+            if command == "hide":
+                window.hide()
+                return True
+            if command == "quit":
+                window.destroy()
+                return True
+        except Exception as exc:
+            log.warning("Window command failed (%s): %s", command, exc)
+        return False
+
     def on_started() -> None:
+        nonlocal control_server
+        try:
+            control_server = LocalControlServer(WINDOW_CONTROL_PORT, handle_command)
+            control_server.start()
+        except OSError as exc:
+            log.warning("Could not start window control server: %s", exc)
         if voice_hotkey:
             register_voice_hotkey(window)
 
     log.info("Opening Joi desktop shell: %s", url)
-    webview.start(on_started, debug=False)
+    try:
+        webview.start(on_started, debug=False)
+    except Exception as exc:
+        log.exception("The Joi desktop window runtime failed: %s", exc)
+        if browser_fallback:
+            open_browser_fallback(url)
+            return 0
+        return 3
+    if control_server is not None:
+        control_server.stop()
     persist_current_window()
     return 0
 
@@ -236,6 +289,12 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv or sys.argv[1:])
+    if args.always_on_top and args.no_always_on_top:
+        log.error("--always-on-top and --no-always-on-top cannot be used together.")
+        return 2
+    if args.start_minimized and args.no_start_minimized:
+        log.error("--start-minimized and --no-start-minimized cannot be used together.")
+        return 2
     os.environ["JOI_API_TOKEN"] = args.token
     os.environ["NEXT_PUBLIC_JOI_API_TOKEN"] = args.token
     os.environ["NEXT_PUBLIC_API_BASE_URL"] = args.api_url

@@ -3,11 +3,12 @@ import os
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../')))
 
 import streamlit as st
+import requests
+from app.config import settings
 from app.orchestrator.agent import Agent
 from app.memory.store import MemoryStore
 from app.scheduler.jobs import morning_brief
 from app.api.models import ChatMessage, Feedback, Decision
-from app.orchestrator.security.approval import ToolApprovalManager
 # Voice controls now in global sidebar (components.py)
 from PIL import Image
 from pathlib import Path
@@ -15,6 +16,24 @@ from datetime import datetime, timedelta
 
 import time as _time_mod
 from app.ui import styles
+
+API_BASE_URL = os.environ.get("JOI_API_BASE_URL", "http://127.0.0.1:8000").rstrip("/")
+
+
+def _api_headers():
+    return {"X-Joi-Api-Token": settings.joi_api_token} if settings.joi_api_token else {}
+
+
+def _send_chat_via_api(session_id, text):
+    response = requests.post(
+        f"{API_BASE_URL}/api/v2/chat",
+        headers=_api_headers(),
+        json={"session_id": session_id, "text": text},
+        timeout=max(settings.router_timeout + 5, 35),
+    )
+    response.raise_for_status()
+    return response.json()
+
 
 def main():
     st.title("👁️ Chat with Joi")
@@ -139,28 +158,6 @@ def main():
     # Input section
     # STT "Speak" button moved to global sidebar — pending_transcript flows via session_state
 
-    # ── Pending Tool Approvals (Human-in-the-Loop) ────────────────────
-    approval_mgr = ToolApprovalManager.from_session_state(st.session_state)
-    pending = approval_mgr.get_pending()
-    if pending:
-        st.warning(f"⚠️ {len(pending)} tool action(s) awaiting your approval:")
-        for pa in pending:
-            acol1, acol2, acol3 = st.columns([3, 1, 1])
-            with acol1:
-                st.markdown(f"**{pa.tool_name}** — args: `{pa.args}`")
-            with acol2:
-                if st.button("✅ Approve", key=f"approve_{pa.id}"):
-                    approval_mgr.approve(pa.id)
-                    # Execute tool immediately
-                    res = agent.run_tool(pa.tool_name, pa.args)
-                    st.toast(f"Executed: {pa.tool_name} → {res.get('result')}")
-                    st.rerun()
-            with acol3:
-                if st.button("❌ Deny", key=f"deny_{pa.id}"):
-                    approval_mgr.deny(pa.id)
-                    st.toast(f"Denied: {pa.tool_name}")
-                    st.rerun()
-
     # Now the form (button-free)
     with st.form(key="chat_form"):
         # Image Upload for Vision
@@ -198,10 +195,20 @@ def main():
                 user_msg = ChatMessage(role="user", content=full_msg)
                 st.session_state.chat_history.append(user_msg)
                 
-                response = agent.reply(st.session_state.chat_history, full_msg, st.session_state.session_id)
+                try:
+                    response_payload = _send_chat_via_api(st.session_state.session_id, full_msg)
+                except requests.RequestException as exc:
+                    st.error(
+                        "The legacy client could not reach the FastAPI runtime. "
+                        "Start the web stack and retry so approvals remain in the shared queue."
+                    )
+                    st.exception(exc)
+                    return
+
+                response = response_payload["assistant_message"]
 
                 # Dramatic return delay (Phase 9.2)
-                if response.is_dramatic_return:
+                if response_payload["emotion"]["is_dramatic_return"]:
                     delay_placeholder = st.empty()
                     delay_placeholder.markdown(
                         '<div style="text-align:center; color: #00f3ff; '
@@ -209,22 +216,24 @@ def main():
                         'opacity: 0.7;">... reconnecting ...</div>',
                         unsafe_allow_html=True
                     )
-                    dramatic_seconds = min(3.0, 1.0 + response.craving_score / 50.0)
+                    dramatic_seconds = min(
+                        3.0,
+                        1.0 + response_payload["emotion"]["craving_score"] / 50.0,
+                    )
                     _time_mod.sleep(dramatic_seconds)
                     delay_placeholder.empty()
 
-            assistant_msg = ChatMessage(role="assistant", content=response.text)
+            assistant_msg = ChatMessage(role="assistant", content=response["content"])
             st.session_state.chat_history.append(assistant_msg)
             
-            if response.tool_calls:
-                st.write("Tool calls:", response.tool_calls)
-                # Check for pending approvals
-                pending_tools = [tc for tc in response.tool_calls if tc.get("status") == "pending"]
-                if pending_tools:
-                    for pt in pending_tools:
-                        approval_mgr.request_approval(pt["tool_name"], pt["args"])
-                    st.toast(f"⚠️ {len(pending_tools)} action(s) require approval correctly.")
-                    st.rerun()
+            tool_calls = response_payload["tool_calls"]
+            if tool_calls:
+                st.write("Tool calls:", tool_calls)
+                if response_payload["pending_approvals"]:
+                    st.warning(
+                        "This action is waiting in the FastAPI approval queue. "
+                        "Review it in the Next.js web client."
+                    )
                 else:
                     st.toast("Tool executed successfully!")
             
@@ -232,7 +241,7 @@ def main():
             if st.session_state.get('voice_mode', False):
                 try:
                     with st.spinner("Synthesizing voice..."):
-                        sync_data = agent.say_and_sync(response.text, st.session_state.session_id)
+                        sync_data = agent.say_and_sync(response["content"], st.session_state.session_id)
                         st.session_state.last_avatar_update = {
                             "id": len(st.session_state.chat_history), # Unique ID based on history length
                             "data": sync_data

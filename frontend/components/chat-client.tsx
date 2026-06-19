@@ -299,14 +299,6 @@ function toAttachmentResource(draft: AttachmentDraft): ChatAttachment {
   };
 }
 
-function mergePendingApprovals(current: Approval[], incoming: Approval[]): Approval[] {
-  const byId = new Map(current.map((approval) => [approval.id, approval]));
-  for (const approval of incoming) {
-    byId.set(approval.id, approval);
-  }
-  return Array.from(byId.values()).filter((approval) => approval.status === "pending");
-}
-
 export function ChatClient({ initialSessionId }: ChatClientProps) {
   const [sessionId, setSessionId] = useState<string | null>(initialSessionId ?? null);
   const sessionIdRef = useRef<string | null>(initialSessionId ?? null);
@@ -856,7 +848,8 @@ export function ChatClient({ initialSessionId }: ChatClientProps) {
       );
 
       setProvider(response.provider.selected || "router");
-      setApprovals((current) => mergePendingApprovals(current, response.pending_approvals));
+      const approvalResponse = await listApprovals(sessionId);
+      setApprovals(approvalResponse.approvals);
       startTransition(() => {
         setMessages((current) => [
           ...current.filter((message) => message.id !== optimisticUser.id),
@@ -866,7 +859,7 @@ export function ChatClient({ initialSessionId }: ChatClientProps) {
       });
       setAttachments((current) => (current === attachmentDrafts ? [] : current));
       setStreamingText("");
-      setStatus(response.pending_approvals.length ? "Awaiting approval" : "Response complete");
+      setStatus(approvalResponse.approvals.length ? "Awaiting approval" : "Response complete");
       await handleAvatarSync(
         response.assistant_message.id,
         response.assistant_message.content,
@@ -888,6 +881,10 @@ export function ChatClient({ initialSessionId }: ChatClientProps) {
   }
 
   async function handleApprovalAction(approvalId: string, decision: "approve" | "deny") {
+    if (!sessionId) {
+      return;
+    }
+
     setStatus(`${decision === "approve" ? "Approving" : "Denying"} action`);
     try {
       if (decision === "approve") {
@@ -900,7 +897,8 @@ export function ChatClient({ initialSessionId }: ChatClientProps) {
       } else {
         await denyAction(approvalId);
       }
-      setApprovals((current) => current.filter((approval) => approval.id !== approvalId));
+      const approvalResponse = await listApprovals(sessionId);
+      setApprovals(approvalResponse.approvals);
       setSelectedApprovalId((current) => (current === approvalId ? null : current));
       if (decision === "deny") {
         setStatus("Approval denied");

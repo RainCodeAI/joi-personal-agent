@@ -147,6 +147,16 @@ class TestToolApprovalManager:
         assert removed == 2
         assert len(mgr.get_pending()) == 0
 
+    def test_pending_approvals_can_be_filtered_by_session(self):
+        mgr = ToolApprovalManager()
+        mgr.request_approval("send_email", {}, session_id="session-a")
+        mgr.request_approval("file_write", {}, session_id="session-b")
+
+        pending = mgr.get_pending(session_id="session-a")
+
+        assert len(pending) == 1
+        assert pending[0].session_id == "session-a"
+
 
 # ──────────────────────────────────────────────────────────────────────────
 # Sprint 3: Audit Logger

@@ -8,7 +8,9 @@ import json
 from typing import List, Dict, Any
 from datetime import datetime, timedelta
 
-SCOPES = ['https://www.googleapis.com/auth/calendar']
+READ_SCOPES = ['https://www.googleapis.com/auth/calendar.readonly']
+WRITE_SCOPES = ['https://www.googleapis.com/auth/calendar.events']
+SCOPES = READ_SCOPES + WRITE_SCOPES
 
 def is_authenticated() -> bool:
     """Check if valid credentials exist."""
@@ -22,7 +24,7 @@ def is_authenticated() -> bool:
 def get_credentials() -> Credentials:
     try:
         token_data = get_secret("calendar_token")
-        creds = Credentials.from_authorized_user_info(json.loads(token_data), SCOPES)
+        creds = Credentials.from_authorized_user_info(json.loads(token_data))
     except KeyError:
         raise Exception("Calendar not authenticated. Please go to /oauth/start")
     
@@ -43,21 +45,19 @@ def upcoming_events(days: int = 7) -> List[Dict[str, Any]]:
         singleEvents=True, orderBy='startTime'
     ).execute()
     events = events_result.get('items', [])
-    events = events_result.get('items', [])
     return events
 
 def create_event(summary: str, start_time: str, duration_minutes: int = 60) -> Dict[str, Any]:
     """Create a calendar event. start_time must be ISO format."""
-    creds = get_credentials()
-    service = build('calendar', 'v3', credentials=creds)
-    
-    # Simple ISO parsing/handling
     try:
         dt_start = datetime.fromisoformat(start_time.replace("Z", "+00:00"))
-    except ValueError:
-        # Fallback: try parsing or just fail (Agent should handle parsing)
-        # For now, simplistic
-        dt_start = datetime.utcnow() + timedelta(days=1) # Fallback demo
+    except (TypeError, ValueError) as exc:
+        raise ValueError("start_time must be an ISO-8601 datetime") from exc
+    if duration_minutes <= 0 or duration_minutes > 1440:
+        raise ValueError("duration_minutes must be between 1 and 1440")
+
+    creds = get_credentials()
+    service = build('calendar', 'v3', credentials=creds)
     
     dt_end = dt_start + timedelta(minutes=duration_minutes)
     

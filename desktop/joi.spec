@@ -11,11 +11,20 @@ dynamic imports. Directory mode is the recommended approach.
 """
 
 import os
+import shutil
 import sys
 from PyInstaller.utils.hooks import copy_metadata
 
 block_cipher = None
 BASE_DIR = os.path.abspath(os.path.join(SPECPATH, ".."))
+FRONTEND_DIR = os.path.join(BASE_DIR, "frontend")
+STANDALONE_DIR = os.path.join(FRONTEND_DIR, ".next", "standalone")
+NODE_EXE = shutil.which("node")
+
+if not os.path.exists(os.path.join(STANDALONE_DIR, "server.js")):
+    raise SystemExit("Missing frontend/.next/standalone/server.js. Run: cd frontend && npm run build")
+if not NODE_EXE:
+    raise SystemExit("Node.js is required to build the packaged Joi frontend runtime.")
 
 # Collect metadata for packages that check their own version at runtime
 my_datas = []
@@ -25,10 +34,17 @@ for pkg in ['streamlit', 'tqdm', 'regex', 'requests', 'packaging', 'filelock', '
     except Exception as e:
         print(f"Start-up warning: Could not copy metadata for {pkg}: {e}")
 
+frontend_datas = [
+    (STANDALONE_DIR, "frontend"),
+    (os.path.join(FRONTEND_DIR, ".next", "static"), "frontend/.next/static"),
+]
+if os.path.isdir(os.path.join(FRONTEND_DIR, "public")):
+    frontend_datas.append((os.path.join(FRONTEND_DIR, "public"), "frontend/public"))
+
 a = Analysis(
     [os.path.join(BASE_DIR, "desktop", "tray_app.py")],
     pathex=[BASE_DIR],
-    binaries=[],
+    binaries=[(NODE_EXE, ".")],
     datas=[
         # App source (Streamlit needs these at runtime)
         (os.path.join(BASE_DIR, "app"), "app"),
@@ -40,13 +56,16 @@ a = Analysis(
         (os.path.join(BASE_DIR, ".env.example"), "."),
         (os.path.join(BASE_DIR, "persona.yaml"), "."),
         (os.path.join(BASE_DIR, "system_prompt.md"), "."),
-    ] + my_datas,
+    ] + frontend_datas + my_datas,
     hiddenimports=[
         "streamlit",
         "streamlit.web.cli",
         "app.ui.components",
         "app.ui.components.neon",
         "pystray",
+        "webview",
+        "webview.platforms.edgechromium",
+        "webview.platforms.winforms",
         "keyboard",
         "win10toast",
         "pyttsx3",

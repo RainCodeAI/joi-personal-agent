@@ -10,7 +10,9 @@ from typing import List, Dict, Any
 from app.tools.types import ToolResult
 
 MAX_RESULTS = 20
-SCOPES = ['https://www.googleapis.com/auth/gmail.modify']
+READ_SCOPES = ['https://www.googleapis.com/auth/gmail.readonly']
+WRITE_SCOPES = ['https://www.googleapis.com/auth/gmail.send']
+SCOPES = READ_SCOPES + WRITE_SCOPES
 
 def is_authenticated() -> bool:
     """Check if valid credentials exist."""
@@ -24,7 +26,7 @@ def is_authenticated() -> bool:
 def get_credentials() -> Credentials:
     try:
         token_data = get_secret("gmail_token")
-        creds = Credentials.from_authorized_user_info(json.loads(token_data), SCOPES)
+        creds = Credentials.from_authorized_user_info(json.loads(token_data))
     except KeyError:
         raise Exception("Gmail not authenticated. Please go to /oauth/start")
     
@@ -67,6 +69,15 @@ def send_message(to: str, subject: str, body: str) -> Dict[str, Any]:
     """Send an email using Gmail API."""
     from email.mime.text import MIMEText
     import base64
+
+    to = to.strip()
+    subject = subject.strip()
+    if not to or "@" not in to:
+        raise ValueError("A valid recipient email address is required")
+    if not subject:
+        raise ValueError("Email subject is required")
+    if not body.strip():
+        raise ValueError("Email body is required")
 
     creds = get_credentials()
     service = build('gmail', 'v1', credentials=creds)

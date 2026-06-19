@@ -1,13 +1,15 @@
 import { PerceptionPolicyForm } from "@/components/perception-policy-form";
+import { ConnectorSettings } from "@/components/connector-settings";
 import { SettingsForm } from "@/components/settings-form";
-import { fetchPerceptionPolicy, fetchSettings } from "@/lib/api";
+import { fetchConnectors, fetchPerceptionPolicy, fetchSettings } from "@/lib/api";
 
 export const dynamic = "force-dynamic";
 
 export default async function SettingsPage() {
-  const [settingsResponse, policyResponse] = await Promise.all([
+  const [settingsResponse, policyResponse, connectorResponse] = await Promise.all([
     fetchSettings(),
     fetchPerceptionPolicy(),
+    fetchConnectors(),
   ]);
 
   return (
@@ -48,6 +50,9 @@ export default async function SettingsPage() {
 
       <div className="page-body">
         <SettingsForm settings={settingsResponse.settings} />
+        <div style={{ marginTop: 32 }}>
+          <ConnectorSettings connectors={connectorResponse.connectors} />
+        </div>
         <div style={{ marginTop: 32 }}>
           <PerceptionPolicyForm policy={policyResponse.policy} />
         </div>

@@ -4,7 +4,10 @@ from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
+from starlette.requests import Request
 
 from app.api import main as api_main
 from app.api.main import app
@@ -497,6 +500,75 @@ def test_v2_approval_decision_requires_explicit_confirmation():
     response = client.post("/api/v2/approvals/approval-2/approve")
 
     assert response.status_code == 422
+
+
+def test_v2_approval_queue_rejects_non_local_clients():
+    request = Request(
+        {
+            "type": "http",
+            "method": "GET",
+            "path": "/api/v2/approvals",
+            "headers": [],
+            "query_string": b"",
+            "client": ("203.0.113.10", 50000),
+            "server": ("127.0.0.1", 8000),
+            "scheme": "http",
+        }
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        api_v2._require_local_approval_request(request)
+
+    assert exc_info.value.status_code == 403
+    assert exc_info.value.detail == "Approvals are local-only"
+
+
+def test_legacy_chat_endpoint_is_retired():
+    response = client.post("/chat", json={"session_id": "legacy", "text": "send email"})
+
+    assert response.status_code == 410
+    assert "/api/v2/chat" in response.text
+
+
+def test_v2_connector_status_and_confirmed_disconnect(monkeypatch):
+    connected = {"gmail": True}
+    removed = []
+
+    monkeypatch.setattr(
+        api_v2.email_gmail,
+        "is_authenticated",
+        lambda: connected["gmail"],
+    )
+    monkeypatch.setattr(
+        api_v2.calendar_gcal,
+        "is_authenticated",
+        lambda: False,
+    )
+
+    def fake_delete_secret(key):
+        removed.append(key)
+        if key == "gmail_token":
+            connected["gmail"] = False
+
+    monkeypatch.setattr(api_v2, "delete_secret", fake_delete_secret)
+
+    status = client.get("/api/v2/connectors")
+    assert status.status_code == 200
+    assert status.json()["connectors"][0]["connected"] is True
+
+    rejected = client.post(
+        "/api/v2/connectors/gmail/disconnect",
+        json={"confirmed": False},
+    )
+    assert rejected.status_code == 400
+
+    disconnected = client.post(
+        "/api/v2/connectors/gmail/disconnect",
+        json={"confirmed": True},
+    )
+    assert disconnected.status_code == 200
+    assert disconnected.json()["connector"]["connected"] is False
+    assert removed == ["gmail_token"]
 
 
 def test_v2_desktop_open_url_requires_confirmation(monkeypatch):

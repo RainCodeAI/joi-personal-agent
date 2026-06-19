@@ -128,8 +128,10 @@ async def health():
 
 @app.post("/chat", response_model=ChatResponse)
 async def chat_endpoint(request: ChatRequest):
-    history = memory_store.get_chat_history(request.session_id)
-    return agent.reply(history, request.text, request.session_id)
+    raise HTTPException(
+        status_code=410,
+        detail="Legacy chat endpoint retired; use /api/v2/chat so approvals enter the backend queue",
+    )
 
 
 @app.post("/memory/search", response_model=MemorySearchResponse)

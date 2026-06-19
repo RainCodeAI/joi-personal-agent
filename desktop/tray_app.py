@@ -14,14 +14,31 @@ import time
 import urllib.error
 import urllib.request
 import webbrowser
+from collections import deque
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
+try:
+    from desktop.local_control import (
+        LocalControlServer,
+        TRAY_CONTROL_PORT,
+        WINDOW_CONTROL_PORT,
+        send_command,
+    )
+except ModuleNotFoundError:
+    from local_control import (
+        LocalControlServer,
+        TRAY_CONTROL_PORT,
+        WINDOW_CONTROL_PORT,
+        send_command,
+    )
+
 log = logging.getLogger("joi.tray")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
-if getattr(sys, "frozen", False):
+FROZEN = bool(getattr(sys, "frozen", False))
+if FROZEN:
     BASE_DIR = Path(getattr(sys, "_MEIPASS")).resolve()
 else:
     BASE_DIR = Path(__file__).resolve().parents[1]
@@ -36,6 +53,9 @@ WEB_PORT = int(os.environ.get("JOI_WEB_PORT", "3000"))
 API_URL = f"http://{API_HOST}:{API_PORT}"
 APP_URL = f"http://localhost:{WEB_PORT}"
 HEALTH_URL = f"{API_URL}/health"
+WATCHDOG_INTERVAL_SECONDS = 5
+WATCHDOG_WINDOW_SECONDS = 300
+WATCHDOG_MAX_RESTARTS = 3
 
 ICON_PATH = BASE_DIR / "static" / "assets" / "joi_icon.ico"
 if not ICON_PATH.exists():
@@ -109,7 +129,14 @@ class JoiTrayApp:
         self._state = ProcessState()
         self._tray_icon = None
         self._closing = False
+        self._desired_running = False
         self._lock = threading.RLock()
+        self._control_server: LocalControlServer | None = None
+        self._watchdog_thread: threading.Thread | None = None
+        self._restart_history: dict[str, deque[float]] = {
+            "api": deque(),
+            "frontend": deque(),
+        }
         atexit.register(self.stop_stack)
 
     def _child_env(self) -> dict[str, str]:
@@ -120,6 +147,13 @@ class JoiTrayApp:
         env["API_BASE_URL"] = API_URL
         env["HOSTNAME"] = WEB_HOST
         env["PORT"] = str(WEB_PORT)
+        env["JOI_NATIVE_NOTIFICATIONS"] = "1"
+        if FROZEN:
+            env["JOI_DATA_DIR"] = str(
+                Path(os.environ.get("LOCALAPPDATA", Path.home())) / "Joi" / "data"
+            )
+        else:
+            env["JOI_DATA_DIR"] = str(BASE_DIR / "data")
         return env
 
     def _popen(self, cmd: list[str], *, cwd: Path, env: dict[str, str]) -> subprocess.Popen:
@@ -165,16 +199,19 @@ class JoiTrayApp:
         with self._lock:
             if self.api_running():
                 return
-            cmd = [
-                sys.executable,
-                "-m",
-                "uvicorn",
-                "app.api.main:app",
-                "--host",
-                API_HOST,
-                "--port",
-                str(API_PORT),
-            ]
+            if FROZEN:
+                cmd = [sys.executable, "--api-server"]
+            else:
+                cmd = [
+                    sys.executable,
+                    "-m",
+                    "uvicorn",
+                    "app.api.main:app",
+                    "--host",
+                    API_HOST,
+                    "--port",
+                    str(API_PORT),
+                ]
             self._state.api = self._popen(cmd, cwd=BASE_DIR, env=self._child_env())
             log.info("API PID: %d", self._state.api.pid)
             self._update_icon()
@@ -183,8 +220,18 @@ class JoiTrayApp:
         with self._lock:
             if self.frontend_running():
                 return
-            npm = "npm.cmd" if sys.platform == "win32" else "npm"
-            cmd = [npm, "run", "dev", "--", "--hostname", WEB_HOST, "--port", str(WEB_PORT)]
+            if FROZEN:
+                node = BASE_DIR / ("node.exe" if sys.platform == "win32" else "node")
+                server = FRONTEND_DIR / "server.js"
+                if not node.exists() or not server.exists():
+                    missing = [str(path) for path in (node, server) if not path.exists()]
+                    raise RuntimeError(
+                        "Packaged frontend runtime is incomplete; missing: " + ", ".join(missing)
+                    )
+                cmd = [str(node), str(server)]
+            else:
+                npm = "npm.cmd" if sys.platform == "win32" else "npm"
+                cmd = [npm, "run", "dev", "--", "--hostname", WEB_HOST, "--port", str(WEB_PORT)]
             self._state.web = self._popen(cmd, cwd=FRONTEND_DIR, env=self._child_env())
             log.info("Frontend PID: %d", self._state.web.pid)
             self._update_icon()
@@ -222,11 +269,19 @@ class JoiTrayApp:
             self._update_icon()
 
     def start_stack(self) -> None:
-        self.start_api()
-        self.start_frontend()
+        self._desired_running = True
+        try:
+            self.start_api()
+            self.start_frontend()
+        except Exception:
+            log.exception("Joi stack startup failed")
+            self.stop_stack()
+            return
+        self._start_watchdog()
         threading.Thread(target=self._wait_for_stack_and_open, daemon=True).start()
 
     def stop_stack(self) -> None:
+        self._desired_running = False
         self.close_window()
         self.stop_frontend()
         self.stop_api()
@@ -259,28 +314,100 @@ class JoiTrayApp:
     def open_joi(self, *, always_on_top: bool = False, respect_start_minimized: bool = False) -> None:
         with self._lock:
             if self._process_running(self._state.window):
+                send_command(WINDOW_CONTROL_PORT, "show")
                 return
-            shell_path = BASE_DIR / "desktop" / "window_shell.py"
-            cmd = [
-                sys.executable,
-                str(shell_path),
+            self._state.window = None
+            if FROZEN:
+                cmd = [sys.executable, "--window-shell"]
+            else:
+                shell_path = BASE_DIR / "desktop" / "window_shell.py"
+                cmd = [sys.executable, str(shell_path)]
+            cmd.extend([
                 "--url",
                 APP_URL,
                 "--api-url",
                 API_URL,
                 "--token",
                 self._token,
-            ]
+            ])
             if always_on_top:
                 cmd.append("--always-on-top")
             if not respect_start_minimized:
                 cmd.append("--no-start-minimized")
             self._state.window = self._popen_detached(cmd, cwd=BASE_DIR, env=self._child_env())
 
+    def hide_joi(self) -> None:
+        if not send_command(WINDOW_CONTROL_PORT, "hide"):
+            log.info("Joi desktop window is not open.")
+
     def close_window(self) -> None:
         with self._lock:
+            graceful = send_command(WINDOW_CONTROL_PORT, "quit")
+            if graceful and self._process_running(self._state.window):
+                try:
+                    assert self._state.window is not None
+                    self._state.window.wait(timeout=2)
+                except subprocess.TimeoutExpired:
+                    pass
             self._terminate_process_tree(self._state.window, "desktop window")
             self._state.window = None
+
+    def _start_watchdog(self) -> None:
+        if self._watchdog_thread is not None and self._watchdog_thread.is_alive():
+            return
+        self._watchdog_thread = threading.Thread(
+            target=self._watchdog_loop,
+            name="joi-watchdog",
+            daemon=True,
+        )
+        self._watchdog_thread.start()
+
+    def _restart_allowed(self, name: str) -> bool:
+        now = time.monotonic()
+        history = self._restart_history[name]
+        while history and now - history[0] > WATCHDOG_WINDOW_SECONDS:
+            history.popleft()
+        if len(history) >= WATCHDOG_MAX_RESTARTS:
+            return False
+        history.append(now)
+        return True
+
+    def _watchdog_loop(self) -> None:
+        while not self._closing:
+            time.sleep(WATCHDOG_INTERVAL_SECONDS)
+            if not self._desired_running:
+                continue
+            for name, starter in (("api", self.start_api), ("frontend", self.start_frontend)):
+                proc = getattr(self._state, "web" if name == "frontend" else name)
+                if self._process_running(proc):
+                    continue
+                if not self._restart_allowed(name):
+                    log.error(
+                        "%s restart limit reached (%d attempts in %ds)",
+                        name,
+                        WATCHDOG_MAX_RESTARTS,
+                        WATCHDOG_WINDOW_SECONDS,
+                    )
+                    self._desired_running = False
+                    self._update_icon()
+                    break
+                log.warning("%s process exited unexpectedly; restarting", name)
+                try:
+                    starter()
+                except Exception as exc:
+                    log.error("%s watchdog restart failed: %s", name, exc)
+
+    def _handle_control_command(self, command: str) -> bool:
+        if command in {"show", "focus"}:
+            self.open_joi()
+            return True
+        if command == "hide":
+            self.hide_joi()
+            return True
+        if command == "quit":
+            threading.Thread(target=self.quit, daemon=True).start()
+            return True
+        return False
 
     def _update_icon(self) -> None:
         if self._tray_icon is None:
@@ -292,6 +419,13 @@ class JoiTrayApp:
             log.debug("Tray refresh failed: %s", exc)
 
     def run_tray(self) -> None:
+        try:
+            self._control_server = LocalControlServer(TRAY_CONTROL_PORT, self._handle_control_command)
+            self._control_server.start()
+        except OSError as exc:
+            log.error("Another Joi tray instance may already be running: %s", exc)
+            return
+
         try:
             import pystray
             from PIL import Image as PILImage
@@ -308,6 +442,7 @@ class JoiTrayApp:
         menu = pystray.Menu(
             pystray.MenuItem(lambda _: self.status_text(), None, enabled=False),
             pystray.MenuItem("Open Joi Window", lambda _icon, _item: self.open_joi(), default=True),
+            pystray.MenuItem("Hide Joi Window", lambda _icon, _item: self.hide_joi()),
             pystray.MenuItem("Open Always On Top", lambda _icon, _item: self.open_joi(always_on_top=True)),
             pystray.MenuItem("Open in Browser", lambda _icon, _item: self.open_browser()),
             pystray.MenuItem(
@@ -337,6 +472,9 @@ class JoiTrayApp:
     def quit(self) -> None:
         self._closing = True
         self.stop_stack()
+        if self._control_server:
+            self._control_server.stop()
+            self._control_server = None
         if self._tray_icon:
             self._tray_icon.stop()
 
@@ -376,7 +514,25 @@ def send_notification(title: str, message: str) -> None:
         log.warning("No notification backend available. Install win10toast or plyer.")
 
 
+def run_api_server() -> None:
+    import uvicorn
+
+    uvicorn.run("app.api.main:app", host=API_HOST, port=API_PORT)
+
+
 def main() -> None:
+    if "--window-shell" in sys.argv:
+        from desktop import window_shell
+
+        args = [arg for arg in sys.argv[1:] if arg != "--window-shell"]
+        raise SystemExit(window_shell.main(args))
+    if "--api-server" in sys.argv:
+        run_api_server()
+        return
+    if send_command(TRAY_CONTROL_PORT, "show"):
+        log.info("Joi is already running; focused the existing instance.")
+        return
+
     app = JoiTrayApp()
     if "--check" in sys.argv:
         print(app.status_text())

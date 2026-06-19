@@ -67,6 +67,10 @@ from app.api.v2_models import (
     ContactCreateRequest,
     ContactCreateResponse,
     ContactResource,
+    ConnectorDisconnectRequest,
+    ConnectorDisconnectResponse,
+    ConnectorListResponse,
+    ConnectorResource,
     DecisionResource,
     DesktopActionRequest,
     DesktopActionResponse,
@@ -137,7 +141,9 @@ from app.orchestrator.day_planner import build_planner_snapshot, generate_day_pl
 from app.orchestrator.craving_engine import CravingEngine
 from app.orchestrator.security.approval import ApprovalStatus, PendingApproval
 from app.tools import vision_clip
+from app.tools import calendar_gcal, email_gmail
 from app.tools.voice import voice_tools
+from app.vault import delete_secret
 
 
 router = APIRouter(prefix="/api/v2", tags=["v2"])
@@ -147,6 +153,25 @@ MAX_ATTACHMENT_BYTES = 8 * 1024 * 1024
 MAX_AUDIO_BYTES = 12 * 1024 * 1024
 MAX_IMAGE_BYTES = 8 * 1024 * 1024
 MAX_IMAGE_PIXELS = 20_000_000
+
+
+def _connector_resources() -> list[ConnectorResource]:
+    return [
+        ConnectorResource(
+            id="gmail",
+            label="Gmail",
+            connected=email_gmail.is_authenticated(),
+            capabilities=["read", "send"],
+            scopes=list(email_gmail.SCOPES),
+        ),
+        ConnectorResource(
+            id="calendar",
+            label="Google Calendar",
+            connected=calendar_gcal.is_authenticated(),
+            capabilities=["read", "create"],
+            scopes=list(calendar_gcal.SCOPES),
+        ),
+    ]
 
 
 def _session_resource(session) -> SessionResource:
@@ -1352,10 +1377,9 @@ async def chat_v2(request: V2ChatRequest):
 
 
 @router.get("/approvals", response_model=ApprovalListResponse)
-async def list_approvals(session_id: str | None = None):
-    approvals = approval_manager.get_pending()
-    if session_id is not None:
-        approvals = [approval for approval in approvals if approval.session_id == session_id]
+async def list_approvals(request: Request, session_id: str | None = None):
+    _require_local_approval_request(request)
+    approvals = approval_manager.get_pending(session_id=session_id)
     return ApprovalListResponse(approvals=[_approval_resource(approval) for approval in approvals])
 
 
@@ -1447,6 +1471,41 @@ async def run_desktop_action(action_request: DesktopActionRequest, request: Requ
     if result.status == "blocked":
         raise HTTPException(status_code=400, detail=result.summary)
     return DesktopActionResponse(desktop_action=resource)
+
+
+@router.get("/connectors", response_model=ConnectorListResponse)
+async def list_connectors(request: Request):
+    _require_local_approval_request(request)
+    return ConnectorListResponse(connectors=_connector_resources())
+
+
+@router.post(
+    "/connectors/{connector_id}/disconnect",
+    response_model=ConnectorDisconnectResponse,
+)
+async def disconnect_connector(
+    connector_id: str,
+    disconnect_request: ConnectorDisconnectRequest,
+    request: Request,
+):
+    _require_local_approval_request(request)
+    if not disconnect_request.confirmed:
+        raise HTTPException(status_code=400, detail="Connector removal requires confirmation")
+    secret_keys = {
+        "gmail": "gmail_token",
+        "calendar": "calendar_token",
+    }
+    secret_key = secret_keys.get(connector_id)
+    if secret_key is None:
+        raise HTTPException(status_code=404, detail="Unknown connector")
+    delete_secret(secret_key)
+    connector = next(item for item in _connector_resources() if item.id == connector_id)
+    await event_bus.publish(
+        "settings.updated",
+        {"scope": "connector", "connector": connector.model_dump(mode="json")},
+        source="settings",
+    )
+    return ConnectorDisconnectResponse(connector=connector)
 
 
 @router.get("/media/session", response_model=MediaSessionResponse)

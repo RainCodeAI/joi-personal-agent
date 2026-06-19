@@ -298,7 +298,22 @@ class InitiativeService:
             session_id=candidate.session_id,
             source="initiative",
         )
+        await self._notify_native(candidate)
         return decision
+
+    @staticmethod
+    async def _notify_native(candidate: InitiativeCandidate) -> None:
+        import asyncio
+        import os
+
+        if os.environ.get("JOI_NATIVE_NOTIFICATIONS") != "1":
+            return
+        try:
+            from desktop.tray_app import send_notification
+
+            await asyncio.to_thread(send_notification, "Joi", candidate.message)
+        except Exception:
+            return
 
     def diagnostics(
         self,

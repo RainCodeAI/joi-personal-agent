@@ -7,9 +7,11 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
 from threading import RLock
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from app.orchestrator.policies import DESTRUCTIVE_TOOLS
+from app.persistence import read_json, write_json_atomic
 
 
 class ApprovalStatus(Enum):
@@ -39,21 +41,11 @@ class PendingApproval:
 class ToolApprovalManager:
     """Manages explicit approval decisions for the FastAPI runtime."""
 
-    def __init__(self, store: Optional[Dict[str, PendingApproval]] = None) -> None:
-        self._store: Dict[str, PendingApproval] = store if store is not None else {}
+    def __init__(self, path: Path | None = None) -> None:
+        self.path = path
+        self._store: Dict[str, PendingApproval] = {}
         self._lock = RLock()
-
-    @classmethod
-    def from_session_state(cls, session_state) -> "ToolApprovalManager":
-        """Legacy adapter for the temporary Streamlit client.
-
-        The primary runtime path uses ``app.api.state.approval_manager``.
-        """
-
-        key = "_tool_approval_store"
-        if key not in session_state:
-            session_state[key] = {}
-        return cls(store=session_state[key])
+        self._load()
 
     @staticmethod
     def needs_approval(tool_name: str) -> bool:
@@ -77,6 +69,7 @@ class ToolApprovalManager:
         )
         with self._lock:
             self._store[pending.id] = pending
+            self._persist()
         return pending.id
 
     def approve(self, pending_id: str) -> Optional[PendingApproval]:
@@ -88,6 +81,7 @@ class ToolApprovalManager:
                 return None
             pending.status = ApprovalStatus.APPROVED
             pending.resolved_at = datetime.utcnow().isoformat()
+            self._persist()
             return pending
 
     def deny(self, pending_id: str) -> Optional[PendingApproval]:
@@ -99,6 +93,7 @@ class ToolApprovalManager:
                 return None
             pending.status = ApprovalStatus.DENIED
             pending.resolved_at = datetime.utcnow().isoformat()
+            self._persist()
             return pending
 
     def check_approval(self, pending_id: str) -> Optional[bool]:
@@ -114,7 +109,7 @@ class ToolApprovalManager:
             return False
         return None
 
-    def get_pending(self) -> List[PendingApproval]:
+    def get_pending(self, session_id: Optional[str] = None) -> List[PendingApproval]:
         """Return all unresolved approval requests."""
 
         with self._lock:
@@ -122,6 +117,7 @@ class ToolApprovalManager:
                 approval
                 for approval in self._store.values()
                 if approval.status == ApprovalStatus.PENDING
+                and (session_id is None or approval.session_id == session_id)
             ]
 
     def get(self, pending_id: str) -> Optional[PendingApproval]:
@@ -141,4 +137,47 @@ class ToolApprovalManager:
             ]
             for pending_id in resolved_ids:
                 del self._store[pending_id]
+            self._persist()
             return len(resolved_ids)
+
+    def _load(self) -> None:
+        if self.path is None:
+            return
+        raw = read_json(self.path, [])
+        if not isinstance(raw, list):
+            return
+        for item in raw:
+            try:
+                approval = PendingApproval(
+                    id=str(item["id"]),
+                    tool_name=str(item["tool_name"]),
+                    args=dict(item.get("args") or {}),
+                    session_id=item.get("session_id"),
+                    local_only=bool(item.get("local_only", True)),
+                    status=ApprovalStatus(str(item.get("status", "pending"))),
+                    created_at=str(item.get("created_at") or datetime.utcnow().isoformat()),
+                    resolved_at=item.get("resolved_at"),
+                )
+            except (KeyError, TypeError, ValueError):
+                continue
+            self._store[approval.id] = approval
+
+    def _persist(self) -> None:
+        if self.path is None:
+            return
+        write_json_atomic(
+            self.path,
+            [
+                {
+                    "id": approval.id,
+                    "tool_name": approval.tool_name,
+                    "args": approval.args,
+                    "session_id": approval.session_id,
+                    "local_only": approval.local_only,
+                    "status": approval.status.value,
+                    "created_at": approval.created_at,
+                    "resolved_at": approval.resolved_at,
+                }
+                for approval in self._store.values()
+            ],
+        )

@@ -12,16 +12,18 @@ from app.memory.store import MemoryStore
 from app.orchestrator.agent import Agent
 from app.orchestrator.security.approval import ToolApprovalManager
 from app.user_model.store import UserModelCorrectionStore, UserModelSynthesisRecordStore
+from app.persistence import runtime_data_dir
 
 
+_runtime_data = runtime_data_dir()
 memory_store = MemoryStore()
 agent = Agent(memory_store=memory_store)
-approval_manager = ToolApprovalManager()
+approval_manager = ToolApprovalManager(_runtime_data / "pending_approvals.json")
 runtime_settings = RuntimeSettingsStore()
 desktop_action_broker = DesktopActionBroker()
 perception_policy = PerceptionPolicyStore()
 event_bus = RealtimeEventBus()
-media_sessions = MediaSessionStore()
+media_sessions = MediaSessionStore(_runtime_data / "media_sessions.json")
 hardware_bridge = HardwareBridgeStore()
 mqtt_bridge = MqttBridge(hardware_bridge, event_bus)
 initiative_service = InitiativeService()

@@ -114,7 +114,7 @@ Success criteria:
 - [x] Keep explicit stop/interruption behavior through the current media session state.
 - [x] Add a persisted `Voice sends` mode so clean voice prompts can submit automatically.
 - [x] Add explicit recording cancellation and Escape-to-interrupt behavior.
-- [ ] Add a packaged-window QA pass once `pywebview` is installed in the active runtime.
+- [x] Add a packaged-window QA pass once `pywebview` is installed in the active runtime.
 - [x] Decide whether voice requests should auto-send after transcription or keep appending to the draft.
 - [x] Manually validate click-to-record browser voice capture, transcription, auto-send, and assistant response.
 - [ ] Manually validate focused-web `Ctrl+Shift+Space` push-to-talk.
@@ -130,6 +130,13 @@ Success criteria:
 - `Esc` cancels an active recording without sending audio to transcription. When Joi is speaking, `Esc` interrupts playback through the existing media-session update path.
 - Manual QA on 2026-05-27 confirmed click-to-record voice capture, browser `webm/opus` upload, transcription, voice auto-send, text chat, and provider-backed assistant responses.
 - Runtime fixes from QA:
+  - Frozen launches re-enter the packaged executable for API and native-window child modes instead of trying to execute bundled source files or `python -m`.
+  - Packaged window state is stored under `%LOCALAPPDATA%\Joi` instead of PyInstaller's temporary extraction directory.
+  - The PyInstaller build now requires and includes the standalone Next.js server, static assets, Node runtime, and pywebview backends.
+  - Native-window creation/runtime failures fall back to the browser unless explicitly disabled.
+  - Source launch scripts fail early with an actionable dependency message instead of silently falling back to a browser-only launch.
+  - QA on 2026-06-18 confirmed pywebview 6.2.1 can create and close a native WebView2 window, shell state tests pass, and the production frontend compiles and typechecks.
+  - Rebuilding the standalone frontend artifact from the OneDrive workspace remains environment-blocked by repeated Windows `UNKNOWN copyfile` errors inside `node_modules`; package builds now fail early when that artifact is absent instead of producing a broken launcher.
   - Data URL parsing accepts browser media parameters like `audio/webm;codecs=opus`.
   - Browser audio conversion uses bundled `imageio-ffmpeg` when system `ffmpeg` is unavailable.
   - Browser/file STT remains enabled even when server-side PyAudio microphone support is missing.

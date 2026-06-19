@@ -1,15 +1,20 @@
 from __future__ import annotations
 
 from datetime import datetime
+from pathlib import Path
 from threading import Lock
 from typing import Any, Dict
+
+from app.persistence import read_json, write_json_atomic
 
 
 class MediaSessionStore:
     """In-memory state for browser-driven media sessions."""
 
-    def __init__(self) -> None:
-        self._sessions: Dict[str, Dict[str, Any]] = {}
+    def __init__(self, path: Path | None = None) -> None:
+        self.path = path
+        loaded = read_json(path, {}) if path is not None else {}
+        self._sessions: Dict[str, Dict[str, Any]] = loaded if isinstance(loaded, dict) else {}
         self._lock = Lock()
 
     def get(self, session_id: str) -> Dict[str, Any]:
@@ -30,6 +35,8 @@ class MediaSessionStore:
                     current[key] = value
             current["updated_at"] = datetime.utcnow().isoformat()
             self._sessions[session_id] = current
+            if self.path is not None:
+                write_json_atomic(self.path, self._sessions)
             return dict(current)
 
     @staticmethod

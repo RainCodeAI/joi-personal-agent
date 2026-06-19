@@ -4,6 +4,7 @@ import {
   BackendHealth,
   ChatAttachmentInput,
   ChatResponse,
+  Connector,
   DesktopActionRequest,
   DesktopActionResponse,
   DiagnosticsResponse,
@@ -156,6 +157,24 @@ export async function listMessages(sessionId: string) {
 export async function listApprovals(sessionId: string) {
   const params = new URLSearchParams({ session_id: sessionId });
   return apiFetch<{ api_version: "v2"; approvals: Approval[] }>(`/api/v2/approvals?${params.toString()}`);
+}
+
+export async function fetchConnectors() {
+  return apiFetch<{ api_version: "v2"; connectors: Connector[] }>("/api/v2/connectors");
+}
+
+export async function disconnectConnector(connectorId: Connector["id"]) {
+  return apiFetch<{ api_version: "v2"; connector: Connector }>(
+    `/api/v2/connectors/${connectorId}/disconnect`,
+    {
+      method: "POST",
+      body: JSON.stringify({ confirmed: true }),
+    },
+  );
+}
+
+export async function startGoogleOauth() {
+  return apiFetch<{ auth_url: string; state: string }>("/oauth/start");
 }
 
 export async function approveAction(approvalId: string) {

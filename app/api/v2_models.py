@@ -98,6 +98,26 @@ class ApprovalDecisionResponse(V2ResponseBase):
     tool_result: Optional[ToolCallResource] = None
 
 
+class ConnectorResource(BaseModel):
+    id: Literal["gmail", "calendar"]
+    label: str
+    connected: bool
+    capabilities: List[str] = Field(default_factory=list)
+    scopes: List[str] = Field(default_factory=list)
+
+
+class ConnectorListResponse(V2ResponseBase):
+    connectors: List[ConnectorResource] = Field(default_factory=list)
+
+
+class ConnectorDisconnectRequest(BaseModel):
+    confirmed: bool
+
+
+class ConnectorDisconnectResponse(V2ResponseBase):
+    connector: ConnectorResource
+
+
 class EmotionResource(BaseModel):
     craving_score: float = 0.0
     is_dramatic_return: bool = False
