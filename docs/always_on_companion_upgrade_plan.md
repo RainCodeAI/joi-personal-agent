@@ -288,7 +288,7 @@ Priority: **highest user-facing upgrade**
 
 Goal: make speaking with Joi feel faster and more natural than typing.
 
-Status as of 2026-06-18: **foundation in progress**
+Status as of 2026-06-20: **closeout implemented; device QA remains**
 
 Work:
 
@@ -325,13 +325,15 @@ Foundation update:
 - Conversation mode now stops recording automatically after sustained silence or a bounded maximum turn.
 - Conversation mode now re-arms capture between turns and uses browser echo cancellation while Joi is responding.
 - Detected conversation-mode speech immediately stops local playback, aborts the active browser request, and ignores stale per-turn realtime events.
+- Interrupted assistant replies are removed from persisted chat history and cannot create approvals or completion/avatar events after barge-in.
 - Assistant turn IDs and interruption state are persisted with the media session so barge-in telemetry survives restart.
-- Added speech-duration and end-of-speech-to-transcript latency metrics to the media session.
+- Added speech-duration, end-of-speech-to-transcript, model, TTS-generation, first-audio, and estimated end-to-end latency metrics to the media session.
+- Energy VAD now requires consecutive speech frames and uses a higher threshold during assistant playback to reduce speaker-feedback interruptions.
 - Existing push-to-talk, transcription, auto-send, TTS, and interruption behavior remain intact.
 - Next implementation slice:
   - replace energy-only VAD with a more robust local VAD
   - add streaming audio transport and partial transcripts
-  - measure model and first-audio latency in the same turn record
+  - validate barge-in thresholds, echo handling, and latency readings with real microphone and speaker hardware
 
 ### Phase C — Screen understanding v1
 

@@ -207,6 +207,10 @@ class MediaSessionResource(BaseModel):
     end_of_speech_to_transcript_ms: Optional[int] = None
     speech_duration_ms: Optional[int] = None
     speech_detected: bool = False
+    model_latency_ms: Optional[int] = None
+    tts_generation_latency_ms: Optional[int] = None
+    first_audio_latency_ms: Optional[int] = None
+    end_to_end_latency_ms: Optional[int] = None
     playback_latency_ms: Optional[int] = None
     interruption_count: int = 0
     last_error: Optional[str] = None
@@ -237,6 +241,10 @@ class MediaSessionPatchRequest(BaseModel):
     end_of_speech_to_transcript_ms: Optional[int] = None
     speech_duration_ms: Optional[int] = None
     speech_detected: Optional[bool] = None
+    model_latency_ms: Optional[int] = None
+    tts_generation_latency_ms: Optional[int] = None
+    first_audio_latency_ms: Optional[int] = None
+    end_to_end_latency_ms: Optional[int] = None
     playback_latency_ms: Optional[int] = None
     last_error: Optional[str] = None
     interrupted: bool = False

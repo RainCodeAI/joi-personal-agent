@@ -498,6 +498,125 @@ def test_v2_chat_with_attachments_and_deltas(monkeypatch):
     assert received_event["payload"]["attachments"][0]["name"] == "scene.png"
 
 
+def test_v2_interrupted_chat_discards_assistant_message(monkeypatch):
+    session_id = "session-interrupted"
+    client_turn_id = "turn-interrupted"
+    fake_session = SimpleNamespace(
+        id=session_id,
+        user_id="default",
+        title="Interrupted",
+        created_at=datetime(2026, 1, 3, 12, 0, 0),
+        updated_at=datetime(2026, 1, 3, 12, 1, 0),
+    )
+    persisted_messages = [
+        SimpleNamespace(
+            id=30,
+            session_id=session_id,
+            role="user",
+            content="first question",
+            timestamp=datetime(2026, 1, 3, 12, 0, 0),
+        ),
+        SimpleNamespace(
+            id=31,
+            session_id=session_id,
+            role="assistant",
+            content="stale reply",
+            timestamp=datetime(2026, 1, 3, 12, 0, 1),
+        ),
+    ]
+
+    class FakeMediaSessions:
+        def __init__(self):
+            self.state = {"session_id": session_id, "turn_state": "idle"}
+
+        def get(self, _session_id):
+            return dict(self.state)
+
+        def update(self, _session_id, **patch):
+            self.state.update(patch)
+            return dict(self.state)
+
+    fake_media = FakeMediaSessions()
+    monkeypatch.setattr(api_v2, "media_sessions", fake_media)
+    history_calls = {"count": 0}
+
+    def fake_history(_session_id):
+        history_calls["count"] += 1
+        return [] if history_calls["count"] == 1 else persisted_messages
+
+    monkeypatch.setattr(api_v2.memory_store, "get_chat_history", fake_history)
+    monkeypatch.setattr(api_v2.memory_store, "get_session", lambda _session_id: fake_session)
+    deleted = []
+    monkeypatch.setattr(
+        api_v2.memory_store,
+        "delete_chat_message",
+        lambda message_id, **kwargs: deleted.append((message_id, kwargs)) or True,
+    )
+
+    def fake_reply(*args, **kwargs):
+        fake_media.update(
+            session_id,
+            assistant_turn_id=client_turn_id,
+            turn_state="interrupted",
+        )
+        return ChatResponse(
+            text="stale reply",
+            session_id=session_id,
+            tool_calls=[
+                {
+                    "tool_name": "send_email",
+                    "args": {"to": "person@example.com"},
+                    "result": {"msg": "Approval required"},
+                    "status": "pending",
+                }
+            ],
+            user_message_id=30,
+            assistant_message_id=31,
+        )
+
+    monkeypatch.setattr(api_v2.agent, "reply", fake_reply)
+    monkeypatch.setattr(
+        api_v2.approval_manager,
+        "request_approval",
+        lambda *args, **kwargs: pytest.fail("interrupted tools must not request approval"),
+    )
+    published = []
+
+    async def fake_publish(event, payload, session_id=None, source="system"):
+        published.append(event)
+        return {"event": event, "payload": payload}
+
+    async def fake_media_publish(*args, **kwargs):
+        return None
+
+    async def fake_hardware_publish(*args, **kwargs):
+        return None
+
+    monkeypatch.setattr(api_v2.event_bus, "publish", fake_publish)
+    monkeypatch.setattr(api_v2, "_publish_media_session", fake_media_publish)
+    monkeypatch.setattr(api_v2, "_publish_hardware_state_transition", fake_hardware_publish)
+
+    response = client.post(
+        "/api/v2/chat",
+        json={
+            "session_id": session_id,
+            "text": "first question",
+            "client_turn_id": client_turn_id,
+        },
+    )
+
+    assert response.status_code == 200
+    assert deleted == [
+        (
+            31,
+            {"session_id": session_id, "role": "assistant"},
+        )
+    ]
+    assert "message.completed" not in published
+    assert "avatar.state" not in published
+    assert response.json()["pending_approvals"] == []
+
+
 def test_v2_approve_action(monkeypatch):
     approved = PendingApproval(
         id="approval-2",
@@ -883,6 +1002,10 @@ def test_v2_media_session_contract(monkeypatch):
             "mic_state": "recording",
             "speaking_state": "interrupted",
             "speech_detected": True,
+            "model_latency_ms": 420,
+            "tts_generation_latency_ms": 180,
+            "first_audio_latency_ms": 35,
+            "end_to_end_latency_ms": 1240,
             "interrupted": True,
         },
     )
@@ -895,6 +1018,10 @@ def test_v2_media_session_contract(monkeypatch):
     assert body["media_session"]["mic_state"] == "recording"
     assert body["media_session"]["speaking_state"] == "interrupted"
     assert body["media_session"]["speech_detected"] is True
+    assert body["media_session"]["model_latency_ms"] == 420
+    assert body["media_session"]["tts_generation_latency_ms"] == 180
+    assert body["media_session"]["first_audio_latency_ms"] == 35
+    assert body["media_session"]["end_to_end_latency_ms"] == 1240
     assert body["media_session"]["interruption_count"] == 1
     assert published_events[0][0] == "joi.state.changed"
     assert published_events[1][0] == "media.session.updated"

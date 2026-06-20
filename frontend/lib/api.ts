@@ -261,6 +261,10 @@ export async function patchMediaSession(
     end_of_speech_to_transcript_ms?: number;
     speech_duration_ms?: number;
     speech_detected?: boolean;
+    model_latency_ms?: number;
+    tts_generation_latency_ms?: number;
+    first_audio_latency_ms?: number;
+    end_to_end_latency_ms?: number;
     playback_latency_ms?: number;
     last_error?: string;
     interrupted?: boolean;

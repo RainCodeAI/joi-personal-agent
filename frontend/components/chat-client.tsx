@@ -769,11 +769,26 @@ export function ChatClient({ initialSessionId }: ChatClientProps) {
     }
 
     try {
+      const firstAudioLatencyMs = state.playbackLatencyMs;
+      const endToEndLatencyMs =
+        firstAudioLatencyMs === undefined
+          ? undefined
+          : [
+              mediaSession?.end_of_speech_to_transcript_ms,
+              mediaSession?.model_latency_ms,
+              mediaSession?.tts_generation_latency_ms,
+              firstAudioLatencyMs,
+            ].reduce<number>(
+              (total, value) => total + (typeof value === "number" ? value : 0),
+              0,
+            );
       const response = await patchMediaSession({
         session_id: sessionId,
         speaking_state: state.speakingState,
         turn_state: state.speakingState === "playing" ? "speaking" : "idle",
         playback_latency_ms: state.playbackLatencyMs,
+        first_audio_latency_ms: firstAudioLatencyMs,
+        end_to_end_latency_ms: endToEndLatencyMs,
       });
       setMediaSession(response.media_session);
     } catch {

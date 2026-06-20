@@ -23,6 +23,8 @@ const NATIVE_PTT_STOP_EVENT = "joi:native-ptt-stop";
 const CONVERSATION_SILENCE_MS = 900;
 const CONVERSATION_MAX_MS = 30_000;
 const VAD_RMS_THRESHOLD = 0.025;
+const VAD_PLAYBACK_RMS_THRESHOLD = 0.055;
+const VAD_REQUIRED_FRAMES = 3;
 
 function isPushToTalkHotkey(event: KeyboardEvent) {
   return (
@@ -79,6 +81,7 @@ export function VoiceComposer({
   const speechDetectedRef = useRef(false);
   const speechStartedAtRef = useRef<number | null>(null);
   const lastSpeechAtRef = useRef<number | null>(null);
+  const speechFrameCountRef = useRef(0);
 
   const [isSupported, setIsSupported] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -209,7 +212,16 @@ export function VoiceComposer({
       const rms = Math.sqrt(sum / samples.length);
       const now = performance.now();
 
-      if (rms >= VAD_RMS_THRESHOLD) {
+      const activeThreshold = assistantTurnActiveRef.current
+        ? VAD_PLAYBACK_RMS_THRESHOLD
+        : VAD_RMS_THRESHOLD;
+      if (rms >= activeThreshold) {
+        speechFrameCountRef.current += 1;
+      } else {
+        speechFrameCountRef.current = 0;
+      }
+
+      if (speechFrameCountRef.current >= VAD_REQUIRED_FRAMES) {
         lastSpeechAtRef.current = now;
         if (!speechDetectedRef.current) {
           speechDetectedRef.current = true;
@@ -259,6 +271,7 @@ export function VoiceComposer({
     speechDetectedRef.current = false;
     speechStartedAtRef.current = null;
     lastSpeechAtRef.current = null;
+    speechFrameCountRef.current = 0;
     setBusy(true);
     if (voiceMode === "conversation") {
       conversationActiveRef.current = true;
@@ -655,6 +668,15 @@ export function VoiceComposer({
           <span className="badge ok">
             {mediaSession.end_of_speech_to_transcript_ms}ms turn
           </span>
+        ) : null}
+        {mediaSession?.model_latency_ms ? (
+          <span className="badge">{mediaSession.model_latency_ms}ms model</span>
+        ) : null}
+        {mediaSession?.tts_generation_latency_ms ? (
+          <span className="badge">{mediaSession.tts_generation_latency_ms}ms TTS</span>
+        ) : null}
+        {mediaSession?.end_to_end_latency_ms ? (
+          <span className="badge ok">{mediaSession.end_to_end_latency_ms}ms total</span>
         ) : null}
         {mediaSession?.interruption_count ? (
           <span className="badge warn">{mediaSession.interruption_count} interruptions</span>

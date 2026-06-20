@@ -486,6 +486,26 @@ JSON:
             session.refresh(message)
             return message
 
+    def delete_chat_message(
+        self,
+        message_id: int,
+        *,
+        session_id: str | None = None,
+        role: str | None = None,
+    ) -> bool:
+        """Delete one exact chat message after validating its expected owner/type."""
+        with SQLSession(engine) as session:
+            message = session.get(ChatMessage, message_id)
+            if message is None:
+                return False
+            if session_id is not None and message.session_id != session_id:
+                return False
+            if role is not None and message.role != role:
+                return False
+            session.delete(message)
+            session.commit()
+            return True
+
     def get_user_profile(self, user_id: str) -> Optional[UserProfile]:
         with SQLSession(engine) as session:
             statement = select(UserProfile).where(UserProfile.user_id == user_id)

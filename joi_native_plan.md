@@ -136,7 +136,11 @@ Success criteria:
 - Playback interruption is guarded while its local/API teardown is in flight, preventing repeated Escape keydown events from incrementing interruption state more than once per request.
 - Conversation mode now keeps browser capture armed between turns. Detected speech stops active playback, aborts the in-flight browser chat request, and filters stale assistant events by client turn ID before submitting the new transcript.
 - Media-session persistence now records the active assistant turn ID alongside voice mode, speech detection, interruption, and latency telemetry.
+- Interrupted assistant replies are discarded from persisted chat history and cannot emit completion/avatar events or create pending approvals after barge-in.
+- Voice telemetry now records model, TTS-generation, first-audio, and estimated end-to-end latency per turn, resetting counters before each response.
+- Energy VAD requires consecutive speech frames and raises its speech threshold during assistant playback to reduce false barge-in from speaker feedback.
 - Automated verification on 2026-06-19: 47 targeted Python tests passed across desktop shell, media-session persistence, and API contracts; frontend TypeScript checking passed.
+- Phase B closeout verification on 2026-06-20: Python compilation, focused interruption/latency API tests, and frontend TypeScript checking passed.
 - The frontend currently has no component/unit-test runner for synthetic `MediaRecorder`, keyboard, or audio playback events. Real microphone permission timing, focused-window key delivery, and audible playback interruption therefore remain device-level checks.
 - Manual QA on 2026-05-27 confirmed click-to-record voice capture, browser `webm/opus` upload, transcription, voice auto-send, text chat, and provider-backed assistant responses.
 - Runtime fixes from QA:

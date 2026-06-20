@@ -10,6 +10,7 @@ import re
 import shutil
 import subprocess
 import tempfile
+import time
 import uuid
 from datetime import datetime
 from typing import Any, Dict, Iterable, List
@@ -1220,6 +1221,11 @@ async def chat_v2(request: V2ChatRequest):
         request.session_id,
         assistant_turn_id=client_turn_id,
         turn_state="thinking",
+        model_latency_ms=0,
+        tts_generation_latency_ms=0,
+        first_audio_latency_ms=0,
+        end_to_end_latency_ms=0,
+        playback_latency_ms=0,
         last_error=None,
     )
     await _publish_media_session(request.session_id, assistant_state)
@@ -1283,6 +1289,7 @@ async def chat_v2(request: V2ChatRequest):
         request.session_id,
         client_turn_id,
     )
+    model_started = time.perf_counter()
     response = await asyncio.to_thread(
         agent.reply,
         history,
@@ -1292,6 +1299,7 @@ async def chat_v2(request: V2ChatRequest):
         attachment_contexts=attachment_contexts,
         extra_context=sharing_extra_context,
     )
+    model_latency_ms = int((time.perf_counter() - model_started) * 1000)
     await flush_deltas()
     session = memory_store.get_session(request.session_id)
     if session is None:
@@ -1309,6 +1317,19 @@ async def chat_v2(request: V2ChatRequest):
     assistant_message_resource = _message_resource(assistant_message)
     tool_call_resources = _tool_call_resources(response.tool_calls)
     turn_is_active = _assistant_turn_is_active(request.session_id, client_turn_id)
+    if turn_is_active:
+        assistant_state = media_sessions.update(
+            request.session_id,
+            model_latency_ms=model_latency_ms,
+        )
+        await _publish_media_session(request.session_id, assistant_state)
+    else:
+        if response.assistant_message_id is not None:
+            memory_store.delete_chat_message(
+                response.assistant_message_id,
+                session_id=request.session_id,
+                role="assistant",
+            )
 
     pending_approvals = []
     for tool_call in response.tool_calls if turn_is_active else []:
@@ -1653,11 +1674,16 @@ async def transcribe_media(request: MediaTranscribeRequest):
 
 @router.post("/avatar/sync", response_model=AvatarSyncResponse)
 async def avatar_sync(request: AvatarSyncRequest):
+    tts_started = time.perf_counter()
     sync_data = agent.say_and_sync(request.text, request.session_id)
+    tts_generation_latency_ms = int((time.perf_counter() - tts_started) * 1000)
     media_state = media_sessions.update(
         request.session_id,
         speaking_state="queued",
         turn_state="speaking",
+        tts_generation_latency_ms=tts_generation_latency_ms,
+        first_audio_latency_ms=0,
+        end_to_end_latency_ms=0,
         playback_latency_ms=0,
         last_error=None,
     )

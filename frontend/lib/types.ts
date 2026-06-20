@@ -184,6 +184,10 @@ export type MediaSession = {
   end_of_speech_to_transcript_ms?: number | null;
   speech_duration_ms?: number | null;
   speech_detected: boolean;
+  model_latency_ms?: number | null;
+  tts_generation_latency_ms?: number | null;
+  first_audio_latency_ms?: number | null;
+  end_to_end_latency_ms?: number | null;
   playback_latency_ms?: number | null;
   interruption_count: number;
   last_error?: string | null;
