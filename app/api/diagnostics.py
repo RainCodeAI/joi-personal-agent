@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import shutil
 from typing import Any, Dict
 
 import httpx
@@ -122,6 +123,8 @@ def _media_diagnostics() -> Dict[str, Any]:
     elevenlabs_available = _module_available("elevenlabs")
     local_voice_available = _module_available("speech_recognition") and _module_available("pyttsx3")
     vision_available = _module_available("transformers") and _module_available("PIL")
+    pytesseract_available = _module_available("pytesseract")
+    tesseract_path = shutil.which("tesseract")
     whisper_available = _module_available("whisper")
 
     return {
@@ -139,6 +142,10 @@ def _media_diagnostics() -> Dict[str, Any]:
         "vision": {
             "captioning_stack": vision_available,
             "torch": _module_available("torch"),
+            "ocr_wrapper": pytesseract_available,
+            "ocr_executable": bool(tesseract_path),
+            "ocr_available": pytesseract_available and bool(tesseract_path),
+            "ocr_path": tesseract_path,
         },
     }
 

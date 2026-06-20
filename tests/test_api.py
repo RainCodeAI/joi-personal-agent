@@ -14,7 +14,7 @@ from app.api.main import app
 from app.api.models import ChatResponse
 from app.api.realtime import RealtimeEventBus, format_sse_event
 from app.api import v2 as api_v2
-from app.api.v2_models import ChatAttachmentResource
+from app.api.v2_models import ChatAttachmentRequest, ChatAttachmentResource
 from app.api import diagnostics as diagnostics_api
 from app.hardware.bridge import HardwareBridgeStore
 from app.hardware import mqtt_bridge as mqtt_bridge_module
@@ -153,6 +153,36 @@ def test_runtime_diagnostics(monkeypatch):
     assert body["media"]["tts"]["openai"] is True
     assert body["realtime"]["transport"] == "sse"
     assert body["hardware_bridge"]["enabled"] is False
+
+
+def test_media_diagnostics_reports_local_ocr_capability(monkeypatch):
+    available_modules = {
+        "pytesseract",
+        "PIL",
+        "transformers",
+        "torch",
+        "speech_recognition",
+        "pyttsx3",
+    }
+    monkeypatch.setattr(
+        diagnostics_api,
+        "_module_available",
+        lambda module_name: module_name in available_modules,
+    )
+    monkeypatch.setattr(
+        diagnostics_api.shutil,
+        "which",
+        lambda executable: "C:\\Program Files\\Tesseract-OCR\\tesseract.exe"
+        if executable == "tesseract"
+        else None,
+    )
+
+    diagnostics = diagnostics_api._media_diagnostics()
+
+    assert diagnostics["vision"]["ocr_wrapper"] is True
+    assert diagnostics["vision"]["ocr_executable"] is True
+    assert diagnostics["vision"]["ocr_available"] is True
+    assert diagnostics["vision"]["ocr_path"].endswith("tesseract.exe")
 
 
 def test_v2_create_session(monkeypatch):
@@ -431,6 +461,11 @@ def test_v2_chat_with_attachments_and_deltas(monkeypatch):
             return "neutral"
 
     monkeypatch.setattr(api_v2, "CravingEngine", FakeCravingEngine)
+    monkeypatch.setattr(
+        api_v2.life_state_engine,
+        "on_joi_state_changed",
+        lambda state: "engaged" if state == "thinking" else "calm",
+    )
 
     response = client.post(
         "/api/v2/chat",
@@ -615,6 +650,78 @@ def test_v2_interrupted_chat_discards_assistant_message(monkeypatch):
     assert "message.completed" not in published
     assert "avatar.state" not in published
     assert response.json()["pending_approvals"] == []
+
+
+def test_screen_capture_attachment_requires_manual_policy(monkeypatch):
+    attachment = ChatAttachmentRequest(
+        id="screen-1",
+        kind="image",
+        name="screen.jpg",
+        media_type="image/jpeg",
+        data_url="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
+        source="screen_capture",
+        capture_metadata={
+            "display_surface": "window",
+            "source_label": "Visual Studio Code - app.py",
+            "width": "1920",
+            "height": "1080",
+        },
+    )
+    monkeypatch.setattr(
+        api_v2.perception_policy,
+        "get",
+        lambda: {"screen_access": "disabled"},
+    )
+
+    with pytest.raises(HTTPException) as exc:
+        api_v2._attachment_context(attachment)
+
+    assert exc.value.status_code == 403
+    assert "Screen capture is disabled" in str(exc.value.detail)
+
+
+def test_screen_capture_attachment_is_transient_context(monkeypatch):
+    attachment = ChatAttachmentRequest(
+        id="screen-2",
+        kind="image",
+        name="screen.jpg",
+        media_type="image/jpeg",
+        data_url="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
+        source="screen_capture",
+        capture_metadata={
+            "display_surface": "window",
+            "source_label": "Visual Studio Code - app.py",
+            "width": "1920",
+            "height": "1080",
+        },
+    )
+    monkeypatch.setattr(
+        api_v2.perception_policy,
+        "get",
+        lambda: {"screen_access": "manual_only"},
+    )
+    monkeypatch.setattr(api_v2.vision_clip, "describe_image", lambda image: "a code editor")
+    monkeypatch.setattr(
+        api_v2.screen_context,
+        "extract_local_ocr",
+        lambda image: ("Traceback in app.py\npassword=[REDACTED]", "complete"),
+    )
+
+    resource, context = api_v2._attachment_context(attachment)
+
+    assert resource.source == "screen_capture"
+    assert resource.preview_text == "a code editor"
+    assert resource.capture_metadata == {
+        "display_surface": "window",
+        "source_label": "Visual Studio Code - app.py",
+        "width": "1920",
+        "height": "1080",
+    }
+    assert resource.ocr_status == "complete"
+    assert "Visual description: a code editor" in context
+    assert "selected source 'Visual Studio Code - app.py'" in context
+    assert "Traceback in app.py" in context
+    assert "password=[REDACTED]" in context
 
 
 def test_v2_approve_action(monkeypatch):

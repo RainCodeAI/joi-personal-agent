@@ -74,6 +74,36 @@ export function PerceptionPolicyForm({ policy: initialPolicy }: PerceptionPolicy
         </div>
       </div>
 
+      <div className="panel">
+        <p className="eyebrow">Screen Access</p>
+        <h3>One-shot desktop context</h3>
+        <p style={{ fontSize: "0.82rem", color: "var(--color-muted)", margin: "6px 0 14px" }}>
+          Manual capture opens the operating-system screen/window picker every time. Joi cannot
+          capture silently or continuously, and the raw frame is discarded after the chat request.
+        </p>
+        <div className="button-row">
+          <button
+            className={`button ${policy.screen_access === "disabled" ? "secondary" : "ghost"}`}
+            type="button"
+            disabled={status === "saving"}
+            onClick={() => void save({ screen_access: "disabled" })}
+          >
+            Disabled
+          </button>
+          <button
+            className={`button ${policy.screen_access === "manual_only" ? "secondary" : "ghost"}`}
+            type="button"
+            disabled={status === "saving"}
+            onClick={() => void save({ screen_access: "manual_only" })}
+          >
+            Manual only
+          </button>
+          <span className={`badge ${policy.screen_access === "disabled" ? "ok" : "warn"}`}>
+            {policy.screen_access === "disabled" ? "no access" : "asks every time"}
+          </span>
+        </div>
+      </div>
+
       {/* ── Live-only section ──────────────────────────────────────────── */}
       <div className="panel">
         <p className="eyebrow">Always Local</p>
@@ -195,6 +225,12 @@ export function PerceptionPolicyForm({ policy: initialPolicy }: PerceptionPolicy
             <span>Camera access</span>
             <span className={`badge ${policy.camera_enabled ? "ok" : "warn"}`}>
               {policy.camera_enabled ? "enabled" : "disabled"}
+            </span>
+          </div>
+          <div className="list-row">
+            <span>Screen access</span>
+            <span className={`badge ${policy.screen_access === "disabled" ? "ok" : "warn"}`}>
+              {policy.screen_access === "disabled" ? "disabled" : "manual only"}
             </span>
           </div>
           <div className="list-row">

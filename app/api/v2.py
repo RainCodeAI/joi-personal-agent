@@ -142,6 +142,7 @@ from app.orchestrator.day_planner import build_planner_snapshot, generate_day_pl
 from app.orchestrator.craving_engine import CravingEngine
 from app.orchestrator.security.approval import ApprovalStatus, PendingApproval
 from app.tools import vision_clip
+from app.tools import screen_context
 from app.tools import calendar_gcal, email_gmail
 from app.tools.voice import voice_tools
 from app.vault import delete_secret
@@ -410,8 +411,19 @@ def _transcribe_browser_audio(raw_bytes: bytes, media_type: str) -> str:
 def _attachment_context(attachment: ChatAttachmentRequest) -> tuple[ChatAttachmentResource, str]:
     attachment_id = attachment.id or str(uuid.uuid4())
 
+    if attachment.source == "screen_capture":
+        policy = perception_policy.get()
+        if policy.get("screen_access", "disabled") != "manual_only":
+            raise HTTPException(
+                status_code=403,
+                detail="Screen capture is disabled. Enable manual screen capture in perception settings.",
+            )
+
     try:
-        decoded_mime, raw_bytes = _decode_data_url(attachment.data_url)
+        decoded_mime, raw_bytes = _decode_data_url(
+            attachment.data_url,
+            max_bytes=MAX_ATTACHMENT_BYTES,
+        )
     except Exception as exc:
         resource = ChatAttachmentResource(
             id=attachment_id,
@@ -420,6 +432,11 @@ def _attachment_context(attachment: ChatAttachmentRequest) -> tuple[ChatAttachme
             media_type=attachment.media_type,
             size_bytes=attachment.size_bytes or 0,
             preview_text=f"Attachment decode failed: {exc}",
+            source=attachment.source,
+            capture_metadata=screen_context.sanitize_capture_metadata(
+                attachment.capture_metadata
+            ),
+            ocr_status="unavailable" if attachment.source == "screen_capture" else None,
         )
         return resource, f"User attached '{attachment.name}', but the file could not be decoded."
 
@@ -434,23 +451,44 @@ def _attachment_context(attachment: ChatAttachmentRequest) -> tuple[ChatAttachme
             Image.MAX_IMAGE_PIXELS = MAX_IMAGE_PIXELS
             image = Image.open(io.BytesIO(raw_bytes)).convert("RGB")
             preview_text = vision_clip.describe_image(image)
-            context_text = (
-                f"Image attachment '{attachment.name}' described as: {preview_text}"
+            capture_metadata = screen_context.sanitize_capture_metadata(
+                attachment.capture_metadata
             )
+            if attachment.source == "screen_capture":
+                ocr_text, ocr_status = screen_context.extract_local_ocr(image)
+                screen_summary = screen_context.build_screen_context(
+                    visual_description=preview_text,
+                    ocr_text=ocr_text,
+                    metadata=capture_metadata,
+                )
+                context_text = f"Screen capture '{attachment.name}':\n{screen_summary}"
+            else:
+                ocr_status = "not_requested"
+                context_text = (
+                    f"Image attachment '{attachment.name}' described as: {preview_text}"
+                )
             kind = "image"
         except Exception as exc:
             preview_text = f"Image processing failed: {exc}"
             context_text = f"Image attachment '{attachment.name}' could not be processed."
             kind = "image"
+            capture_metadata = screen_context.sanitize_capture_metadata(
+                attachment.capture_metadata
+            )
+            ocr_status = "unavailable" if attachment.source == "screen_capture" else None
     elif attachment.kind == "text" or media_type.startswith("text/"):
         excerpt = raw_bytes.decode("utf-8", errors="replace").strip()
         preview_text = excerpt[:240] if excerpt else "Empty text attachment."
         context_text = f"Text attachment '{attachment.name}' excerpt: {excerpt[:1200] or '[empty]'}"
         kind = "text"
+        capture_metadata = {}
+        ocr_status = None
     else:
         preview_text = f"{attachment.name} ({media_type})"
         context_text = f"File attachment '{attachment.name}' ({media_type}) was shared."
         kind = "file"
+        capture_metadata = {}
+        ocr_status = None
 
     resource = ChatAttachmentResource(
         id=attachment_id,
@@ -459,6 +497,9 @@ def _attachment_context(attachment: ChatAttachmentRequest) -> tuple[ChatAttachme
         media_type=media_type,
         size_bytes=attachment.size_bytes or len(raw_bytes),
         preview_text=preview_text,
+        source=attachment.source,
+        capture_metadata=capture_metadata,
+        ocr_status=ocr_status,
     )
     return resource, context_text
 
@@ -1242,6 +1283,23 @@ async def chat_v2(request: V2ChatRequest):
         attachment_resources.append(resource)
         attachment_contexts.append(context_text)
 
+    for attachment in attachment_resources:
+        if attachment.source == "screen_capture":
+            await event_bus.publish(
+                "perception.screen_captured",
+                {
+                    "attachment_id": attachment.id,
+                    "name": attachment.name,
+                    "media_type": attachment.media_type,
+                    "size_bytes": attachment.size_bytes,
+                    "capture_metadata": attachment.capture_metadata,
+                    "ocr_status": attachment.ocr_status,
+                    "retained": False,
+                },
+                session_id=request.session_id,
+                source="perception",
+            )
+
     visible_user_text = _visible_user_text(request.text, attachment_resources)
 
     await event_bus.publish(
@@ -1713,6 +1771,7 @@ async def avatar_sync(request: AvatarSyncRequest):
 def _perception_policy_resource(policy: dict) -> PerceptionPolicyResource:
     return PerceptionPolicyResource(
         camera_enabled=policy.get("camera_enabled", True),
+        screen_access=policy.get("screen_access", "disabled"),
         retain_expressions=policy.get("retain_expressions", False),
         retain_snapshots=policy.get("retain_snapshots", False),
         retention_days=policy.get("retention_days", 0),
@@ -1732,8 +1791,8 @@ async def patch_perception_policy(request: PerceptionPolicyPatchRequest):
         raise HTTPException(status_code=400, detail="No fields provided")
     try:
         updated = perception_policy.update(patch)
-    except KeyError as exc:
-        raise HTTPException(status_code=400, detail=f"Unknown policy field: {exc}") from exc
+    except (KeyError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=f"Invalid perception policy: {exc}") from exc
     await event_bus.publish(
         "settings.updated",
         {"scope": "perception_policy", "policy": updated},

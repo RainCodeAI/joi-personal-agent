@@ -142,6 +142,8 @@ class ChatAttachmentRequest(BaseModel):
     media_type: str
     data_url: str
     size_bytes: Optional[int] = None
+    source: Literal["user_upload", "screen_capture", "camera_snapshot"] = "user_upload"
+    capture_metadata: Dict[str, str] = Field(default_factory=dict)
 
 
 class ChatAttachmentResource(BaseModel):
@@ -151,6 +153,9 @@ class ChatAttachmentResource(BaseModel):
     media_type: str
     size_bytes: int = 0
     preview_text: Optional[str] = None
+    source: Literal["user_upload", "screen_capture", "camera_snapshot"] = "user_upload"
+    capture_metadata: Dict[str, str] = Field(default_factory=dict)
+    ocr_status: Optional[Literal["complete", "unavailable", "not_requested"]] = None
 
 
 class V2ChatRequest(BaseModel):
@@ -712,6 +717,7 @@ class PlannerGenerateResponse(V2ResponseBase):
 
 class PerceptionPolicyResource(BaseModel):
     camera_enabled: bool = True
+    screen_access: Literal["disabled", "manual_only"] = "disabled"
     retain_expressions: bool = False
     retain_snapshots: bool = False
     retention_days: int = 0
@@ -724,6 +730,7 @@ class PerceptionPolicyResponse(V2ResponseBase):
 
 class PerceptionPolicyPatchRequest(BaseModel):
     camera_enabled: Optional[bool] = None
+    screen_access: Optional[Literal["disabled", "manual_only"]] = None
     retain_expressions: Optional[bool] = None
     retain_snapshots: Optional[bool] = None
     retention_days: Optional[int] = None

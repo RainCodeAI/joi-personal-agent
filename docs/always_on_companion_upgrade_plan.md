@@ -341,6 +341,8 @@ Priority: **highest capability gap**
 
 Goal: let Joi understand the desktop only when the user permits it.
 
+Status as of 2026-06-20: **code closeout implemented; packaged device QA remains**
+
 Work:
 
 - Extend perception policy with:
@@ -363,6 +365,25 @@ Work:
 Exit criteria:
 
 - “Joi, look at this” captures an approved screen/window, describes it, and can answer a follow-up without storing the image.
+
+Foundation update:
+
+- Screen access defaults to disabled and currently supports only `manual_only`.
+- “Look at this” invokes the browser/operating-system screen or window picker for explicit consent on every capture.
+- Capture stops immediately after one frame; audio and continuous screen streaming are not requested.
+- Captured frames are downscaled, visibly marked as transient chat attachments, and discarded after successful send or explicit removal.
+- The API rejects screen-sourced attachments unless manual screen access is enabled.
+- Realtime audit events contain capture metadata and explicitly report `retained: false`; raw image bytes are never included.
+- Existing image-description infrastructure supplies compact screen context to the active conversation turn.
+- Local OCR now contributes sanitized visible text when the `pytesseract` wrapper and local Tesseract executable are available, and degrades to visual description when they are not.
+- Browser-provided selected-source metadata records the display type, source label, and dimensions; labels and OCR are redacted before prompt, audit, or persistence use.
+- `Ctrl+Shift+L` opens Joi and routes to the same explicit-consent “Look at this” flow.
+- The native window title and tray status visibly report capture activity while the operating-system picker/frame capture is active.
+- Runtime diagnostics and Settings report whether local OCR is ready or visual-description-only.
+- Phase C code verification covers policy persistence, transient capture enforcement, redaction, OCR fallback, diagnostics, native indicator state, and hotkey dispatch.
+- Next implementation slice:
+  - validate screen/window picking inside packaged WebView2
+  - add selected-region capture and application allowlist/denylist controls if needed after device QA
 
 ### Phase D — Context event layer and restrained commentary
 

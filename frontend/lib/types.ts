@@ -52,6 +52,9 @@ export type ChatAttachment = {
   media_type: string;
   size_bytes: number;
   preview_text?: string | null;
+  source?: "user_upload" | "screen_capture" | "camera_snapshot";
+  capture_metadata?: Record<string, string>;
+  ocr_status?: "complete" | "unavailable" | "not_requested" | null;
 };
 
 export type ChatAttachmentInput = {
@@ -62,6 +65,8 @@ export type ChatAttachmentInput = {
   data_url: string;
   size_bytes?: number;
   preview_url?: string;
+  source?: "user_upload" | "screen_capture" | "camera_snapshot";
+  capture_metadata?: Record<string, string>;
 };
 
 export type Approval = {
@@ -327,6 +332,7 @@ export type PerceptionSignal = {
 
 export type PerceptionPolicy = {
   camera_enabled: boolean;
+  screen_access: "disabled" | "manual_only";
   retain_expressions: boolean;
   retain_snapshots: boolean;
   retention_days: number;

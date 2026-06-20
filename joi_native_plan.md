@@ -142,6 +142,12 @@ Success criteria:
 - Automated verification on 2026-06-19: 47 targeted Python tests passed across desktop shell, media-session persistence, and API contracts; frontend TypeScript checking passed.
 - Phase B closeout verification on 2026-06-20: Python compilation, focused interruption/latency API tests, and frontend TypeScript checking passed.
 - The frontend currently has no component/unit-test runner for synthetic `MediaRecorder`, keyboard, or audio playback events. Real microphone permission timing, focused-window key delivery, and audible playback interruption therefore remain device-level checks.
+- Phase C one-shot screen capture now defaults off, requires `manual_only` policy plus the operating-system picker on every use, stops after one frame, and sends the frame only as a transient chat attachment.
+- Screen-sourced attachments are rejected server-side while screen access is disabled; audit events contain metadata only and report that the raw capture was not retained.
+- Screen context now combines image description, optional local Tesseract OCR, and browser-provided selected-source metadata. OCR and source labels are allowlisted, compacted, and redacted before they enter prompts or audit events.
+- `Ctrl+Shift+L` now opens/focuses Joi and invokes the explicit screen picker. The native title and tray status show when capture is active, and Settings exposes OCR readiness.
+- Phase C closeout verification on 2026-06-20 covers API, persistence, screen-context redaction, desktop shell/hotkey behavior, Python compilation, and frontend TypeScript checking.
+- Packaged WebView2 screen-picker behavior remains a device-level validation item.
 - Manual QA on 2026-05-27 confirmed click-to-record voice capture, browser `webm/opus` upload, transcription, voice auto-send, text chat, and provider-backed assistant responses.
 - Runtime fixes from QA:
   - Frozen launches re-enter the packaged executable for API and native-window child modes instead of trying to execute bundled source files or `python -m`.

@@ -16,9 +16,14 @@ from pathlib import Path
 from typing import Any
 
 try:
-    from desktop.local_control import LocalControlServer, WINDOW_CONTROL_PORT, send_command
+    from desktop.local_control import (
+        LocalControlServer,
+        TRAY_CONTROL_PORT,
+        WINDOW_CONTROL_PORT,
+        send_command,
+    )
 except ModuleNotFoundError:
-    from local_control import LocalControlServer, WINDOW_CONTROL_PORT, send_command
+    from local_control import LocalControlServer, TRAY_CONTROL_PORT, WINDOW_CONTROL_PORT, send_command
 
 log = logging.getLogger("joi.window")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -38,6 +43,7 @@ DEFAULT_URL = os.environ.get("JOI_APP_URL", "http://localhost:3000")
 DEFAULT_API_URL = os.environ.get("NEXT_PUBLIC_API_BASE_URL", "http://127.0.0.1:8000")
 VOICE_PTT_START_EVENT = "joi:native-ptt-start"
 VOICE_PTT_STOP_EVENT = "joi:native-ptt-stop"
+SCREEN_CAPTURE_EVENT = "joi:native-look-at-this"
 
 DEFAULT_WINDOW_STATE: dict[str, Any] = {
     "width": 1280,
@@ -104,7 +110,22 @@ def dispatch_browser_event(window: Any, event_name: str) -> None:
         log.debug("Could not dispatch %s to the web UI: %s", event_name, exc)
 
 
-def register_voice_hotkey(window: Any) -> None:
+class NativeShellApi:
+    def __init__(self) -> None:
+        self.window: Any | None = None
+
+    def set_capture_active(self, active: bool) -> bool:
+        title = "Joi - Screen capture active" if active else "Joi"
+        if self.window is not None:
+            try:
+                self.window.set_title(title)
+            except Exception as exc:
+                log.debug("Could not update native capture title: %s", exc)
+        send_command(TRAY_CONTROL_PORT, "capture_start" if active else "capture_end")
+        return True
+
+
+def register_native_hotkeys(window: Any) -> None:
     try:
         import keyboard
     except ImportError:
@@ -149,6 +170,9 @@ def register_voice_hotkey(window: Any) -> None:
         log.info("Native push-to-talk registered: Ctrl+Shift+Space")
     except Exception as exc:
         log.warning("Could not register native push-to-talk hotkey: %s", exc)
+
+
+register_voice_hotkey = register_native_hotkeys
 
 
 def launch_window(
@@ -204,7 +228,9 @@ def launch_window(
         window_kwargs["y"] = y
 
     try:
-        window = webview.create_window("Joi", url, **window_kwargs)
+        native_api = NativeShellApi()
+        window = webview.create_window("Joi", url, js_api=native_api, **window_kwargs)
+        native_api.window = window
     except Exception as exc:
         log.exception("Could not create the Joi desktop window: %s", exc)
         if browser_fallback:
@@ -243,6 +269,10 @@ def launch_window(
             if command == "quit":
                 window.destroy()
                 return True
+            if command == "look_at_this":
+                window.show()
+                dispatch_browser_event(window, SCREEN_CAPTURE_EVENT)
+                return True
         except Exception as exc:
             log.warning("Window command failed (%s): %s", command, exc)
         return False
@@ -255,7 +285,7 @@ def launch_window(
         except OSError as exc:
             log.warning("Could not start window control server: %s", exc)
         if voice_hotkey:
-            register_voice_hotkey(window)
+            register_native_hotkeys(window)
 
     log.info("Opening Joi desktop shell: %s", url)
     try:

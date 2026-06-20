@@ -133,6 +133,7 @@ class JoiTrayApp:
         self._lock = threading.RLock()
         self._control_server: LocalControlServer | None = None
         self._watchdog_thread: threading.Thread | None = None
+        self._capture_active = False
         self._restart_history: dict[str, deque[float]] = {
             "api": deque(),
             "frontend": deque(),
@@ -189,6 +190,8 @@ class JoiTrayApp:
         return self.api_running() and self.frontend_running()
 
     def status_text(self) -> str:
+        if self._capture_active:
+            return "Status: screen capture active"
         if self.stack_running():
             return "Status: running"
         if self.api_running() or self.frontend_running():
@@ -282,6 +285,7 @@ class JoiTrayApp:
 
     def stop_stack(self) -> None:
         self._desired_running = False
+        self._capture_active = False
         self.close_window()
         self.stop_frontend()
         self.stop_api()
@@ -398,6 +402,10 @@ class JoiTrayApp:
                     log.error("%s watchdog restart failed: %s", name, exc)
 
     def _handle_control_command(self, command: str) -> bool:
+        if command in {"capture_start", "capture_end"}:
+            self._capture_active = command == "capture_start"
+            self._update_icon()
+            return True
         if command in {"show", "focus"}:
             self.open_joi()
             return True
@@ -483,12 +491,22 @@ class JoiTrayApp:
             import keyboard
 
             keyboard.add_hotkey("ctrl+space", self.open_joi)
+            keyboard.add_hotkey("ctrl+shift+l", self._trigger_screen_capture)
             log.info("Global hotkey registered: Ctrl+Space")
+            log.info("Global screen capture hotkey registered: Ctrl+Shift+L")
             keyboard.wait()
         except ImportError:
             log.warning("keyboard package not installed. Global hotkey disabled.")
         except Exception as exc:
             log.warning("Could not register hotkey: %s", exc)
+
+    def _trigger_screen_capture(self) -> None:
+        self.open_joi()
+        for _ in range(15):
+            if send_command(WINDOW_CONTROL_PORT, "look_at_this"):
+                return
+            time.sleep(0.2)
+        log.warning("Could not deliver screen capture hotkey to the Joi window.")
 
 
 def send_notification(title: str, message: str) -> None:

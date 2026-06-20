@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from app.api.media_session import MediaSessionStore
+from app.api.perception_policy import PerceptionPolicyStore
 from app.orchestrator.security.approval import ApprovalStatus, ToolApprovalManager
 
 
@@ -67,3 +68,28 @@ def test_media_session_backfills_voice_state_fields(tmp_path: Path) -> None:
     assert restored["turn_state"] == "idle"
     assert restored["assistant_turn_id"] is None
     assert restored["speech_detected"] is False
+
+
+def test_perception_policy_defaults_screen_access_off_and_persists_manual_mode(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "perception.json"
+    first = PerceptionPolicyStore(path)
+
+    assert first.get()["screen_access"] == "disabled"
+
+    first.update({"screen_access": "manual_only"})
+    restored = PerceptionPolicyStore(path)
+
+    assert restored.get()["screen_access"] == "manual_only"
+
+
+def test_perception_policy_rejects_unknown_screen_mode(tmp_path: Path) -> None:
+    store = PerceptionPolicyStore(tmp_path / "perception.json")
+
+    try:
+        store.update({"screen_access": "continuous"})
+    except ValueError as exc:
+        assert "screen_access" in str(exc)
+    else:
+        raise AssertionError("continuous screen access must be rejected")

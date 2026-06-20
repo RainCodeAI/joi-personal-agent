@@ -28,7 +28,7 @@ if not NODE_EXE:
 
 # Collect metadata for packages that check their own version at runtime
 my_datas = []
-for pkg in ['streamlit', 'tqdm', 'regex', 'requests', 'packaging', 'filelock', 'numpy', 'tokenizers', 'huggingface-hub', 'safetensors', 'accelerate']:
+for pkg in ['streamlit', 'tqdm', 'regex', 'requests', 'packaging', 'filelock', 'numpy', 'tokenizers', 'huggingface-hub', 'safetensors', 'accelerate', 'pytesseract']:
     try:
         my_datas += copy_metadata(pkg)
     except Exception as e:
@@ -81,6 +81,7 @@ a = Analysis(
         "numpy",
         "pandas",
         "PIL",
+        "pytesseract",
         "pydantic",
         "pydantic_settings",
         "dotenv",

@@ -13,6 +13,7 @@ import {
   denyAction,
   fetchBackendHealth,
   fetchMediaSession,
+  fetchPerceptionPolicy,
   listApprovals,
   listMessages,
   patchMediaSession,
@@ -79,6 +80,18 @@ type DesktopActionDraft = {
   action: DesktopActionName;
   args: Record<string, unknown>;
 };
+
+type PyWebviewCaptureApi = {
+  set_capture_active?: (active: boolean) => Promise<boolean> | boolean;
+};
+
+declare global {
+  interface Window {
+    pywebview?: {
+      api?: PyWebviewCaptureApi;
+    };
+  }
+}
 
 const RUNTIME_READINESS_KEYS = [
   "providers",
@@ -296,7 +309,76 @@ function toAttachmentResource(draft: AttachmentDraft): ChatAttachment {
     media_type: draft.media_type,
     size_bytes: draft.size_bytes ?? 0,
     preview_text: draft.preview_text ?? null,
+    source: draft.source ?? "user_upload",
+    capture_metadata: draft.capture_metadata ?? {},
   };
+}
+
+async function captureSelectedScreen(): Promise<AttachmentDraft> {
+  if (!navigator.mediaDevices?.getDisplayMedia) {
+    throw new Error("Screen capture is not supported in this browser.");
+  }
+
+  const stream = await navigator.mediaDevices.getDisplayMedia({
+    video: true,
+    audio: false,
+  });
+  try {
+    const videoTrack = stream.getVideoTracks()[0];
+    const trackSettings = videoTrack?.getSettings();
+    const video = document.createElement("video");
+    video.srcObject = stream;
+    video.muted = true;
+    video.playsInline = true;
+    await new Promise<void>((resolve, reject) => {
+      video.onloadedmetadata = () => resolve();
+      video.onerror = () => reject(new Error("The selected screen could not be read."));
+    });
+    await video.play();
+
+    const maxDimension = 1920;
+    const scale = Math.min(1, maxDimension / Math.max(video.videoWidth, video.videoHeight));
+    const width = Math.max(1, Math.round(video.videoWidth * scale));
+    const height = Math.max(1, Math.round(video.videoHeight * scale));
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    const context = canvas.getContext("2d");
+    if (!context) {
+      throw new Error("Screen capture canvas is unavailable.");
+    }
+    context.drawImage(video, 0, 0, width, height);
+    const dataUrl = canvas.toDataURL("image/jpeg", 0.86);
+    const estimatedBytes = Math.max(0, Math.floor((dataUrl.length - dataUrl.indexOf(",") - 1) * 0.75));
+    const capturedAt = new Date();
+    return {
+      id: crypto.randomUUID(),
+      kind: "image",
+      name: `screen-${capturedAt.toISOString().replace(/[:.]/g, "-")}.jpg`,
+      media_type: "image/jpeg",
+      data_url: dataUrl,
+      size_bytes: estimatedBytes,
+      preview_url: dataUrl,
+      preview_text: "One-shot screen capture. Raw image is discarded after this chat request.",
+      source: "screen_capture",
+      capture_metadata: {
+        display_surface: String(trackSettings?.displaySurface ?? "unknown"),
+        source_label: videoTrack?.label || "Selected screen or window",
+        width: String(video.videoWidth),
+        height: String(video.videoHeight),
+      },
+    };
+  } finally {
+    stream.getTracks().forEach((track) => track.stop());
+  }
+}
+
+async function setNativeCaptureIndicator(active: boolean) {
+  try {
+    await window.pywebview?.api?.set_capture_active?.(active);
+  } catch {
+    // Browser launches do not expose the native shell bridge.
+  }
 }
 
 export function ChatClient({ initialSessionId }: ChatClientProps) {
@@ -735,6 +817,41 @@ export function ChatClient({ initialSessionId }: ChatClientProps) {
     }
   }
 
+  async function handleScreenCapture() {
+    if (isSending) {
+      return;
+    }
+    setStatus("Checking screen-capture permission");
+    try {
+      const response = await fetchPerceptionPolicy();
+      if (response.policy.screen_access !== "manual_only") {
+        setStatus("Screen capture is disabled. Enable manual capture in Settings.");
+        return;
+      }
+      setStatus("Choose a screen or window to share");
+      await setNativeCaptureIndicator(true);
+      const capture = await captureSelectedScreen();
+      setAttachments((current) => [...current, capture]);
+      setStatus("Screen capture ready. Add a question, then send it to Joi.");
+    } catch (error) {
+      if (error instanceof DOMException && error.name === "NotAllowedError") {
+        setStatus("Screen capture cancelled.");
+        return;
+      }
+      setStatus(error instanceof Error ? error.message : "Screen capture failed");
+    } finally {
+      await setNativeCaptureIndicator(false);
+    }
+  }
+
+  useEffect(() => {
+    const handleNativeCapture = () => {
+      void handleScreenCapture();
+    };
+    window.addEventListener("joi:native-look-at-this", handleNativeCapture);
+    return () => window.removeEventListener("joi:native-look-at-this", handleNativeCapture);
+  });
+
   async function handleAvatarSync(messageId: number, text: string, cue: AvatarCue) {
     setAvatarCue(cue);
 
@@ -1093,6 +1210,14 @@ export function ChatClient({ initialSessionId }: ChatClientProps) {
                       <div className="attachment-card" key={attachment.id}>
                         <strong>{attachment.name}</strong>
                         <span>{attachment.media_type}</span>
+                        {attachment.source === "screen_capture" ? (
+                          <span className="badge warn">screen capture</span>
+                        ) : null}
+                        {attachment.ocr_status ? (
+                          <span className={`badge ${attachment.ocr_status === "complete" ? "ok" : ""}`}>
+                            OCR {attachment.ocr_status.replace("_", " ")}
+                          </span>
+                        ) : null}
                         {attachment.preview_text ? <p>{attachment.preview_text}</p> : null}
                       </div>
                     ))}
@@ -1140,6 +1265,14 @@ export function ChatClient({ initialSessionId }: ChatClientProps) {
                 multiple
                 onChange={handleAttachmentSelect}
               />
+              <button
+                className="button secondary"
+                type="button"
+                disabled={!sessionId || isSending}
+                onClick={() => void handleScreenCapture()}
+              >
+                Look at this
+              </button>
               <button className="button primary" disabled={!sessionId || isSending || (!draft.trim() && attachments.length === 0)} type="submit">
                 {isSending ? "Transmitting..." : "Send to Joi"}
               </button>
@@ -1186,6 +1319,9 @@ export function ChatClient({ initialSessionId }: ChatClientProps) {
                   <div className="attachment-card" key={attachment.id ?? attachment.name}>
                     <strong>{attachment.name}</strong>
                     <span>{attachment.media_type}</span>
+                    {attachment.source === "screen_capture" ? (
+                      <span className="badge warn">screen capture · transient</span>
+                    ) : null}
                     {attachment.preview_url ? (
                       <img alt={attachment.name} className="attachment-preview" src={attachment.preview_url} />
                     ) : attachment.preview_text ? (

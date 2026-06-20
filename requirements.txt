@@ -28,6 +28,7 @@ pyaudio
 transformers
 torch>=2.6
 Pillow
+pytesseract>=0.3.10
 sentence-transformers
 pydub
 imageio-ffmpeg

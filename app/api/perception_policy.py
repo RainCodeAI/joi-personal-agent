@@ -11,6 +11,7 @@ class PerceptionPolicyStore:
 
     _defaults: Dict[str, Any] = {
         "camera_enabled": True,
+        "screen_access": "disabled",
         "retain_expressions": False,
         "retain_snapshots": False,
         "retention_days": 0,
@@ -30,6 +31,8 @@ class PerceptionPolicyStore:
         for key, value in patch.items():
             if key not in self._allowed_keys:
                 raise KeyError(key)
+            if key == "screen_access" and value not in {"disabled", "manual_only"}:
+                raise ValueError("screen_access must be 'disabled' or 'manual_only'")
             self._policy[key] = value
         self._policy["last_updated"] = datetime.now(timezone.utc).isoformat()
         self._persist()

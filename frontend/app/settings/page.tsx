@@ -1,16 +1,19 @@
 import { PerceptionPolicyForm } from "@/components/perception-policy-form";
 import { ConnectorSettings } from "@/components/connector-settings";
 import { SettingsForm } from "@/components/settings-form";
-import { fetchConnectors, fetchPerceptionPolicy, fetchSettings } from "@/lib/api";
+import { fetchConnectors, fetchDiagnostics, fetchPerceptionPolicy, fetchSettings } from "@/lib/api";
 
 export const dynamic = "force-dynamic";
 
 export default async function SettingsPage() {
-  const [settingsResponse, policyResponse, connectorResponse] = await Promise.all([
+  const [settingsResponse, policyResponse, connectorResponse, diagnostics] = await Promise.all([
     fetchSettings(),
     fetchPerceptionPolicy(),
     fetchConnectors(),
+    fetchDiagnostics(),
   ]);
+  const visionDiagnostics = diagnostics.media.vision ?? {};
+  const ocrAvailable = visionDiagnostics.ocr_available === true;
 
   return (
     <>
@@ -32,6 +35,14 @@ export default async function SettingsPage() {
           <div className="status-card">
             <span>Camera</span>
             <strong>{policyResponse.policy.camera_enabled ? "On" : "Off"}</strong>
+          </div>
+          <div className="status-card">
+            <span>Screen</span>
+            <strong>{policyResponse.policy.screen_access === "manual_only" ? "Manual" : "Off"}</strong>
+          </div>
+          <div className="status-card">
+            <span>Screen OCR</span>
+            <strong>{ocrAvailable ? "Ready" : "Visual only"}</strong>
           </div>
           <div className="status-card">
             <span>Hardware Bridge</span>
