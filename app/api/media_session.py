@@ -23,6 +23,9 @@ class MediaSessionStore:
             if existing is None:
                 existing = self._default_state(session_id)
                 self._sessions[session_id] = existing
+            else:
+                existing = {**self._default_state(session_id), **existing}
+                self._sessions[session_id] = existing
             return dict(existing)
 
     def update(self, session_id: str, **patch: Any) -> Dict[str, Any]:
@@ -30,6 +33,8 @@ class MediaSessionStore:
             current = self._sessions.get(session_id)
             if current is None:
                 current = self._default_state(session_id)
+            else:
+                current = {**self._default_state(session_id), **current}
             for key, value in patch.items():
                 if value is not None:
                     current[key] = value
@@ -44,11 +49,17 @@ class MediaSessionStore:
         now = datetime.utcnow().isoformat()
         return {
             "session_id": session_id,
+            "assistant_turn_id": None,
+            "voice_mode": "push_to_talk",
+            "turn_state": "idle",
             "mic_state": "idle",
             "speaking_state": "idle",
             "capture_source": "browser",
             "last_transcript": "",
             "recognition_latency_ms": None,
+            "end_of_speech_to_transcript_ms": None,
+            "speech_duration_ms": None,
+            "speech_detected": False,
             "playback_latency_ms": None,
             "interruption_count": 0,
             "last_error": None,

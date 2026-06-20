@@ -329,6 +329,7 @@ export function ChatClient({ initialSessionId }: ChatClientProps) {
   const [autoSendVoiceEnabled, setAutoSendVoiceEnabled] = useState(true);
   const [avatarSyncLoading, setAvatarSyncLoading] = useState(false);
   const [isSending, setIsSending] = useState(false);
+  const isSendingRef = useRef(false);
   const [perceptionState, setPerceptionState] = useState<PerceptionState>({
     userPresent: false,
     faceVisible: false,
@@ -341,6 +342,9 @@ export function ChatClient({ initialSessionId }: ChatClientProps) {
   const [lastSnapshotAnalysis, setLastSnapshotAnalysis] = useState<SnapshotAnalysis | null>(null);
   const lookAwayResetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const bottomRef = useRef<HTMLDivElement | null>(null);
+  const chatAbortControllerRef = useRef<AbortController | null>(null);
+  const activeAssistantTurnIdRef = useRef<string | null>(null);
+  const assistantInterruptedRef = useRef(false);
 
   const handlePerceptionSignal = useCallback((signal: PerceptionSignal) => {
     // Feed camera presence transitions into the initiative activity endpoint.
@@ -490,6 +494,10 @@ export function ChatClient({ initialSessionId }: ChatClientProps) {
     sessionIdRef.current = sessionId;
   }, [sessionId]);
 
+  useEffect(() => {
+    isSendingRef.current = isSending;
+  }, [isSending]);
+
   usePresenceReporter(sessionId);
 
   useEffect(() => {
@@ -542,6 +550,23 @@ export function ChatClient({ initialSessionId }: ChatClientProps) {
     }
 
     const source = createEventStream(sessionId, (event: RealtimeEvent) => {
+      const eventTurnId =
+        typeof event.payload.client_turn_id === "string"
+          ? event.payload.client_turn_id
+          : null;
+      const isAssistantTurnEvent =
+        event.event === "response.started" ||
+        event.event === "message.delta" ||
+        event.event === "message.completed" ||
+        event.event === "avatar.state";
+      if (
+        isAssistantTurnEvent &&
+        eventTurnId &&
+        eventTurnId !== activeAssistantTurnIdRef.current
+      ) {
+        return;
+      }
+
       startTransition(() => {
         setEvents((current) => [event, ...current].slice(0, 30));
       });
@@ -736,11 +761,18 @@ export function ChatClient({ initialSessionId }: ChatClientProps) {
     if (!sessionId) {
       return;
     }
+    if (state.speakingState === "idle" && assistantInterruptedRef.current) {
+      return;
+    }
+    if (state.speakingState === "playing") {
+      assistantInterruptedRef.current = false;
+    }
 
     try {
       const response = await patchMediaSession({
         session_id: sessionId,
         speaking_state: state.speakingState,
+        turn_state: state.speakingState === "playing" ? "speaking" : "idle",
         playback_latency_ms: state.playbackLatencyMs,
       });
       setMediaSession(response.media_session);
@@ -758,11 +790,20 @@ export function ChatClient({ initialSessionId }: ChatClientProps) {
     if (
       autoSendVoiceEnabled &&
       sessionId &&
-      !isSending &&
+      !isSendingRef.current &&
       !draft.trim() &&
       attachments.length === 0
     ) {
       setStatus("Sending voice message");
+      try {
+        const response = await patchMediaSession({
+          session_id: sessionId,
+          turn_state: "thinking",
+        });
+        setMediaSession(response.media_session);
+      } catch {
+        // Chat remains usable if voice-state telemetry cannot be updated.
+      }
       await submitChatMessage(cleanedTranscript, []);
       return;
     }
@@ -776,8 +817,16 @@ export function ChatClient({ initialSessionId }: ChatClientProps) {
   }
 
   async function handleInterruptPlayback(statusMessage = "Voice playback interrupted") {
+    const interruptedTurnId = activeAssistantTurnIdRef.current;
+    assistantInterruptedRef.current = true;
+    activeAssistantTurnIdRef.current = null;
+    chatAbortControllerRef.current?.abort();
+    chatAbortControllerRef.current = null;
     setAvatarSyncPayload(null);
     setAvatarSyncLoading(false);
+    setStreamingText("");
+    isSendingRef.current = false;
+    setIsSending(false);
     setStatus(statusMessage);
 
     if (!sessionId) {
@@ -787,7 +836,9 @@ export function ChatClient({ initialSessionId }: ChatClientProps) {
     try {
       const response = await patchMediaSession({
         session_id: sessionId,
+        assistant_turn_id: interruptedTurnId ?? undefined,
         speaking_state: "interrupted",
+        turn_state: "interrupted",
         interrupted: true,
       });
       setMediaSession(response.media_session);
@@ -818,11 +869,17 @@ export function ChatClient({ initialSessionId }: ChatClientProps) {
     text: string,
     attachmentDrafts: AttachmentDraft[],
   ) {
-    if (!sessionId || isSending || (!text.trim() && attachmentDrafts.length === 0)) {
+    if (!sessionId || isSendingRef.current || (!text.trim() && attachmentDrafts.length === 0)) {
       return;
     }
 
     const cleanedText = text.trim();
+    const clientTurnId = crypto.randomUUID();
+    const abortController = new AbortController();
+    activeAssistantTurnIdRef.current = clientTurnId;
+    assistantInterruptedRef.current = false;
+    chatAbortControllerRef.current?.abort();
+    chatAbortControllerRef.current = abortController;
     const optimisticUser: DisplayMessage = {
       id: Date.now(),
       session_id: sessionId,
@@ -837,15 +894,33 @@ export function ChatClient({ initialSessionId }: ChatClientProps) {
     });
     setDraft("");
     setStreamingText("");
+    isSendingRef.current = true;
     setIsSending(true);
     setStatus("Sending message");
+    try {
+      const response = await patchMediaSession({
+        session_id: sessionId,
+        assistant_turn_id: clientTurnId,
+        turn_state: "thinking",
+      });
+      setMediaSession(response.media_session);
+    } catch {
+      // Chat remains usable if voice-state telemetry cannot be updated.
+    }
 
     try {
       const response: ChatResponse = await sendChatMessageWithAttachments(
         sessionId,
         cleanedText,
         attachmentDrafts.map(({ preview_url, preview_text, ...attachment }) => attachment),
+        {
+          clientTurnId,
+          signal: abortController.signal,
+        },
       );
+      if (activeAssistantTurnIdRef.current !== clientTurnId) {
+        return;
+      }
 
       setProvider(response.provider.selected || "router");
       const approvalResponse = await listApprovals(sessionId);
@@ -866,12 +941,22 @@ export function ChatClient({ initialSessionId }: ChatClientProps) {
         response.avatar,
       );
     } catch (error) {
+      if (
+        abortController.signal.aborted ||
+        (error instanceof DOMException && error.name === "AbortError")
+      ) {
+        return;
+      }
       setStatus(error instanceof Error ? error.message : "Failed to send message");
       startTransition(() => {
         setMessages((current) => current.filter((message) => message.id !== optimisticUser.id));
       });
     } finally {
-      setIsSending(false);
+      if (chatAbortControllerRef.current === abortController) {
+        chatAbortControllerRef.current = null;
+        isSendingRef.current = false;
+        setIsSending(false);
+      }
     }
   }
 
@@ -1064,6 +1149,13 @@ export function ChatClient({ initialSessionId }: ChatClientProps) {
             <VoiceComposer
               sessionId={sessionId}
               mediaSession={mediaSession}
+              assistantTurnActive={
+                isSending ||
+                Boolean(streamingText) ||
+                avatarSyncLoading ||
+                mediaSession?.speaking_state === "queued" ||
+                mediaSession?.speaking_state === "playing"
+              }
               spokenRepliesEnabled={spokenRepliesEnabled}
               autoSendVoiceEnabled={autoSendVoiceEnabled}
               onMediaSession={setMediaSession}

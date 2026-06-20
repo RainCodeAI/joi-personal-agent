@@ -47,6 +47,8 @@ data/perception_policy.json
 data/runtime_settings.json
 data/desktop_shell.json
 data/initiative_state.json
+data/media_sessions.json
+data/pending_approvals.json
 data/user_model_corrections.json
 frontend/tsconfig.tsbuildinfo
 

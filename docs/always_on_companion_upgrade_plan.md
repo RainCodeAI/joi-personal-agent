@@ -288,6 +288,8 @@ Priority: **highest user-facing upgrade**
 
 Goal: make speaking with Joi feel faster and more natural than typing.
 
+Status as of 2026-06-18: **foundation in progress**
+
 Work:
 
 - Introduce a dedicated voice-session state machine:
@@ -314,6 +316,22 @@ Exit criteria:
 
 - Median end-of-speech to first audible response is measured and acceptable.
 - The user can interrupt Joi naturally without pressing Escape.
+
+Foundation update:
+
+- Added explicit persisted voice modes: `push_to_talk` and `conversation`.
+- Added a voice turn-state contract covering listening, speech detection, transcription, thinking, speaking, interruption, and errors.
+- Added local browser energy-based VAD to identify speech.
+- Conversation mode now stops recording automatically after sustained silence or a bounded maximum turn.
+- Conversation mode now re-arms capture between turns and uses browser echo cancellation while Joi is responding.
+- Detected conversation-mode speech immediately stops local playback, aborts the active browser request, and ignores stale per-turn realtime events.
+- Assistant turn IDs and interruption state are persisted with the media session so barge-in telemetry survives restart.
+- Added speech-duration and end-of-speech-to-transcript latency metrics to the media session.
+- Existing push-to-talk, transcription, auto-send, TTS, and interruption behavior remain intact.
+- Next implementation slice:
+  - replace energy-only VAD with a more robust local VAD
+  - add streaming audio transport and partial transcripts
+  - measure model and first-audio latency in the same turn record
 
 ### Phase C — Screen understanding v1
 

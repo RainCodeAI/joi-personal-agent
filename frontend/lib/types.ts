@@ -165,11 +165,25 @@ export type AvatarSyncPayload = {
 
 export type MediaSession = {
   session_id: string;
+  assistant_turn_id?: string | null;
+  voice_mode: "push_to_talk" | "conversation";
+  turn_state:
+    | "idle"
+    | "listening"
+    | "speech_detected"
+    | "transcribing"
+    | "thinking"
+    | "speaking"
+    | "interrupted"
+    | "error";
   mic_state: "idle" | "requesting" | "recording" | "processing" | "error";
   speaking_state: "idle" | "queued" | "playing" | "interrupted" | "error";
   capture_source: string;
   last_transcript: string;
   recognition_latency_ms?: number | null;
+  end_of_speech_to_transcript_ms?: number | null;
+  speech_duration_ms?: number | null;
+  speech_detected: boolean;
   playback_latency_ms?: number | null;
   interruption_count: number;
   last_error?: string | null;

@@ -297,16 +297,29 @@ def test_v2_chat_contract(monkeypatch):
     assert body["pending_approvals"][0]["tool_name"] == "send_email"
     assert body["pending_approvals"][0]["local_only"] is True
     event_names = [event["event"] for event in published_events]
-    assert [name for name in event_names if name != "avatar.life_state_changed"] == [
+    assert [
+        name
+        for name in event_names
+        if name not in {
+            "avatar.life_state_changed",
+            "joi.state.changed",
+            "media.session.updated",
+        }
+    ] == [
         "message.received",
         "response.started",
-        "joi.state.changed",
         "approval.requested",
         "message.created",
         "message.completed",
-        "joi.state.changed",
         "avatar.state",
     ]
+    turn_ids = {
+        event["payload"].get("client_turn_id")
+        for event in published_events
+        if event["event"] in {"message.received", "response.started", "message.completed", "avatar.state"}
+    }
+    assert len(turn_ids) == 1
+    assert None not in turn_ids
     assert "avatar.life_state_changed" in event_names
 
 
@@ -445,22 +458,44 @@ def test_v2_chat_with_attachments_and_deltas(monkeypatch):
     assert captured["attachment_contexts"] == ["Image attachment 'scene.png' described as: a city skyline"]
     assert streamed_chunks == ["I see the ", "skyline."]
     event_names = [event["event"] for event in published_events]
-    assert [name for name in event_names if name != "avatar.life_state_changed"] == [
+    assert [
+        name
+        for name in event_names
+        if name not in {
+            "avatar.life_state_changed",
+            "joi.state.changed",
+            "media.session.updated",
+        }
+    ] == [
         "message.received",
         "response.started",
-        "joi.state.changed",
         "message.delta",
         "message.delta",
         "message.created",
         "message.completed",
-        "joi.state.changed",
         "avatar.state",
     ]
+    turn_ids = {
+        event["payload"].get("client_turn_id")
+        for event in published_events
+        if event["event"] in {
+            "message.received",
+            "response.started",
+            "message.delta",
+            "message.completed",
+            "avatar.state",
+        }
+    }
+    assert len(turn_ids) == 1
+    assert None not in turn_ids
     assert "avatar.life_state_changed" in event_names
     delta_events = [event for event in published_events if event["event"] == "message.delta"]
     assert delta_events[0]["payload"]["content"] == "I see the "
     assert delta_events[1]["payload"]["content"] == "I see the skyline."
-    assert published_events[0]["payload"]["attachments"][0]["name"] == "scene.png"
+    received_event = next(
+        event for event in published_events if event["event"] == "message.received"
+    )
+    assert received_event["payload"]["attachments"][0]["name"] == "scene.png"
 
 
 def test_v2_approve_action(monkeypatch):
@@ -842,16 +877,24 @@ def test_v2_media_session_contract(monkeypatch):
         "/api/v2/media/session",
         json={
             "session_id": "session-chat",
+            "assistant_turn_id": "turn-barge-in",
+            "voice_mode": "conversation",
+            "turn_state": "speech_detected",
             "mic_state": "recording",
             "speaking_state": "interrupted",
+            "speech_detected": True,
             "interrupted": True,
         },
     )
 
     assert response.status_code == 200
     body = response.json()
+    assert body["media_session"]["assistant_turn_id"] == "turn-barge-in"
+    assert body["media_session"]["voice_mode"] == "conversation"
+    assert body["media_session"]["turn_state"] == "speech_detected"
     assert body["media_session"]["mic_state"] == "recording"
     assert body["media_session"]["speaking_state"] == "interrupted"
+    assert body["media_session"]["speech_detected"] is True
     assert body["media_session"]["interruption_count"] == 1
     assert published_events[0][0] == "joi.state.changed"
     assert published_events[1][0] == "media.session.updated"
@@ -907,6 +950,8 @@ def test_v2_media_transcribe_contract(monkeypatch):
             "media_type": "audio/wav",
             "data_url": "data:audio/wav;base64,ZmFrZQ==",
             "duration_ms": 840,
+            "voice_mode": "conversation",
+            "speech_detected": True,
         },
     )
 
@@ -914,6 +959,9 @@ def test_v2_media_transcribe_contract(monkeypatch):
     body = response.json()
     assert body["transcript"] == "voice drafted reply"
     assert body["media_session"]["mic_state"] == "idle"
+    assert body["media_session"]["voice_mode"] == "conversation"
+    assert body["media_session"]["speech_detected"] is True
+    assert body["media_session"]["speech_duration_ms"] == 840
     assert body["media_session"]["recognition_latency_ms"] is not None
     assert published_events == [
         "joi.state.changed",

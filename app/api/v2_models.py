@@ -157,6 +157,7 @@ class V2ChatRequest(BaseModel):
     session_id: str
     text: str
     attachments: List[ChatAttachmentRequest] = Field(default_factory=list)
+    client_turn_id: Optional[str] = None
 
 
 class V2ChatResponse(V2ResponseBase):
@@ -186,11 +187,26 @@ class AvatarSyncResponse(V2ResponseBase):
 
 class MediaSessionResource(BaseModel):
     session_id: str
+    assistant_turn_id: Optional[str] = None
+    voice_mode: Literal["push_to_talk", "conversation"] = "push_to_talk"
+    turn_state: Literal[
+        "idle",
+        "listening",
+        "speech_detected",
+        "transcribing",
+        "thinking",
+        "speaking",
+        "interrupted",
+        "error",
+    ] = "idle"
     mic_state: Literal["idle", "requesting", "recording", "processing", "error"] = "idle"
     speaking_state: Literal["idle", "queued", "playing", "interrupted", "error"] = "idle"
     capture_source: str = "browser"
     last_transcript: str = ""
     recognition_latency_ms: Optional[int] = None
+    end_of_speech_to_transcript_ms: Optional[int] = None
+    speech_duration_ms: Optional[int] = None
+    speech_detected: bool = False
     playback_latency_ms: Optional[int] = None
     interruption_count: int = 0
     last_error: Optional[str] = None
@@ -199,11 +215,28 @@ class MediaSessionResource(BaseModel):
 
 class MediaSessionPatchRequest(BaseModel):
     session_id: str
+    assistant_turn_id: Optional[str] = None
+    voice_mode: Optional[Literal["push_to_talk", "conversation"]] = None
+    turn_state: Optional[
+        Literal[
+            "idle",
+            "listening",
+            "speech_detected",
+            "transcribing",
+            "thinking",
+            "speaking",
+            "interrupted",
+            "error",
+        ]
+    ] = None
     mic_state: Optional[Literal["idle", "requesting", "recording", "processing", "error"]] = None
     speaking_state: Optional[Literal["idle", "queued", "playing", "interrupted", "error"]] = None
     capture_source: Optional[str] = None
     last_transcript: Optional[str] = None
     recognition_latency_ms: Optional[int] = None
+    end_of_speech_to_transcript_ms: Optional[int] = None
+    speech_duration_ms: Optional[int] = None
+    speech_detected: Optional[bool] = None
     playback_latency_ms: Optional[int] = None
     last_error: Optional[str] = None
     interrupted: bool = False
@@ -218,6 +251,8 @@ class MediaTranscribeRequest(BaseModel):
     media_type: str
     data_url: str
     duration_ms: Optional[int] = None
+    voice_mode: Literal["push_to_talk", "conversation"] = "push_to_talk"
+    speech_detected: bool = False
 
 
 class MediaTranscribeResponse(V2ResponseBase):

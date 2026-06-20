@@ -56,7 +56,16 @@ async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
 
   for (let attempt = 0; attempt < RETRY_ATTEMPTS; attempt++) {
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+    let timedOut = false;
+    const handleExternalAbort = () => controller.abort(init?.signal?.reason);
+    if (init?.signal?.aborted) {
+      throw new DOMException("Request aborted", "AbortError");
+    }
+    init?.signal?.addEventListener("abort", handleExternalAbort, { once: true });
+    const timer = setTimeout(() => {
+      timedOut = true;
+      controller.abort();
+    }, REQUEST_TIMEOUT_MS);
 
     try {
       const response = await fetch(toUrl(path), {
@@ -86,8 +95,15 @@ async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
     } catch (err) {
       clearTimeout(timer);
       const isAbort = err instanceof DOMException && err.name === "AbortError";
+      if (isAbort && init?.signal?.aborted) {
+        throw err;
+      }
       lastError = isAbort
-        ? new Error(`Request timed out after ${REQUEST_TIMEOUT_MS / 1000}s`)
+        ? new Error(
+            timedOut
+              ? `Request timed out after ${REQUEST_TIMEOUT_MS / 1000}s`
+              : "Request aborted",
+          )
         : (err as Error);
 
       const isNetworkError = !isAbort && !(err instanceof Error && err.message.startsWith("API request"));
@@ -97,6 +113,9 @@ async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
         continue;
       }
       throw lastError;
+    } finally {
+      clearTimeout(timer);
+      init?.signal?.removeEventListener("abort", handleExternalAbort);
     }
   }
 
@@ -141,10 +160,20 @@ export async function sendChatMessageWithAttachments(
   sessionId: string,
   text: string,
   attachments: ChatAttachmentInput[],
+  options?: {
+    clientTurnId?: string;
+    signal?: AbortSignal;
+  },
 ) {
   return apiFetch<ChatResponse>("/api/v2/chat", {
     method: "POST",
-    body: JSON.stringify({ session_id: sessionId, text, attachments }),
+    body: JSON.stringify({
+      session_id: sessionId,
+      text,
+      attachments,
+      client_turn_id: options?.clientTurnId,
+    }),
+    signal: options?.signal,
   });
 }
 
@@ -221,11 +250,17 @@ export async function fetchMediaSession(sessionId: string) {
 export async function patchMediaSession(
   payload: {
     session_id: string;
+    assistant_turn_id?: string;
+    voice_mode?: MediaSession["voice_mode"];
+    turn_state?: MediaSession["turn_state"];
     mic_state?: MediaSession["mic_state"];
     speaking_state?: MediaSession["speaking_state"];
     capture_source?: string;
     last_transcript?: string;
     recognition_latency_ms?: number;
+    end_of_speech_to_transcript_ms?: number;
+    speech_duration_ms?: number;
+    speech_detected?: boolean;
     playback_latency_ms?: number;
     last_error?: string;
     interrupted?: boolean;
@@ -250,6 +285,10 @@ export async function transcribeAudioBlob(
   sessionId: string,
   audio: Blob,
   durationMs?: number,
+  options?: {
+    voiceMode?: MediaSession["voice_mode"];
+    speechDetected?: boolean;
+  },
 ) {
   const dataUrl = await blobToDataUrl(audio);
   return apiFetch<MediaTranscriptionResponse>("/api/v2/media/transcribe", {
@@ -259,6 +298,8 @@ export async function transcribeAudioBlob(
       media_type: audio.type || "audio/webm",
       data_url: dataUrl,
       duration_ms: durationMs,
+      voice_mode: options?.voiceMode ?? "push_to_talk",
+      speech_detected: options?.speechDetected ?? false,
     }),
   });
 }

@@ -8,6 +8,7 @@ import { MediaSession } from "@/lib/types";
 type VoiceComposerProps = {
   sessionId: string | null;
   mediaSession: MediaSession | null;
+  assistantTurnActive: boolean;
   spokenRepliesEnabled: boolean;
   autoSendVoiceEnabled: boolean;
   onMediaSession: (session: MediaSession) => void;
@@ -19,6 +20,9 @@ type VoiceComposerProps = {
 
 const NATIVE_PTT_START_EVENT = "joi:native-ptt-start";
 const NATIVE_PTT_STOP_EVENT = "joi:native-ptt-stop";
+const CONVERSATION_SILENCE_MS = 900;
+const CONVERSATION_MAX_MS = 30_000;
+const VAD_RMS_THRESHOLD = 0.025;
 
 function isPushToTalkHotkey(event: KeyboardEvent) {
   return (
@@ -47,6 +51,7 @@ function pickRecorderMimeType() {
 export function VoiceComposer({
   sessionId,
   mediaSession,
+  assistantTurnActive,
   spokenRepliesEnabled,
   autoSendVoiceEnabled,
   onMediaSession,
@@ -62,12 +67,29 @@ export function VoiceComposer({
   const hotkeyActiveRef = useRef(false);
   const pendingStopRef = useRef(false);
   const cancelRequestedRef = useRef(false);
+  const captureAttemptRef = useRef(0);
+  const captureInFlightRef = useRef(false);
+  const interruptInFlightRef = useRef(false);
+  const conversationActiveRef = useRef(false);
+  const restartTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const startRecordingRef = useRef<() => Promise<void>>(async () => {});
+  const assistantTurnActiveRef = useRef(assistantTurnActive);
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const vadTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const speechDetectedRef = useRef(false);
+  const speechStartedAtRef = useRef<number | null>(null);
+  const lastSpeechAtRef = useRef<number | null>(null);
 
   const [isSupported, setIsSupported] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [voiceMode, setVoiceMode] = useState<MediaSession["voice_mode"]>("push_to_talk");
 
   useEffect(() => {
+    const stored = window.localStorage.getItem("joi_voice_mode");
+    if (stored === "conversation" || stored === "push_to_talk") {
+      setVoiceMode(stored);
+    }
     setIsSupported(
       typeof window !== "undefined" &&
         typeof navigator !== "undefined" &&
@@ -77,16 +99,37 @@ export function VoiceComposer({
   }, []);
 
   useEffect(() => {
+    assistantTurnActiveRef.current = assistantTurnActive;
+  }, [assistantTurnActive]);
+
+  useEffect(() => {
     return () => {
+      captureAttemptRef.current += 1;
+      captureInFlightRef.current = false;
       recorderRef.current?.stop();
       streamRef.current?.getTracks().forEach((track) => track.stop());
+      if (restartTimerRef.current) clearTimeout(restartTimerRef.current);
+      if (vadTimerRef.current) clearInterval(vadTimerRef.current);
+      void audioContextRef.current?.close();
     };
   }, []);
 
   const syncSession = useCallback(async (patch: Parameters<typeof patchMediaSession>[0]) => {
     const response = await patchMediaSession(patch);
     onMediaSession(response.media_session);
+    return response.media_session;
   }, [onMediaSession]);
+
+  const stopVad = useCallback(() => {
+    if (vadTimerRef.current) {
+      clearInterval(vadTimerRef.current);
+      vadTimerRef.current = null;
+    }
+    if (audioContextRef.current) {
+      void audioContextRef.current.close();
+      audioContextRef.current = null;
+    }
+  }, []);
 
   const stopRecording = useCallback(() => {
     if (!recorderRef.current || recorderRef.current.state === "inactive") {
@@ -95,10 +138,18 @@ export function VoiceComposer({
     }
     pendingStopRef.current = false;
     setBusy(true);
+    stopVad();
     recorderRef.current.stop();
-  }, []);
+  }, [stopVad]);
 
   const cancelRecording = useCallback(() => {
+    conversationActiveRef.current = false;
+    if (restartTimerRef.current) {
+      clearTimeout(restartTimerRef.current);
+      restartTimerRef.current = null;
+    }
+    captureAttemptRef.current += 1;
+    captureInFlightRef.current = false;
     cancelRequestedRef.current = true;
     chunksRef.current = [];
     if (!recorderRef.current || recorderRef.current.state === "inactive") {
@@ -106,36 +157,153 @@ export function VoiceComposer({
       streamRef.current?.getTracks().forEach((track) => track.stop());
       streamRef.current = null;
       recorderRef.current = null;
+      setBusy(false);
+      stopVad();
+      if (sessionId) {
+        void syncSession({
+          session_id: sessionId,
+          turn_state: "idle",
+          mic_state: "idle",
+          last_error: "",
+        });
+      }
       return;
     }
     pendingStopRef.current = false;
     setBusy(true);
+    stopVad();
     recorderRef.current.stop();
-  }, []);
+  }, [sessionId, stopVad, syncSession]);
+
+  const interruptPlayback = useCallback(async (statusMessage: string) => {
+    if (interruptInFlightRef.current) {
+      return;
+    }
+    interruptInFlightRef.current = true;
+    try {
+      await onInterruptPlayback(statusMessage);
+    } finally {
+      interruptInFlightRef.current = false;
+    }
+  }, [onInterruptPlayback]);
+
+  const startVad = useCallback((
+    stream: MediaStream,
+    startedAt: number,
+    autoStop: () => void,
+  ) => {
+    const AudioContextClass = window.AudioContext;
+    if (!AudioContextClass) return;
+
+    const context = new AudioContextClass();
+    const analyser = context.createAnalyser();
+    analyser.fftSize = 1024;
+    context.createMediaStreamSource(stream).connect(analyser);
+    const samples = new Float32Array(analyser.fftSize);
+    audioContextRef.current = context;
+
+    vadTimerRef.current = setInterval(() => {
+      analyser.getFloatTimeDomainData(samples);
+      let sum = 0;
+      for (const sample of samples) sum += sample * sample;
+      const rms = Math.sqrt(sum / samples.length);
+      const now = performance.now();
+
+      if (rms >= VAD_RMS_THRESHOLD) {
+        lastSpeechAtRef.current = now;
+        if (!speechDetectedRef.current) {
+          speechDetectedRef.current = true;
+          speechStartedAtRef.current = now;
+          void (async () => {
+            try {
+              if (voiceMode === "conversation" && assistantTurnActiveRef.current) {
+                await interruptPlayback("Conversation speech interrupted Joi");
+              }
+              await syncSession({
+                session_id: sessionId!,
+                voice_mode: voiceMode,
+                turn_state: "speech_detected",
+                speech_detected: true,
+              });
+            } catch {
+              // Local barge-in remains effective if telemetry sync is unavailable.
+            }
+          })();
+        }
+      }
+
+      if (
+        voiceMode === "conversation" &&
+        speechDetectedRef.current &&
+        lastSpeechAtRef.current !== null &&
+        now - lastSpeechAtRef.current >= CONVERSATION_SILENCE_MS
+      ) {
+        autoStop();
+      } else if (voiceMode === "conversation" && now - startedAt >= CONVERSATION_MAX_MS) {
+        autoStop();
+      }
+    }, 80);
+  }, [interruptPlayback, sessionId, syncSession, voiceMode]);
 
   const startRecording = useCallback(async () => {
-    if (!sessionId || busy || !isSupported) {
+    if (!sessionId || busy || captureInFlightRef.current || !isSupported) {
       return;
     }
 
+    const captureAttempt = captureAttemptRef.current + 1;
+    captureAttemptRef.current = captureAttempt;
+    captureInFlightRef.current = true;
     setError(null);
     pendingStopRef.current = false;
     cancelRequestedRef.current = false;
+    speechDetectedRef.current = false;
+    speechStartedAtRef.current = null;
+    lastSpeechAtRef.current = null;
     setBusy(true);
+    if (voiceMode === "conversation") {
+      conversationActiveRef.current = true;
+    }
 
     try {
-      if (mediaSession?.speaking_state === "playing" || mediaSession?.speaking_state === "queued") {
-        await onInterruptPlayback("Voice playback interrupted by microphone capture");
+      if (
+        voiceMode === "push_to_talk" &&
+        (mediaSession?.speaking_state === "playing" || mediaSession?.speaking_state === "queued")
+      ) {
+        await interruptPlayback("Voice playback interrupted by microphone capture");
+        if (captureAttempt !== captureAttemptRef.current) {
+          return;
+        }
       }
 
       await syncSession({
         session_id: sessionId,
+        voice_mode: voiceMode,
+        turn_state: "listening",
         mic_state: "requesting",
         capture_source: "browser",
         last_error: "",
       });
+      if (captureAttempt !== captureAttemptRef.current) {
+        return;
+      }
 
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        },
+      });
+      if (captureAttempt !== captureAttemptRef.current || cancelRequestedRef.current) {
+        stream.getTracks().forEach((track) => track.stop());
+        await syncSession({
+          session_id: sessionId,
+          turn_state: "idle",
+          mic_state: "idle",
+          last_error: "",
+        });
+        return;
+      }
       streamRef.current = stream;
       chunksRef.current = [];
       startedAtRef.current = performance.now();
@@ -154,6 +322,12 @@ export function VoiceComposer({
 
       recorder.addEventListener("stop", async () => {
         const durationMs = Math.max(0, Math.round(performance.now() - startedAtRef.current));
+        const speechDurationMs = speechStartedAtRef.current === null
+          ? 0
+          : Math.max(
+              0,
+              Math.round((lastSpeechAtRef.current ?? performance.now()) - speechStartedAtRef.current),
+            );
         const blob = new Blob(chunksRef.current, {
           type: recorder.mimeType || "audio/webm",
         });
@@ -165,14 +339,39 @@ export function VoiceComposer({
           if (cancelRequestedRef.current) {
             await syncSession({
               session_id: sessionId,
+              turn_state: "idle",
               mic_state: "idle",
               last_error: "",
             });
             return;
           }
 
-          const response = await transcribeAudioBlob(sessionId, blob, durationMs);
-          onMediaSession(response.media_session);
+          if (voiceMode === "conversation" && !speechDetectedRef.current) {
+            await syncSession({
+              session_id: sessionId,
+              turn_state: "idle",
+              mic_state: "idle",
+              speech_detected: false,
+              speech_duration_ms: 0,
+              last_error: "",
+            });
+            return;
+          }
+
+          const endedAt = performance.now();
+          const response = await transcribeAudioBlob(sessionId, blob, speechDurationMs || durationMs, {
+            voiceMode,
+            speechDetected: speechDetectedRef.current,
+          });
+          const endOfSpeechToTranscriptMs = Math.max(0, Math.round(performance.now() - endedAt));
+          const measuredSession = await syncSession({
+            session_id: sessionId,
+            turn_state: "idle",
+            end_of_speech_to_transcript_ms: endOfSpeechToTranscriptMs,
+            speech_duration_ms: speechDurationMs || durationMs,
+            speech_detected: speechDetectedRef.current,
+          });
+          onMediaSession(measuredSession);
           if (response.transcript.trim()) {
             onTranscript(response.transcript.trim());
           } else if (response.media_session.last_error) {
@@ -184,6 +383,7 @@ export function VoiceComposer({
           try {
             await syncSession({
               session_id: sessionId,
+              turn_state: "error",
               mic_state: "error",
               last_error: message,
             });
@@ -191,25 +391,49 @@ export function VoiceComposer({
             // Ignore follow-up sync failures after the primary transcription error.
           }
         } finally {
+          const shouldRestartConversation =
+            voiceMode === "conversation" &&
+            conversationActiveRef.current &&
+            !cancelRequestedRef.current;
+          captureInFlightRef.current = false;
           pendingStopRef.current = false;
           cancelRequestedRef.current = false;
           setBusy(false);
+          stopVad();
+          if (shouldRestartConversation) {
+            restartTimerRef.current = setTimeout(() => {
+              restartTimerRef.current = null;
+              void startRecordingRef.current();
+            }, 120);
+          }
         }
       });
 
       recorder.start();
       await syncSession({
         session_id: sessionId,
+        voice_mode: voiceMode,
+        turn_state: "listening",
         mic_state: "recording",
         capture_source: "browser",
       });
+      if (
+        captureAttempt !== captureAttemptRef.current ||
+        recorder.state === "inactive"
+      ) {
+        return;
+      }
       setBusy(false);
+      startVad(stream, startedAtRef.current, stopRecording);
 
       if (pendingStopRef.current) {
         pendingStopRef.current = false;
         stopRecording();
       }
     } catch (cause) {
+      if (captureAttempt !== captureAttemptRef.current) {
+        return;
+      }
       const message = cause instanceof Error ? cause.message : "Microphone capture failed";
       setError(message);
       pendingStopRef.current = false;
@@ -218,6 +442,7 @@ export function VoiceComposer({
         try {
           await syncSession({
             session_id: sessionId,
+            turn_state: "error",
             mic_state: "error",
             last_error: message,
           });
@@ -226,8 +451,18 @@ export function VoiceComposer({
         }
       }
       setBusy(false);
+      stopVad();
+    } finally {
+      if (captureAttempt === captureAttemptRef.current && !recorderRef.current) {
+        captureInFlightRef.current = false;
+        setBusy(false);
+      }
     }
-  }, [busy, isSupported, mediaSession?.speaking_state, onInterruptPlayback, sessionId, stopRecording, syncSession]);
+  }, [busy, interruptPlayback, isSupported, mediaSession?.speaking_state, sessionId, startVad, stopRecording, stopVad, syncSession, voiceMode]);
+
+  useEffect(() => {
+    startRecordingRef.current = startRecording;
+  }, [startRecording]);
 
   const isRecording = mediaSession?.mic_state === "recording";
   const isCapturing =
@@ -249,7 +484,7 @@ export function VoiceComposer({
     };
 
     const handleKeyUp = (event: KeyboardEvent) => {
-      if (!isPushToTalkHotkey(event) || !hotkeyActiveRef.current) {
+      if (event.code !== "Space" || !hotkeyActiveRef.current) {
         return;
       }
 
@@ -263,7 +498,10 @@ export function VoiceComposer({
         return;
       }
 
-      if (recorderRef.current && recorderRef.current.state !== "inactive") {
+      if (
+        captureInFlightRef.current ||
+        (recorderRef.current && recorderRef.current.state !== "inactive")
+      ) {
         event.preventDefault();
         hotkeyActiveRef.current = false;
         cancelRecording();
@@ -272,8 +510,16 @@ export function VoiceComposer({
 
       if (canStopSpeaking) {
         event.preventDefault();
-        void onInterruptPlayback("Voice playback interrupted");
+        void interruptPlayback("Voice playback interrupted");
       }
+    };
+
+    const handleWindowBlur = () => {
+      if (!hotkeyActiveRef.current) {
+        return;
+      }
+      hotkeyActiveRef.current = false;
+      stopRecording();
     };
 
     const handleNativeStart = (event: Event) => {
@@ -297,16 +543,18 @@ export function VoiceComposer({
     window.addEventListener("keydown", handleKeyDown);
     window.addEventListener("keyup", handleKeyUp);
     window.addEventListener("keydown", handleCancelOrInterrupt);
+    window.addEventListener("blur", handleWindowBlur);
     window.addEventListener(NATIVE_PTT_START_EVENT, handleNativeStart);
     window.addEventListener(NATIVE_PTT_STOP_EVENT, handleNativeStop);
     return () => {
       window.removeEventListener("keydown", handleKeyDown);
       window.removeEventListener("keyup", handleKeyUp);
       window.removeEventListener("keydown", handleCancelOrInterrupt);
+      window.removeEventListener("blur", handleWindowBlur);
       window.removeEventListener(NATIVE_PTT_START_EVENT, handleNativeStart);
       window.removeEventListener(NATIVE_PTT_STOP_EVENT, handleNativeStop);
     };
-  }, [canStopSpeaking, cancelRecording, onInterruptPlayback, startRecording, stopRecording]);
+  }, [canStopSpeaking, cancelRecording, interruptPlayback, startRecording, stopRecording]);
 
   async function handleStopSpeaking() {
     if (!sessionId || busy || !canStopSpeaking) {
@@ -314,7 +562,22 @@ export function VoiceComposer({
     }
 
     setError(null);
-    await onInterruptPlayback("Voice playback stopped");
+    await interruptPlayback("Voice playback stopped");
+  }
+
+  function toggleVoiceMode() {
+    const next = voiceMode === "push_to_talk" ? "conversation" : "push_to_talk";
+    if (next === "push_to_talk") {
+      conversationActiveRef.current = false;
+      if (captureInFlightRef.current || recorderRef.current?.state === "recording") {
+        cancelRecording();
+      }
+    }
+    setVoiceMode(next);
+    window.localStorage.setItem("joi_voice_mode", next);
+    if (sessionId) {
+      void syncSession({ session_id: sessionId, voice_mode: next });
+    }
   }
 
   return (
@@ -325,6 +588,14 @@ export function VoiceComposer({
           <p>Mic capture happens in the browser and posts audio back to Python for transcription.</p>
         </div>
         <div className="voice-badges">
+          <button
+            className={`button ${voiceMode === "conversation" ? "secondary" : "ghost"} voice-default-toggle`}
+            type="button"
+            aria-pressed={voiceMode === "conversation"}
+            onClick={toggleVoiceMode}
+          >
+            {voiceMode === "conversation" ? "Conversation mode" : "Push to talk"}
+          </button>
           <button
             className={`button ${spokenRepliesEnabled ? "secondary" : "ghost"} voice-default-toggle`}
             type="button"
@@ -342,7 +613,7 @@ export function VoiceComposer({
             Voice sends {autoSendVoiceEnabled ? "on" : "off"}
           </button>
           <span className={`badge ${isRecording ? "warn" : "ok"}`}>
-            mic {mediaSession?.mic_state ?? "idle"}
+            turn {mediaSession?.turn_state ?? "idle"}
           </span>
           <span className="badge">speech {mediaSession?.speaking_state ?? "idle"}</span>
         </div>
@@ -380,6 +651,11 @@ export function VoiceComposer({
         {mediaSession?.recognition_latency_ms ? (
           <span className="badge ok">{mediaSession.recognition_latency_ms}ms STT</span>
         ) : null}
+        {mediaSession?.end_of_speech_to_transcript_ms ? (
+          <span className="badge ok">
+            {mediaSession.end_of_speech_to_transcript_ms}ms turn
+          </span>
+        ) : null}
         {mediaSession?.interruption_count ? (
           <span className="badge warn">{mediaSession.interruption_count} interruptions</span>
         ) : null}
@@ -395,7 +671,11 @@ export function VoiceComposer({
           <p title={mediaSession.last_transcript}>{mediaSession.last_transcript}</p>
         </div>
       ) : (
-        <div className="empty-state">Voice capture is idle. Record a short prompt to append it to the draft.</div>
+        <div className="empty-state">
+          {voiceMode === "conversation"
+            ? "Conversation mode stops automatically after a short silence."
+            : "Voice capture is idle. Hold Ctrl+Shift+Space or record a short prompt."}
+        </div>
       )}
     </div>
   );

@@ -473,13 +473,25 @@ def _visible_user_text(text: str, attachments: List[ChatAttachmentResource]) -> 
     return ""
 
 
-def _create_delta_bridge(loop: asyncio.AbstractEventLoop, session_id: str) -> tuple[Any, Any]:
+def _assistant_turn_is_active(session_id: str, client_turn_id: str) -> bool:
+    state = media_sessions.get(session_id)
+    return (
+        state.get("assistant_turn_id") == client_turn_id
+        and state.get("turn_state") != "interrupted"
+    )
+
+
+def _create_delta_bridge(
+    loop: asyncio.AbstractEventLoop,
+    session_id: str,
+    client_turn_id: str,
+) -> tuple[Any, Any]:
     pending: List[Any] = []
     accumulated = ""
 
     def on_token(delta: str) -> None:
         nonlocal accumulated
-        if not delta:
+        if not delta or not _assistant_turn_is_active(session_id, client_turn_id):
             return
         accumulated += delta
         future = asyncio.run_coroutine_threadsafe(
@@ -489,6 +501,7 @@ def _create_delta_bridge(loop: asyncio.AbstractEventLoop, session_id: str) -> tu
                     "message_id": None,
                     "delta": delta,
                     "content": accumulated,
+                    "client_turn_id": client_turn_id,
                 },
                 session_id=session_id,
                 source="chat",
@@ -1202,6 +1215,14 @@ async def search_memory(
 
 @router.post("/chat", response_model=V2ChatResponse)
 async def chat_v2(request: V2ChatRequest):
+    client_turn_id = request.client_turn_id or str(uuid.uuid4())
+    assistant_state = media_sessions.update(
+        request.session_id,
+        assistant_turn_id=client_turn_id,
+        turn_state="thinking",
+        last_error=None,
+    )
+    await _publish_media_session(request.session_id, assistant_state)
     history = memory_store.get_chat_history(request.session_id)
     initiative_service.record_user_activity(
         session_id=request.session_id,
@@ -1221,6 +1242,7 @@ async def chat_v2(request: V2ChatRequest):
         "message.received",
         {
             "text": visible_user_text,
+            "client_turn_id": client_turn_id,
             "history_count": len(history),
             "attachments": [attachment.model_dump(mode="json") for attachment in attachment_resources],
         },
@@ -1231,6 +1253,7 @@ async def chat_v2(request: V2ChatRequest):
         "response.started",
         {
             "status": "processing",
+            "client_turn_id": client_turn_id,
         },
         session_id=request.session_id,
         source="chat",
@@ -1255,7 +1278,11 @@ async def chat_v2(request: V2ChatRequest):
         sharing_extra_context = acknowledgement_hint(share)
 
     loop = asyncio.get_running_loop()
-    on_token, flush_deltas = _create_delta_bridge(loop, request.session_id)
+    on_token, flush_deltas = _create_delta_bridge(
+        loop,
+        request.session_id,
+        client_turn_id,
+    )
     response = await asyncio.to_thread(
         agent.reply,
         history,
@@ -1281,9 +1308,10 @@ async def chat_v2(request: V2ChatRequest):
     )
     assistant_message_resource = _message_resource(assistant_message)
     tool_call_resources = _tool_call_resources(response.tool_calls)
+    turn_is_active = _assistant_turn_is_active(request.session_id, client_turn_id)
 
     pending_approvals = []
-    for tool_call in response.tool_calls:
+    for tool_call in response.tool_calls if turn_is_active else []:
         if tool_call.get("status") == "pending":
             approval_id = approval_manager.request_approval(
                 tool_call.get("tool_name", ""),
@@ -1316,45 +1344,49 @@ async def chat_v2(request: V2ChatRequest):
         "message.created",
         {
             "role": "user",
+            "client_turn_id": client_turn_id,
             "message": user_message_resource.model_dump(mode="json"),
             "attachments": [attachment.model_dump(mode="json") for attachment in attachment_resources],
         },
         session_id=request.session_id,
         source="chat",
     )
-    await event_bus.publish(
-        "message.completed",
-        {
-            "message": assistant_message_resource.model_dump(mode="json"),
-            "attachments": [attachment.model_dump(mode="json") for attachment in attachment_resources],
-            "provider": {
-                "selected": response.provider,
-                "route": response.route,
-                "errors": response.errors,
+    if turn_is_active:
+        await event_bus.publish(
+            "message.completed",
+            {
+                "client_turn_id": client_turn_id,
+                "message": assistant_message_resource.model_dump(mode="json"),
+                "attachments": [attachment.model_dump(mode="json") for attachment in attachment_resources],
+                "provider": {
+                    "selected": response.provider,
+                    "route": response.route,
+                    "errors": response.errors,
+                },
+                "emotion": {
+                    "craving_score": response.craving_score,
+                    "is_dramatic_return": response.is_dramatic_return,
+                },
+                "tool_calls": [tool_call.model_dump(mode="json") for tool_call in tool_call_resources],
             },
-            "emotion": {
-                "craving_score": response.craving_score,
-                "is_dramatic_return": response.is_dramatic_return,
+            session_id=request.session_id,
+            source="chat",
+        )
+        await _publish_hardware_state_transition(
+            "idle",
+            source_event="message.completed",
+            session_id=request.session_id,
+            reason="assistant response completed",
+        )
+        await event_bus.publish(
+            "avatar.state",
+            {
+                "client_turn_id": client_turn_id,
+                "avatar": avatar_resource.model_dump(mode="json"),
             },
-            "tool_calls": [tool_call.model_dump(mode="json") for tool_call in tool_call_resources],
-        },
-        session_id=request.session_id,
-        source="chat",
-    )
-    await _publish_hardware_state_transition(
-        "idle",
-        source_event="message.completed",
-        session_id=request.session_id,
-        reason="assistant response completed",
-    )
-    await event_bus.publish(
-        "avatar.state",
-        {
-            "avatar": avatar_resource.model_dump(mode="json"),
-        },
-        session_id=request.session_id,
-        source="avatar",
-    )
+            session_id=request.session_id,
+            source="avatar",
+        )
 
     return V2ChatResponse(
         session=_session_resource(session),
@@ -1543,6 +1575,10 @@ async def transcribe_media(request: MediaTranscribeRequest):
     processing_state = media_sessions.update(
         request.session_id,
         mic_state="processing",
+        turn_state="transcribing",
+        voice_mode=request.voice_mode,
+        speech_detected=request.speech_detected,
+        speech_duration_ms=request.duration_ms,
         capture_source="browser",
         last_error=None,
     )
@@ -1556,6 +1592,7 @@ async def transcribe_media(request: MediaTranscribeRequest):
         failed_state = media_sessions.update(
             request.session_id,
             mic_state="error",
+            turn_state="error",
             capture_source="browser",
             recognition_latency_ms=latency_ms,
             last_error=str(exc),
@@ -1581,6 +1618,10 @@ async def transcribe_media(request: MediaTranscribeRequest):
     final_state = media_sessions.update(
         request.session_id,
         mic_state="idle" if transcript else "error",
+        turn_state="idle" if transcript else "error",
+        voice_mode=request.voice_mode,
+        speech_detected=request.speech_detected,
+        speech_duration_ms=request.duration_ms,
         capture_source="browser",
         last_transcript=transcript,
         recognition_latency_ms=latency_ms,
@@ -1616,6 +1657,7 @@ async def avatar_sync(request: AvatarSyncRequest):
     media_state = media_sessions.update(
         request.session_id,
         speaking_state="queued",
+        turn_state="speaking",
         playback_latency_ms=0,
         last_error=None,
     )

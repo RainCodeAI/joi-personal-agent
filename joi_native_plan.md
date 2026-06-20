@@ -88,7 +88,7 @@ Success criteria:
 
 ## Phase 3 - Voice Loop
 
-Status: Core loop validated; follow-up QA remains.
+Status: Core loop validated; automated hotkey/cancel/interrupt hardening complete, device-level QA remains.
 
 Purpose: let Joi be spoken to naturally without overbuilding wake-word complexity too early.
 
@@ -117,8 +117,11 @@ Success criteria:
 - [x] Add a packaged-window QA pass once `pywebview` is installed in the active runtime.
 - [x] Decide whether voice requests should auto-send after transcription or keep appending to the draft.
 - [x] Manually validate click-to-record browser voice capture, transcription, auto-send, and assistant response.
-- [ ] Manually validate focused-web `Ctrl+Shift+Space` push-to-talk.
-- [ ] Manually validate `Esc` cancel while recording and `Esc` interrupt during spoken playback.
+- [x] Harden focused-web `Ctrl+Shift+Space` push-to-talk against modifier-first release and focus-loss keyup gaps.
+- [x] Harden `Esc` cancellation while microphone permission/session setup is still pending.
+- [x] Add automated native-shell hotkey dispatch coverage and frontend compile/type verification.
+- [ ] Device-level validate focused-web `Ctrl+Shift+Space` push-to-talk with a real microphone.
+- [ ] Device-level validate `Esc` cancel while recording and `Esc` interrupt during real spoken playback.
 
 ## Phase 3 Implementation Notes
 
@@ -128,6 +131,13 @@ Success criteria:
 - The native hotkey does not start background listening by itself; it only triggers the visible web recorder in the active Joi window.
 - `Voice sends` defaults on and is stored in browser local storage. Clean voice transcripts submit immediately; transcripts append for review when a draft or attachment is already present.
 - `Esc` cancels an active recording without sending audio to transcription. When Joi is speaking, `Esc` interrupts playback through the existing media-session update path.
+- Focused-web push-to-talk now stops on the Space keyup even if Ctrl/Shift were released first, and stops safely if the window loses focus while the key is held.
+- Recording cancellation invalidates capture setup before and after microphone permission resolves, preventing a canceled permission request from starting a late recorder or transcription.
+- Playback interruption is guarded while its local/API teardown is in flight, preventing repeated Escape keydown events from incrementing interruption state more than once per request.
+- Conversation mode now keeps browser capture armed between turns. Detected speech stops active playback, aborts the in-flight browser chat request, and filters stale assistant events by client turn ID before submitting the new transcript.
+- Media-session persistence now records the active assistant turn ID alongside voice mode, speech detection, interruption, and latency telemetry.
+- Automated verification on 2026-06-19: 47 targeted Python tests passed across desktop shell, media-session persistence, and API contracts; frontend TypeScript checking passed.
+- The frontend currently has no component/unit-test runner for synthetic `MediaRecorder`, keyboard, or audio playback events. Real microphone permission timing, focused-window key delivery, and audible playback interruption therefore remain device-level checks.
 - Manual QA on 2026-05-27 confirmed click-to-record voice capture, browser `webm/opus` upload, transcription, voice auto-send, text chat, and provider-backed assistant responses.
 - Runtime fixes from QA:
   - Frozen launches re-enter the packaged executable for API and native-window child modes instead of trying to execute bundled source files or `python -m`.
@@ -197,7 +207,7 @@ Success criteria:
 
 ## Next Session - Recommended Tasks
 
-1. Finish the remaining Phase 3 manual QA checks:
+1. Finish the remaining Phase 3 device-level QA checks:
    - Hold focused-web `Ctrl+Shift+Space`, speak, release, and confirm it follows the same voice auto-send path.
    - Start recording, press `Esc`, and confirm it cancels without submitting audio.
    - Confirm spoken reply playback works, then press `Esc` during playback and confirm interruption.
