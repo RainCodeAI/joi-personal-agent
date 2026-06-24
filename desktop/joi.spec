@@ -58,6 +58,9 @@ a = Analysis(
         (os.path.join(BASE_DIR, "system_prompt.md"), "."),
     ] + frontend_datas + my_datas,
     hiddenimports=[
+        "app.api.main",
+        "fastapi",
+        "starlette",
         "streamlit",
         "streamlit.web.cli",
         "app.ui.components",

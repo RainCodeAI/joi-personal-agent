@@ -391,7 +391,7 @@ Priority: **after voice and one-shot screen capture**
 
 Goal: allow Joi to notice and comment without becoming noisy.
 
-Status as of 2026-06-21: **code-complete foundation; device validation remains**
+Status as of 2026-06-24: **packaged server/UI smoke validated; hands-on WebView2 device QA remains**
 
 Foundation update:
 
@@ -412,12 +412,17 @@ Foundation update:
 - Emitted context events remain available for feedback for 7 days, and repeated identical feedback is idempotent.
 - Initiative realtime payloads carry an explicit context-event ID; the chat UI no longer parses IDs from display text.
 - Settings and diagnostics expose the commentary gate, category policy, queue counts, feedback state, and scheduler job.
+- Package build validation now succeeds outside the OneDrive workspace when PyInstaller output is redirected to `C:\tmp`.
+- Packaged `Joi.exe --api-server` starts successfully and serves `/health` with the local API token.
+- The packaged standalone Next.js server starts against the packaged API; `/diagnostics` and `/settings` return HTTP 200, and Settings renders the Context Commentary controls.
+- The PyInstaller spec explicitly imports the FastAPI entrypoint so dynamic `uvicorn.run("app.api.main:app")` launches work in the packaged executable.
 
 Remaining validation:
 
-- Exercise commentary delivery and all four feedback actions in the packaged desktop/WebView2 app.
-- Confirm microphone recording, assistant playback, minimum-spacing, DND, quiet-hours, and daily-limit suppressions behave correctly on a real device.
-- Confirm persisted queue recovery and feedback preferences survive a packaged-app restart.
+- Exercise commentary delivery and all four feedback actions by clicking through the packaged desktop/WebView2 app.
+- Confirm microphone recording, assistant playback, minimum-spacing, DND, quiet-hours, and daily-limit suppressions behave correctly during real device use.
+- Confirm persisted queue recovery and feedback preferences survive a full tray/app restart from the packaged UI.
+- Re-run a normal in-repo packaged build only after the existing OneDrive `dist/Joi` lock is cleared, or continue directing package output outside OneDrive.
 
 Work:
 
