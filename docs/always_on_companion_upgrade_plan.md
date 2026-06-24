@@ -457,6 +457,16 @@ Priority: **after the context event gate**
 
 Goal: improve visual presence without continuous server-side video.
 
+Status as of 2026-06-24: **started; local WASM route implemented; model vendoring remains**
+
+Foundation update:
+
+- The Next.js app now exposes a local `/vendor/mediapipe/tasks-vision/wasm/[asset]` route backed by the installed `@mediapipe/tasks-vision` package.
+- The camera perception engine tries the local MediaPipe WASM route before falling back to the pinned remote package URL.
+- The face landmarker model path is local-first, but currently falls back to the pinned upstream `.task` model until that model asset is vendored.
+- The perception panel reports whether WASM and model assets are local or using remote fallback.
+- Production standalone validation confirmed the local WASM route returns HTTP 200 from the built Next server.
+
 Work:
 
 - Bundle MediaPipe WASM and models locally.

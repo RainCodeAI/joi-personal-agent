@@ -149,6 +149,7 @@ Success criteria:
 - Phase C closeout verification on 2026-06-20 covers API, persistence, screen-context redaction, desktop shell/hotkey behavior, Python compilation, and frontend TypeScript checking.
 - Phase D context observations now queue restrained commentary through the existing initiative gate, use recoverable persisted delivery claims, and expose idempotent feedback controls for useful, wrong, too much, and never-comment decisions.
 - Phase D API, persistence, settings, diagnostics, frontend type checking, and focused regression coverage are implemented. Packaged build/API/standalone-frontend smoke validation passed on 2026-06-24 using `C:\tmp` output; hands-on WebView2 delivery, suppression, restart, and feedback QA remain.
+- Phase E started on 2026-06-24: MediaPipe WASM now resolves through a local Next.js route in production standalone builds, with visible fallback status for the still-remote face landmarker model.
 - Packaged WebView2 screen-picker behavior remains a device-level validation item.
 - Manual QA on 2026-05-27 confirmed click-to-record voice capture, browser `webm/opus` upload, transcription, voice auto-send, text chat, and provider-backed assistant responses.
 - Runtime fixes from QA:

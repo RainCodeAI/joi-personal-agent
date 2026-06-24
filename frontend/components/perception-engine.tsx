@@ -5,10 +5,13 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { analyzeSnapshot, fetchPerceptionPolicy } from "@/lib/api";
 import type { PerceptionPolicy, PerceptionSignal, PerceptionSignalType, SnapshotAnalysis } from "@/lib/types";
 
-// MediaPipe WASM is loaded from CDN — no frames leave the browser.
-// The model runs entirely in the local browser context via WebAssembly.
-const MEDIAPIPE_WASM_URL = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.21/wasm";
-const FACE_LANDMARKER_MODEL_URL =
+// MediaPipe runs entirely in the local browser context via WebAssembly.
+// WASM is served from the installed package. The model is local-first and
+// falls back to the pinned upstream URL until the .task asset is vendored.
+const LOCAL_MEDIAPIPE_WASM_URL = "/vendor/mediapipe/tasks-vision/wasm";
+const LOCAL_FACE_LANDMARKER_MODEL_URL = "/vendor/mediapipe/models/face_landmarker.task";
+const REMOTE_MEDIAPIPE_WASM_URL = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.34/wasm";
+const REMOTE_FACE_LANDMARKER_MODEL_URL =
   "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task";
 
 const POLL_INTERVAL_MS = 250; // 4fps — enough for presence, low CPU cost
@@ -30,6 +33,8 @@ type EngineStatus = "idle" | "requesting" | "loading" | "active" | "error" | "de
 
 type SnapshotStatus = "idle" | "capturing" | "analyzing" | "done" | "error";
 
+type AssetMode = "local" | "remote-fallback" | "unknown";
+
 type PerceptionEngineProps = {
   sessionId: string | null;
   onSignal: (signal: PerceptionSignal) => void;
@@ -37,6 +42,15 @@ type PerceptionEngineProps = {
 
 function emit(signal: PerceptionSignalType, confidence?: number): PerceptionSignal {
   return { signal, timestamp: performance.now(), confidence };
+}
+
+async function urlExists(url: string): Promise<boolean> {
+  try {
+    const response = await fetch(url, { method: "HEAD", cache: "no-store" });
+    return response.ok;
+  } catch {
+    return false;
+  }
 }
 
 export function PerceptionEngine({ sessionId, onSignal }: PerceptionEngineProps) {
@@ -62,6 +76,8 @@ export function PerceptionEngine({ sessionId, onSignal }: PerceptionEngineProps)
   const [snapshotStatus, setSnapshotStatus] = useState<SnapshotStatus>("idle");
   const [lastSnapshot, setLastSnapshot] = useState<SnapshotAnalysis | null>(null);
   const [policy, setPolicy] = useState<PerceptionPolicy | null>(null);
+  const [wasmMode, setWasmMode] = useState<AssetMode>("unknown");
+  const [modelMode, setModelMode] = useState<AssetMode>("unknown");
 
   useEffect(() => {
     fetchPerceptionPolicy()
@@ -253,10 +269,23 @@ export function PerceptionEngine({ sessionId, onSignal }: PerceptionEngineProps)
 
     try {
       const { FaceLandmarker, FilesetResolver } = await import("@mediapipe/tasks-vision");
-      const vision = await FilesetResolver.forVisionTasks(MEDIAPIPE_WASM_URL);
+      let vision: Awaited<ReturnType<typeof FilesetResolver.forVisionTasks>>;
+      try {
+        vision = await FilesetResolver.forVisionTasks(LOCAL_MEDIAPIPE_WASM_URL);
+        setWasmMode("local");
+      } catch {
+        vision = await FilesetResolver.forVisionTasks(REMOTE_MEDIAPIPE_WASM_URL);
+        setWasmMode("remote-fallback");
+      }
+      const modelAssetPath = (await urlExists(LOCAL_FACE_LANDMARKER_MODEL_URL))
+        ? LOCAL_FACE_LANDMARKER_MODEL_URL
+        : REMOTE_FACE_LANDMARKER_MODEL_URL;
+      setModelMode(
+        modelAssetPath === LOCAL_FACE_LANDMARKER_MODEL_URL ? "local" : "remote-fallback",
+      );
       landmarkerRef.current = await FaceLandmarker.createFromOptions(vision, {
         baseOptions: {
-          modelAssetPath: FACE_LANDMARKER_MODEL_URL,
+          modelAssetPath,
           delegate: "GPU",
         },
         numFaces: 1,
@@ -316,6 +345,26 @@ export function PerceptionEngine({ sessionId, onSignal }: PerceptionEngineProps)
           <span className={`badge ${facePresent ? "ok" : ""}`}>
             {facePresent ? "face detected" : "no face"}
           </span>
+        ) : null}
+        {status === "active" || status === "loading" ? (
+          <>
+            <span className={`badge ${wasmMode === "local" ? "ok" : "warn"}`}>
+              WASM:{" "}
+              {wasmMode === "local"
+                ? "local"
+                : wasmMode === "remote-fallback"
+                  ? "remote fallback"
+                  : "checking"}
+            </span>
+            <span className={`badge ${modelMode === "local" ? "ok" : "warn"}`}>
+              Model:{" "}
+              {modelMode === "local"
+                ? "local"
+                : modelMode === "remote-fallback"
+                  ? "remote fallback"
+                  : "checking"}
+            </span>
+          </>
         ) : null}
       </div>
 
