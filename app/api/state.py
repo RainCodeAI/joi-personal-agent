@@ -6,6 +6,9 @@ from app.api.realtime import RealtimeEventBus
 from app.api.runtime_settings import RuntimeSettingsStore
 from app.avatar.life_state import LifeStateEngine
 from app.desktop_actions import DesktopActionBroker
+from app.context_events.service import ContextEventService
+from app.context_events.store import ContextEventStore
+from app.context_events.feedback import ContextFeedbackStore
 from app.initiative.service import InitiativeService
 from app.initiative.scheduler import InitiativeScheduler
 from app.memory.store import MemoryStore
@@ -27,7 +30,17 @@ media_sessions = MediaSessionStore(_runtime_data / "media_sessions.json")
 hardware_bridge = HardwareBridgeStore()
 mqtt_bridge = MqttBridge(hardware_bridge, event_bus)
 initiative_service = InitiativeService()
-initiative_scheduler = InitiativeScheduler(initiative_service, event_bus, memory_store, media_sessions)
+context_events = ContextEventService(
+    ContextEventStore(_runtime_data / "context_events.json"),
+    ContextFeedbackStore(_runtime_data / "context_feedback.json"),
+)
+initiative_scheduler = InitiativeScheduler(
+    initiative_service,
+    event_bus,
+    memory_store,
+    media_sessions,
+    context_events=context_events,
+)
 life_state_engine = LifeStateEngine()
 user_model_corrections = UserModelCorrectionStore()
 user_model_synthesis_records = UserModelSynthesisRecordStore()

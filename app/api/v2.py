@@ -23,6 +23,7 @@ from app.api.realtime import format_sse_event
 from app.api.state import (
     agent,
     approval_manager,
+    context_events,
     desktop_action_broker,
     event_bus,
     hardware_bridge,
@@ -155,6 +156,18 @@ MAX_ATTACHMENT_BYTES = 8 * 1024 * 1024
 MAX_AUDIO_BYTES = 12 * 1024 * 1024
 MAX_IMAGE_BYTES = 8 * 1024 * 1024
 MAX_IMAGE_PIXELS = 20_000_000
+
+
+async def _observe_context_event(**kwargs: Any) -> dict[str, Any]:
+    decision = context_events.observe(**kwargs)
+    payload = decision.to_dict()
+    await event_bus.publish(
+        "context.observed" if decision.accepted else "context.suppressed",
+        payload,
+        session_id=decision.event.session_id,
+        source="context",
+    )
+    return payload
 
 
 def _connector_resources() -> list[ConnectorResource]:
@@ -1299,6 +1312,21 @@ async def chat_v2(request: V2ChatRequest):
                 session_id=request.session_id,
                 source="perception",
             )
+            await _observe_context_event(
+                source="screen",
+                kind="manual_screen_capture",
+                category="work_activity",
+                confidence=0.95,
+                sensitivity="private",
+                session_id=request.session_id,
+                payload={
+                    "capture_metadata": attachment.capture_metadata,
+                    "ocr_status": attachment.ocr_status,
+                    "description": attachment.preview_text,
+                    "user_initiated": True,
+                },
+                ttl_seconds=300,
+            )
 
     visible_user_text = _visible_user_text(request.text, attachment_resources)
 
@@ -2197,6 +2225,94 @@ async def get_initiative_diagnostics():
     }
 
 
+@router.get("/context/events")
+async def get_context_events(
+    session_id: str | None = None,
+    limit: int = Query(default=20, ge=1, le=100),
+):
+    return {
+        "api_version": "v2",
+        "events": context_events.store.recent(session_id=session_id, limit=limit),
+        "diagnostics": context_events.diagnostics(),
+    }
+
+
+@router.post("/context/events/{event_id}/feedback")
+async def record_context_feedback(
+    event_id: str,
+    action: str = Query(pattern="^(useful|wrong|too_much|never_comment)$"),
+):
+    try:
+        feedback = context_events.record_feedback(event_id, action)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Context event not found") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    await event_bus.publish(
+        "context.feedback",
+        {"event_id": event_id, "feedback": feedback},
+        source="context",
+    )
+    return {
+        "api_version": "v2",
+        "event_id": event_id,
+        "feedback": feedback,
+        "diagnostics": context_events.diagnostics(),
+    }
+
+
+@router.post("/context/events/{event_id}/deliver")
+async def deliver_context_commentary(event_id: str, emit: bool = False):
+    candidate = context_events.build_commentary_candidate(event_id, claim=emit)
+    if candidate is None:
+        raise HTTPException(status_code=409, detail="Context event is not queued for commentary")
+    media_state = media_sessions.get(candidate.session_id)
+    if emit:
+        try:
+            decision = await initiative_service.emit(
+                candidate,
+                event_bus=event_bus,
+                memory_store=memory_store,
+                media_session=media_state,
+            )
+        except Exception as exc:
+            context_events.mark_delivery(
+                event_id,
+                emitted=False,
+                reason="delivery failed; queued for retry",
+                retryable=True,
+            )
+            raise HTTPException(
+                status_code=503,
+                detail="Context commentary delivery failed and was queued for retry",
+            ) from exc
+        reason = decision.suppressed_reason
+        context_events.mark_delivery(
+            event_id,
+            emitted=decision.allowed,
+            reason=reason,
+            retryable=context_events.is_retryable_suppression(reason),
+        )
+    else:
+        decision = initiative_service.can_emit(candidate, media_session=media_state)
+        await event_bus.publish(
+            "context.commentary.candidate"
+            if decision.allowed
+            else "context.commentary.suppressed",
+            {
+                "context_event_id": event_id,
+                **decision.to_dict(),
+            },
+            session_id=candidate.session_id,
+            source="context",
+        )
+    return {
+        "api_version": "v2",
+        "context_event_id": event_id,
+        "decision": decision.to_dict(),
+    }
+
+
 @router.post("/initiative/daily-greeting")
 async def daily_greeting_initiative(session_id: str = "default", emit: bool = False):
     candidate = initiative_service.build_daily_greeting_candidate(session_id=session_id)
@@ -2280,6 +2396,19 @@ async def record_initiative_activity(
         },
         session_id=session_id,
         source="initiative",
+    )
+    await _observe_context_event(
+        source=source,
+        kind=f"user_{state}",
+        category="wellbeing",
+        confidence=0.9,
+        sensitivity="private",
+        session_id=session_id,
+        payload={
+            "state": state,
+            "handled_by_existing_flow": state == "returned",
+        },
+        ttl_seconds=900,
     )
     # Re-evaluate life state on presence changes — absence/return are strong signals.
     initiative_store = getattr(initiative_service, "store", None)

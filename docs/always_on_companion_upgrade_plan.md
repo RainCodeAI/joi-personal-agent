@@ -391,6 +391,34 @@ Priority: **after voice and one-shot screen capture**
 
 Goal: allow Joi to notice and comment without becoming noisy.
 
+Status as of 2026-06-21: **code-complete foundation; device validation remains**
+
+Foundation update:
+
+- Added a persisted, bounded context-event buffer with automatic expiry pruning.
+- Events carry source, kind, category, confidence, sensitivity, timestamps, session, sanitized payload, and a deterministic deduplication key.
+- Low-confidence and duplicate events are suppressed before entering the buffer.
+- Screen captures and browser presence transitions now publish normalized context decisions in addition to their existing feature-specific events.
+- Context commentary is off by default; accepted observations are buffered but cannot speak.
+- Appearance and social/app commentary categories are disabled by default.
+- Runtime controls expose confidence, deduplication, category, and commentary settings.
+- The existing initiative gate remains the required final delivery boundary for future commentary emission.
+- Eligible observations now enter a persisted commentary queue processed at natural idle opportunities.
+- Delivery uses the existing initiative gate, including DND, quiet hours, daily limits, minimum spacing, microphone state, playback state, and expiry.
+- Busy microphone/playback and spacing suppressions remain queued for retry; permanent policy suppressions close the item.
+- Commentary feedback supports useful, wrong, too much, and never comment on this.
+- “Too much” applies a 24-hour category cooldown; “never comment” blocks that event kind until its stored preference is changed.
+- Queue delivery uses an atomic persisted claim, retries transient busy-state suppressions, and recovers abandoned claims after 10 minutes.
+- Emitted context events remain available for feedback for 7 days, and repeated identical feedback is idempotent.
+- Initiative realtime payloads carry an explicit context-event ID; the chat UI no longer parses IDs from display text.
+- Settings and diagnostics expose the commentary gate, category policy, queue counts, feedback state, and scheduler job.
+
+Remaining validation:
+
+- Exercise commentary delivery and all four feedback actions in the packaged desktop/WebView2 app.
+- Confirm microphone recording, assistant playback, minimum-spacing, DND, quiet-hours, and daily-limit suppressions behave correctly on a real device.
+- Confirm persisted queue recovery and feedback preferences survive a packaged-app restart.
+
 Work:
 
 - Add the normalized context-event schema and persistent short event buffer.

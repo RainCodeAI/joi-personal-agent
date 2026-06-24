@@ -45,7 +45,13 @@ class Settings(BaseSettings):
     # Comma-separated list of enabled initiative types.
     # prolonged_silence and memory_followup are off by default until tested.
     initiative_allowed_types: str = Field(
-        default="daily_greeting,return_after_absence,late_night_checkin"
+        default="daily_greeting,return_after_absence,late_night_checkin,context_commentary"
+    )
+    context_commentary_enabled: bool = Field(default=False)
+    context_min_confidence: float = Field(default=0.75)
+    context_dedup_minutes: int = Field(default=10)
+    context_allowed_categories: str = Field(
+        default="work_activity,wellbeing,entertainment,reminders"
     )
     enable_hardware_nodes: bool = Field(default=False)
     mqtt_broker_host: str = Field(default="127.0.0.1")

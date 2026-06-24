@@ -12,6 +12,7 @@ const FALLBACK_DIAGNOSTICS: DiagnosticsResponse = {
   realtime: {},
   hardware_bridge: {},
   initiative: undefined,
+  context_events: {},
 };
 
 function readinessTone(state?: ReadinessState["state"]) {
@@ -73,6 +74,7 @@ function InitiativePanel({ initiative }: { initiative: InitiativeDiagnostics | u
   const { scheduler } = initiative;
   const generalJob = scheduler?.jobs?.find((j) => j.id === "initiative_general_tick");
   const memoryJob = scheduler?.jobs?.find((j) => j.id === "initiative_memory_tick");
+  const contextJob = scheduler?.jobs?.find((j) => j.id === "context_commentary_tick");
 
   return (
     <section className="panel">
@@ -162,6 +164,9 @@ function InitiativePanel({ initiative }: { initiative: InitiativeDiagnostics | u
             <p>
               Memory: {memoryJob ? fmt(memoryJob.next_run_time) : "-"}
             </p>
+            <p>
+              Context: {contextJob ? fmt(contextJob.next_run_time) : "-"}
+            </p>
           </div>
           <span className={`badge ${scheduler?.running ? "ok" : ""}`}>
             {scheduler?.running ? "running" : "stopped"}
@@ -181,6 +186,7 @@ export default async function DiagnosticsPage() {
   const mediaEntries = Object.entries(diagnostics.media);
   const realtimeEntries = Object.entries(diagnostics.realtime);
   const hardwareBridgeEntries = Object.entries(diagnostics.hardware_bridge);
+  const contextEventEntries = Object.entries(diagnostics.context_events ?? {});
   const readyCount = readinessEntries.filter(([, entry]) => entry.state === "ready").length;
   const degradedCount = readinessEntries.filter(([, entry]) => entry.state === "degraded").length;
   const disabledCount = readinessEntries.filter(([, entry]) => entry.state === "disabled").length;
@@ -309,6 +315,25 @@ export default async function DiagnosticsPage() {
         </section>
 
         <InitiativePanel initiative={diagnostics.initiative} />
+
+        <section className="panel">
+          <p className="eyebrow">Context gate</p>
+          <h3>Observation buffer and commentary policy</h3>
+          <div className="list">
+            {contextEventEntries.length > 0 ? (
+              contextEventEntries.map(([name, value]) => (
+                <div className="list-row" key={name}>
+                  <div>
+                    <strong>{name}</strong>
+                    <DetailRows value={value} />
+                  </div>
+                </div>
+              ))
+            ) : (
+              <p style={{ opacity: 0.5, fontSize: 13 }}>No context diagnostics available</p>
+            )}
+          </div>
+        </section>
       </div>
     </>
   );

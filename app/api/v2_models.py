@@ -306,6 +306,10 @@ class SettingsResource(BaseModel):
     initiative_late_night_end: str
     initiative_silence_threshold_minutes: int
     initiative_allowed_types: str
+    context_commentary_enabled: bool
+    context_min_confidence: float
+    context_dedup_minutes: int
+    context_allowed_categories: str
     enable_hardware_nodes: bool
     mqtt_broker_host: str
     mqtt_broker_port: int
@@ -340,6 +344,10 @@ class SettingsPatchRequest(BaseModel):
     initiative_late_night_end: Optional[str] = None
     initiative_silence_threshold_minutes: Optional[int] = None
     initiative_allowed_types: Optional[str] = None
+    context_commentary_enabled: Optional[bool] = None
+    context_min_confidence: Optional[float] = Field(default=None, ge=0.0, le=1.0)
+    context_dedup_minutes: Optional[int] = Field(default=None, ge=1, le=1440)
+    context_allowed_categories: Optional[str] = None
     enable_hardware_nodes: Optional[bool] = None
     mqtt_broker_host: Optional[str] = None
     mqtt_broker_port: Optional[int] = None

@@ -16,6 +16,15 @@ const INITIATIVE_TYPES = [
   { id: "memory_followup", label: "Memory follow-up" },
 ] as const;
 
+const CONTEXT_CATEGORIES = [
+  { id: "work_activity", label: "Work/activity" },
+  { id: "wellbeing", label: "Wellbeing" },
+  { id: "entertainment", label: "Entertainment" },
+  { id: "reminders", label: "Reminders" },
+  { id: "appearance", label: "Appearance" },
+  { id: "social_app_activity", label: "Social/app activity" },
+] as const;
+
 function parseAllowedTypes(raw: string): string[] {
   return raw.split(",").map((t) => t.trim()).filter(Boolean);
 }
@@ -344,6 +353,90 @@ export function SettingsForm({ settings }: SettingsFormProps) {
                 setForm((c) => ({
                   ...c,
                   initiative_allowed_types: toggleType(c.initiative_allowed_types, id),
+                }))
+              }
+            >
+              {label}: {enabled ? "on" : "off"}
+            </button>
+          );
+        })}
+      </div>
+
+      <hr style={{ margin: "24px 0", opacity: 0.15 }} />
+      <p className="eyebrow">Context Commentary</p>
+      <h3>Restrained observation gate</h3>
+      <p style={{ fontSize: "0.82rem", color: "var(--color-muted)" }}>
+        Context events are buffered even while commentary is off. Appearance and social/app
+        categories remain disabled by default. Delivery also requires proactive messaging and
+        initiative to be enabled above.
+      </p>
+      <div className="field-grid">
+        <div className="field">
+          <label htmlFor="context-min-confidence">Minimum confidence</label>
+          <input
+            id="context-min-confidence"
+            className="input"
+            type="number"
+            min={0}
+            max={1}
+            step={0.05}
+            value={form.context_min_confidence}
+            onChange={(event) =>
+              setForm((current) => ({
+                ...current,
+                context_min_confidence: Number(event.target.value || 0),
+              }))
+            }
+          />
+        </div>
+        <div className="field">
+          <label htmlFor="context-dedup-minutes">Duplicate window (minutes)</label>
+          <input
+            id="context-dedup-minutes"
+            className="input"
+            type="number"
+            min={1}
+            max={1440}
+            value={form.context_dedup_minutes}
+            onChange={(event) =>
+              setForm((current) => ({
+                ...current,
+                context_dedup_minutes: Number(event.target.value || 10),
+              }))
+            }
+          />
+        </div>
+      </div>
+      <div className="button-row" style={{ flexWrap: "wrap" }}>
+        <button
+          className="button secondary"
+          type="button"
+          aria-pressed={form.context_commentary_enabled}
+          onClick={() =>
+            setForm((current) => ({
+              ...current,
+              context_commentary_enabled: !current.context_commentary_enabled,
+            }))
+          }
+        >
+          Commentary: {form.context_commentary_enabled ? "on" : "off"}
+        </button>
+        {CONTEXT_CATEGORIES.map(({ id, label }) => {
+          const enabled = parseAllowedTypes(form.context_allowed_categories).includes(id);
+          return (
+            <button
+              key={id}
+              className="button secondary"
+              type="button"
+              aria-pressed={enabled}
+              style={{ opacity: enabled ? 1 : 0.45 }}
+              onClick={() =>
+                setForm((current) => ({
+                  ...current,
+                  context_allowed_categories: toggleType(
+                    current.context_allowed_categories,
+                    id,
+                  ),
                 }))
               }
             >

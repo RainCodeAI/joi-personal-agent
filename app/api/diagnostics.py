@@ -7,7 +7,14 @@ from typing import Any, Dict
 import httpx
 from fastapi import APIRouter
 
-from app.api.state import event_bus, hardware_bridge, initiative_scheduler, initiative_service, media_sessions
+from app.api.state import (
+    context_events,
+    event_bus,
+    hardware_bridge,
+    initiative_scheduler,
+    initiative_service,
+    media_sessions,
+)
 from app.config import settings
 from app.db import engine as db_engine
 from app.memory.store import MemoryStore
@@ -259,6 +266,7 @@ def build_runtime_diagnostics() -> Dict[str, Any]:
         "realtime": realtime,
         "hardware_bridge": hardware_bridge,
         "initiative": initiative,
+        "context_events": context_events.diagnostics(),
     }
 
 

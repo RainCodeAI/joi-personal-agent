@@ -390,6 +390,24 @@ def test_v2_chat_with_attachments_and_deltas(monkeypatch):
 
     monkeypatch.setattr(api_v2.memory_store, "get_chat_history", history_wrapper)
     monkeypatch.setattr(api_v2.memory_store, "get_session", lambda session_id: fake_session)
+    class FakeMediaSessions:
+        def __init__(self):
+            self.state = {"session_id": "session-chat", "turn_state": "idle"}
+
+        def get(self, session_id):
+            return dict(self.state, session_id=session_id)
+
+        def update(self, session_id, **patch):
+            self.state.update(
+                {
+                    "session_id": session_id,
+                    **patch,
+                    "updated_at": "2026-01-03T12:00:03",
+                }
+            )
+            return dict(self.state)
+
+    monkeypatch.setattr(api_v2, "media_sessions", FakeMediaSessions())
     streamed_chunks = []
     captured = {}
 
@@ -1174,6 +1192,18 @@ def test_v2_media_transcribe_contract(monkeypatch):
         }
 
     monkeypatch.setattr(api_v2, "media_sessions", FakeMediaSessions())
+    class FakeHardwareBridge:
+        def sync_from_media_session(self, session_id, state):
+            return (
+                {
+                    "state": "listening" if state.get("mic_state") != "idle" else "idle",
+                    "led_state": "attentive_pulse",
+                    "session_id": session_id,
+                },
+                True,
+            )
+
+    monkeypatch.setattr(api_v2, "hardware_bridge", FakeHardwareBridge())
     monkeypatch.setattr(api_v2, "_transcribe_browser_audio", lambda raw_bytes, media_type: "voice drafted reply")
     monkeypatch.setattr(api_v2.event_bus, "publish", fake_publish)
 
@@ -1283,6 +1313,10 @@ def test_v2_settings_patch(monkeypatch):
                 "initiative_late_night_end": "01:00",
                 "initiative_silence_threshold_minutes": 90,
                 "initiative_allowed_types": "daily_greeting,return_after_absence,late_night_checkin",
+                "context_commentary_enabled": False,
+                "context_min_confidence": 0.75,
+                "context_dedup_minutes": 10,
+                "context_allowed_categories": "work_activity,wellbeing,entertainment,reminders",
                 "enable_hardware_nodes": False,
                 "mqtt_broker_host": "127.0.0.1",
                 "mqtt_broker_port": 1883,
@@ -1321,6 +1355,7 @@ def test_v2_settings_patch(monkeypatch):
     assert body["settings"]["autonomy_level"] == "high"
     assert body["settings"]["router_timeout"] == 45
     assert body["settings"]["initiative_daily_limit"] == 2
+    assert body["settings"]["context_commentary_enabled"] is False
     assert body["settings"]["mqtt_node_id"] == "desk"
     assert apply_calls == []
 
@@ -1389,6 +1424,15 @@ def test_v2_return_after_absence_candidate(monkeypatch):
     monkeypatch.setattr(api_v2, "initiative_service", fake_service)
     monkeypatch.setattr(api_v2, "media_sessions", FakeMediaSessions())
     monkeypatch.setattr(api_v2.event_bus, "publish", fake_publish)
+    monkeypatch.setattr(
+        api_v2.context_events,
+        "observe",
+        lambda **kwargs: SimpleNamespace(
+            accepted=True,
+            event=SimpleNamespace(session_id=kwargs["session_id"]),
+            to_dict=lambda: {"accepted": True, "event": kwargs},
+        ),
+    )
 
     response = client.post("/api/v2/initiative/activity", params={"session_id": "default", "state": "away", "source": "test"})
     assert response.status_code == 200
@@ -1400,6 +1444,138 @@ def test_v2_return_after_absence_candidate(monkeypatch):
     assert body["decision"]["allowed"] is True
     assert body["decision"]["candidate"]["type"] == "return_after_absence"
     assert published_events[-1][0] == "initiative.candidate"
+
+
+def test_v2_context_events_contract(monkeypatch):
+    class FakeContextEvents:
+        class Store:
+            @staticmethod
+            def recent(session_id=None, limit=20):
+                return [
+                    {
+                        "event_id": "context-1",
+                        "source": "screen",
+                        "kind": "manual_screen_capture",
+                        "category": "work_activity",
+                        "confidence": 0.95,
+                        "sensitivity": "private",
+                        "session_id": session_id or "default",
+                    }
+                ][:limit]
+
+        store = Store()
+
+        @staticmethod
+        def diagnostics():
+            return {
+                "buffered_events": 1,
+                "commentary_enabled": False,
+                "appearance_default_off": True,
+            }
+
+    monkeypatch.setattr(api_v2, "context_events", FakeContextEvents())
+
+    response = client.get("/api/v2/context/events", params={"session_id": "session-1"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["events"][0]["session_id"] == "session-1"
+    assert body["events"][0]["kind"] == "manual_screen_capture"
+    assert body["diagnostics"]["commentary_enabled"] is False
+
+
+def test_v2_context_feedback_contract(monkeypatch):
+    recorded = []
+
+    class FakeContextEvents:
+        @staticmethod
+        def record_feedback(event_id, action):
+            recorded.append((event_id, action))
+            return {"event_id": event_id, "action": action}
+
+        @staticmethod
+        def diagnostics():
+            return {"blocked_kinds": ["manual_screen_capture"]}
+
+    published = []
+
+    async def fake_publish(event, payload, session_id=None, source="system"):
+        published.append((event, payload, source))
+
+    monkeypatch.setattr(api_v2, "context_events", FakeContextEvents())
+    monkeypatch.setattr(api_v2.event_bus, "publish", fake_publish)
+
+    response = client.post(
+        "/api/v2/context/events/context-1/feedback",
+        params={"action": "never_comment"},
+    )
+
+    assert response.status_code == 200
+    assert recorded == [("context-1", "never_comment")]
+    assert published[0][0] == "context.feedback"
+    assert response.json()["diagnostics"]["blocked_kinds"] == ["manual_screen_capture"]
+
+
+def test_v2_context_feedback_rejects_second_different_action(monkeypatch):
+    class FakeContextEvents:
+        @staticmethod
+        def record_feedback(event_id, action):
+            raise ValueError("Feedback has already been recorded for this context event")
+
+    monkeypatch.setattr(api_v2, "context_events", FakeContextEvents())
+
+    response = client.post(
+        "/api/v2/context/events/context-1/feedback",
+        params={"action": "wrong"},
+    )
+
+    assert response.status_code == 400
+    assert "already been recorded" in response.json()["detail"]
+
+
+def test_v2_context_delivery_failure_requeues_claim(monkeypatch):
+    delivery_updates = []
+
+    class FakeContextEvents:
+        @staticmethod
+        def build_commentary_candidate(event_id, claim=False):
+            assert event_id == "context-1"
+            assert claim is True
+            return SimpleNamespace(session_id="default")
+
+        @staticmethod
+        def mark_delivery(event_id, **kwargs):
+            delivery_updates.append((event_id, kwargs))
+
+    class FakeInitiativeService:
+        async def emit(self, candidate, **kwargs):
+            raise RuntimeError("temporary failure")
+
+    class FakeMediaSessions:
+        @staticmethod
+        def get(session_id):
+            return {"session_id": session_id, "mic_state": "idle"}
+
+    monkeypatch.setattr(api_v2, "context_events", FakeContextEvents())
+    monkeypatch.setattr(api_v2, "initiative_service", FakeInitiativeService())
+    monkeypatch.setattr(api_v2, "media_sessions", FakeMediaSessions())
+
+    response = client.post(
+        "/api/v2/context/events/context-1/deliver",
+        params={"emit": True},
+    )
+
+    assert response.status_code == 503
+    assert delivery_updates == [
+        (
+            "context-1",
+            {
+                "emitted": False,
+                "reason": "delivery failed; queued for retry",
+                "retryable": True,
+            },
+        )
+    ]
 
 
 def test_v2_hardware_contract(monkeypatch):

@@ -38,6 +38,7 @@ frontend/.next/
 
 # Pytest
 .pytest_cache/
+.pytest_tmp/
 
 # Runtime data
 data/*.db
@@ -49,6 +50,8 @@ data/desktop_shell.json
 data/initiative_state.json
 data/media_sessions.json
 data/pending_approvals.json
+data/context_events.json
+data/context_feedback.json
 data/user_model_corrections.json
 frontend/tsconfig.tsbuildinfo
 

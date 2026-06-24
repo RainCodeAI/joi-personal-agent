@@ -35,6 +35,7 @@ logger = logging.getLogger(__name__)
 
 _TICK_INTERVAL_MINUTES = 15
 _MEMORY_TICK_INTERVAL_HOURS = 4
+_CONTEXT_TICK_INTERVAL_MINUTES = 5
 _BOOT_DELAY_SECONDS = 30
 _DEFAULT_SESSION = "default"
 
@@ -54,11 +55,13 @@ class InitiativeScheduler:
         event_bus: "RealtimeEventBus",
         memory_store: "MemoryStore",
         media_sessions: "MediaSessionStore",
+        context_events: Any | None = None,
     ) -> None:
         self._service = service
         self._event_bus = event_bus
         self._memory_store = memory_store
         self._media_sessions = media_sessions
+        self._context_events = context_events
         self._scheduler: Any = None  # APScheduler AsyncIOScheduler, imported lazily
 
     # ------------------------------------------------------------------
@@ -78,6 +81,16 @@ class InitiativeScheduler:
             next_run_time=first_run,
             id="initiative_general_tick",
             name="Initiative general tick",
+            coalesce=True,
+            max_instances=1,
+        )
+        self._scheduler.add_job(
+            self._context_tick,
+            trigger="interval",
+            minutes=_CONTEXT_TICK_INTERVAL_MINUTES,
+            next_run_time=first_run,
+            id="context_commentary_tick",
+            name="Context commentary queue tick",
             coalesce=True,
             max_instances=1,
         )
@@ -155,6 +168,45 @@ class InitiativeScheduler:
             memory_store=self._memory_store,
         )
         await self._evaluate(candidate, media=media)
+
+    async def _context_tick(self) -> None:
+        if not self._is_ready() or self._context_events is None:
+            return
+        for event in self._context_events.store.pending(limit=5):
+            event_id = str(event.get("event_id") or "")
+            candidate = self._context_events.build_commentary_candidate(
+                event_id,
+                claim=True,
+            )
+            if candidate is None:
+                continue
+            media = self._media_sessions.get(candidate.session_id)
+            try:
+                decision = await self._service.emit(
+                    candidate,
+                    event_bus=self._event_bus,
+                    memory_store=self._memory_store,
+                    media_session=media,
+                )
+            except Exception as exc:
+                logger.warning("Context commentary delivery failed: %s", exc)
+                self._context_events.mark_delivery(
+                    event_id,
+                    emitted=False,
+                    reason="delivery failed; queued for retry",
+                    retryable=True,
+                )
+                continue
+            if decision.allowed:
+                self._context_events.mark_delivery(event_id, emitted=True)
+                continue
+            reason = str(decision.suppressed_reason or "suppressed")
+            self._context_events.mark_delivery(
+                event_id,
+                emitted=False,
+                reason=reason,
+                retryable=self._context_events.is_retryable_suppression(reason),
+            )
 
     # ------------------------------------------------------------------
     # Internal helpers

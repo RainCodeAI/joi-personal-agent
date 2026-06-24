@@ -462,6 +462,10 @@ export type SettingsShape = {
   initiative_late_night_end: string;
   initiative_silence_threshold_minutes: number;
   initiative_allowed_types: string;
+  context_commentary_enabled: boolean;
+  context_min_confidence: number;
+  context_dedup_minutes: number;
+  context_allowed_categories: string;
   enable_hardware_nodes: boolean;
   mqtt_broker_host: string;
   mqtt_broker_port: number;
@@ -483,6 +487,20 @@ export async function patchSettings(payload: Partial<SettingsShape>) {
   return apiFetch<{ api_version: "v2"; settings: SettingsShape }>("/api/v2/settings", {
     method: "PATCH",
     body: JSON.stringify(payload),
+  });
+}
+
+export async function submitContextFeedback(
+  eventId: string,
+  action: "useful" | "wrong" | "too_much" | "never_comment",
+) {
+  const params = new URLSearchParams({ action });
+  return apiFetch<{
+    api_version: "v2";
+    event_id: string;
+    feedback: Record<string, unknown>;
+  }>(`/api/v2/context/events/${encodeURIComponent(eventId)}/feedback?${params}`, {
+    method: "POST",
   });
 }
 

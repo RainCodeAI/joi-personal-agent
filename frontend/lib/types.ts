@@ -305,6 +305,7 @@ export type DiagnosticsResponse = {
   realtime: Record<string, unknown>;
   hardware_bridge: Record<string, unknown>;
   initiative?: InitiativeDiagnostics;
+  context_events?: Record<string, unknown>;
 };
 
 export type LifeStateName = "calm" | "observant" | "resting" | "engaged" | "curious";

@@ -20,6 +20,7 @@ import {
   postActivityState,
   runDesktopAction,
   sendChatMessageWithAttachments,
+  submitContextFeedback,
   syncAvatar,
 } from "@/lib/api";
 import {
@@ -60,6 +61,7 @@ type AttachmentDraft = ChatAttachmentInput & {
 
 type DisplayMessage = Message & {
   attachments?: ChatAttachment[];
+  contextEventId?: string;
 };
 
 type ApprovalField = {
@@ -394,6 +396,7 @@ export function ChatClient({ initialSessionId }: ChatClientProps) {
   const [pendingDesktopAction, setPendingDesktopAction] = useState<DesktopActionDraft | null>(null);
   const [desktopActionResult, setDesktopActionResult] = useState<DesktopActionResult | null>(null);
   const [desktopActionBusy, setDesktopActionBusy] = useState(false);
+  const [contextFeedbackPending, setContextFeedbackPending] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
   const [attachments, setAttachments] = useState<AttachmentDraft[]>([]);
   const [status, setStatus] = useState("Checking backend");
@@ -747,16 +750,26 @@ export function ChatClient({ initialSessionId }: ChatClientProps) {
 
       if (event.event === "initiative.emitted") {
         const candidate = event.payload.candidate as
-          | { message?: string; type?: string; session_id?: string }
+          | {
+              message?: string;
+              type?: string;
+              session_id?: string;
+              context_event_id?: string;
+            }
           | undefined;
         const message = candidate?.message;
         if (message && sessionId) {
-          const initiativeMsg: Message = {
+          const contextEventId =
+            candidate?.type === "context_commentary"
+              ? candidate.context_event_id
+              : undefined;
+          const initiativeMsg: DisplayMessage = {
             id: Date.now(),
             session_id: candidate?.session_id ?? sessionId,
             role: "assistant",
             content: message,
             timestamp: new Date().toISOString(),
+            contextEventId,
           };
           startTransition(() => {
             setMessages((current) => [...current, initiativeMsg]);
@@ -1125,6 +1138,31 @@ export function ChatClient({ initialSessionId }: ChatClientProps) {
     }
   }
 
+  async function handleContextFeedback(
+    eventId: string,
+    action: "useful" | "wrong" | "too_much" | "never_comment",
+  ) {
+    if (contextFeedbackPending === eventId) {
+      return;
+    }
+    setContextFeedbackPending(eventId);
+    try {
+      await submitContextFeedback(eventId, action);
+      setMessages((current) =>
+        current.map((message) =>
+          message.contextEventId === eventId
+            ? { ...message, contextEventId: undefined }
+            : message,
+        ),
+      );
+      setStatus(`Context feedback recorded: ${action.replaceAll("_", " ")}`);
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Context feedback failed");
+    } finally {
+      setContextFeedbackPending(null);
+    }
+  }
+
   function stageDesktopAction(action: DesktopActionName, args: Record<string, unknown>) {
     setPendingDesktopAction({ action, args });
     setDesktopActionResult(null);
@@ -1204,6 +1242,30 @@ export function ChatClient({ initialSessionId }: ChatClientProps) {
                   <span>{formatTimestamp(message.timestamp)}</span>
                 </header>
                 <p>{message.content}</p>
+                {message.contextEventId ? (
+                  <div className="button-row">
+                    {(
+                      [
+                        ["useful", "Useful"],
+                        ["wrong", "Wrong"],
+                        ["too_much", "Too much"],
+                        ["never_comment", "Never comment on this"],
+                      ] as const
+                    ).map(([action, label]) => (
+                      <button
+                        className="button ghost"
+                        key={action}
+                        type="button"
+                        disabled={contextFeedbackPending === message.contextEventId}
+                        onClick={() =>
+                          void handleContextFeedback(message.contextEventId!, action)
+                        }
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
                 {message.attachments?.length ? (
                   <div className="attachment-list">
                     {message.attachments.map((attachment) => (

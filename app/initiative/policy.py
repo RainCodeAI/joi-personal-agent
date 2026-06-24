@@ -13,6 +13,7 @@ InitiativeType = Literal[
     "late_night_checkin",
     "prolonged_silence",
     "memory_followup",
+    "context_commentary",
 ]
 
 InitiativePriority = Literal["low", "normal", "high"]
@@ -23,6 +24,7 @@ ALLOWED_INITIATIVE_TYPES: tuple[InitiativeType, ...] = (
     "late_night_checkin",
     "prolonged_silence",
     "memory_followup",
+    "context_commentary",
 )
 
 # Types that are gated by the late-night window rather than quiet hours.
@@ -55,7 +57,13 @@ class InitiativePolicy:
             for t in (piece.strip() for piece in raw.split(","))
             if t in ALLOWED_INITIATIVE_TYPES
         )
-        allowed = parsed if parsed else ("daily_greeting",)
+        allowed_values = list(parsed if parsed else ("daily_greeting",))
+        if (
+            bool(getattr(settings, "context_commentary_enabled", False))
+            and "context_commentary" not in allowed_values
+        ):
+            allowed_values.append("context_commentary")
+        allowed = tuple(allowed_values)
         return cls(
             enabled=bool(settings.enable_proactive_messaging and settings.initiative_enabled),
             daily_limit=max(0, min(int(settings.initiative_daily_limit), 3)),
@@ -81,6 +89,7 @@ class InitiativeCandidate:
     session_id: str
     message: str
     expires_at: str | None = None
+    context_event_id: str | None = None
 
     def to_dict(self) -> dict[str, str | None]:
         return {
@@ -90,6 +99,7 @@ class InitiativeCandidate:
             "session_id": self.session_id,
             "message": self.message,
             "expires_at": self.expires_at,
+            "context_event_id": self.context_event_id,
         }
 
 
