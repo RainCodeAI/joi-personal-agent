@@ -19,6 +19,22 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
+_STANDARD_STREAM_FALLBACKS = []
+
+
+def _ensure_standard_streams() -> None:
+    """Windowed PyInstaller builds can start with stdout/stderr set to None."""
+
+    for name in ("stdout", "stderr"):
+        if getattr(sys, name, None) is not None:
+            continue
+        stream = open(os.devnull, "w", encoding="utf-8", buffering=1)
+        _STANDARD_STREAM_FALLBACKS.append(stream)
+        setattr(sys, name, stream)
+
+
+_ensure_standard_streams()
+
 try:
     from desktop.local_control import (
         LocalControlServer,

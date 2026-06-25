@@ -8,6 +8,17 @@ from pathlib import Path
 from desktop import tray_app, window_shell
 
 
+def test_tray_launcher_backfills_missing_standard_streams(monkeypatch) -> None:
+    monkeypatch.setattr(sys, "stdout", None)
+    monkeypatch.setattr(sys, "stderr", None)
+
+    tray_app._ensure_standard_streams()
+
+    assert sys.stdout is not None
+    assert sys.stderr is not None
+    assert hasattr(sys.stderr, "isatty")
+
+
 def test_window_state_round_trip_and_coercion(tmp_path: Path) -> None:
     path = tmp_path / "desktop_shell.json"
     window_shell.save_window_state(
