@@ -6,13 +6,11 @@ import { analyzeSnapshot, fetchPerceptionPolicy } from "@/lib/api";
 import type { PerceptionPolicy, PerceptionSignal, PerceptionSignalType, SnapshotAnalysis } from "@/lib/types";
 
 // MediaPipe runs entirely in the local browser context via WebAssembly.
-// WASM is served from the installed package. The model is local-first and
-// falls back to the pinned upstream URL until the .task asset is vendored.
+// WASM is served from the installed package. The face model is vendored
+// under public/ and is required for camera perception to start.
 const LOCAL_MEDIAPIPE_WASM_URL = "/vendor/mediapipe/tasks-vision/wasm";
 const LOCAL_FACE_LANDMARKER_MODEL_URL = "/vendor/mediapipe/models/face_landmarker.task";
 const REMOTE_MEDIAPIPE_WASM_URL = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.34/wasm";
-const REMOTE_FACE_LANDMARKER_MODEL_URL =
-  "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task";
 
 const POLL_INTERVAL_MS = 250; // 4fps — enough for presence, low CPU cost
 const LOOK_AWAY_THRESHOLD_MS = 2000; // emit looked_away after 2s of no face
@@ -33,7 +31,7 @@ type EngineStatus = "idle" | "requesting" | "loading" | "active" | "error" | "de
 
 type SnapshotStatus = "idle" | "capturing" | "analyzing" | "done" | "error";
 
-type AssetMode = "local" | "remote-fallback" | "unknown";
+type AssetMode = "local" | "remote-fallback" | "missing" | "unknown";
 
 type PerceptionEngineProps = {
   sessionId: string | null;
@@ -277,15 +275,14 @@ export function PerceptionEngine({ sessionId, onSignal }: PerceptionEngineProps)
         vision = await FilesetResolver.forVisionTasks(REMOTE_MEDIAPIPE_WASM_URL);
         setWasmMode("remote-fallback");
       }
-      const modelAssetPath = (await urlExists(LOCAL_FACE_LANDMARKER_MODEL_URL))
-        ? LOCAL_FACE_LANDMARKER_MODEL_URL
-        : REMOTE_FACE_LANDMARKER_MODEL_URL;
-      setModelMode(
-        modelAssetPath === LOCAL_FACE_LANDMARKER_MODEL_URL ? "local" : "remote-fallback",
-      );
+      if (!(await urlExists(LOCAL_FACE_LANDMARKER_MODEL_URL))) {
+        setModelMode("missing");
+        throw new Error("Local face landmarker model is missing from the packaged frontend.");
+      }
+      setModelMode("local");
       landmarkerRef.current = await FaceLandmarker.createFromOptions(vision, {
         baseOptions: {
-          modelAssetPath,
+          modelAssetPath: LOCAL_FACE_LANDMARKER_MODEL_URL,
           delegate: "GPU",
         },
         numFaces: 1,
@@ -360,8 +357,8 @@ export function PerceptionEngine({ sessionId, onSignal }: PerceptionEngineProps)
               Model:{" "}
               {modelMode === "local"
                 ? "local"
-                : modelMode === "remote-fallback"
-                  ? "remote fallback"
+                : modelMode === "missing"
+                  ? "missing"
                   : "checking"}
             </span>
           </>
