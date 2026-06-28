@@ -3,6 +3,10 @@
 import { ReactNode, useEffect, useState } from "react";
 
 import { NavLink } from "@/components/nav-link";
+import {
+  PerceptionServicePanel,
+  PerceptionServiceProvider,
+} from "@/components/perception-service-provider";
 
 const NAV_ITEMS = [
   { href: "/chat",        label: "Chat",        copy: "Realtime conversation and presence." },
@@ -34,41 +38,56 @@ export function AppShell({ children }: { children: ReactNode }) {
   }
 
   return (
-    <div className={`app-shell${collapsed ? " nav-collapsed" : ""}`}>
-      <aside className="app-nav">
-        <div className="brand-chip">
-          {collapsed ? "J" : "Joi v2 Surface"}
-        </div>
+    <PerceptionServiceProvider>
+      <div className={`app-shell${collapsed ? " nav-collapsed" : ""}`}>
+        <aside className="app-nav">
+          <div className="brand-chip">
+            {collapsed ? "J" : "Joi v2 Surface"}
+          </div>
 
-        {!collapsed && (
-          <>
-            <h1 className="brand-title">Joi</h1>
-            <p className="brand-copy">
-              Blade Runner-inspired control surface for chat, memory, planning, diagnostics, and
-              avatar-state orchestration.
-            </p>
-          </>
-        )}
+          {!collapsed && (
+            <>
+              <h1 className="brand-title">Joi</h1>
+              <p className="brand-copy">
+                Blade Runner-inspired control surface for chat, memory, planning, diagnostics, and
+                avatar-state orchestration.
+              </p>
+            </>
+          )}
 
-        <nav className="nav-group" aria-label="Primary">
-          {NAV_ITEMS.map((item) => (
-            <NavLink key={item.href} {...item} collapsed={collapsed} />
-          ))}
-        </nav>
+          <nav className="nav-group" aria-label="Primary">
+            {NAV_ITEMS.map((item) => (
+              <NavLink key={item.href} {...item} collapsed={collapsed} />
+            ))}
+          </nav>
 
-        <button
-          className="nav-collapse-btn"
-          onClick={toggle}
-          title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-          aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-        >
-          {collapsed ? "›" : "‹"}
-        </button>
-      </aside>
+          <details
+            className="aside-accordion app-nav-perception"
+            aria-hidden={collapsed}
+            inert={collapsed ? true : undefined}
+          >
+            <summary>
+              <span>Presence sensing</span>
+            </summary>
+            <div className="aside-accordion-body">
+              <PerceptionServicePanel />
+            </div>
+          </details>
 
-      <main className="content-shell">
-        <div className="content-frame">{children}</div>
-      </main>
-    </div>
+          <button
+            className="nav-collapse-btn"
+            onClick={toggle}
+            title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+            aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+          >
+            {collapsed ? "›" : "‹"}
+          </button>
+        </aside>
+
+        <main className="content-shell">
+          <div className="content-frame">{children}</div>
+        </main>
+      </div>
+    </PerceptionServiceProvider>
   );
 }

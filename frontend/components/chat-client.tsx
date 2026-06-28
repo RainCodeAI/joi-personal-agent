@@ -3,7 +3,7 @@
 import { ChangeEvent, FormEvent, useCallback, useEffect, useRef, useState, startTransition } from "react";
 
 import { AvatarSyncPanel } from "@/components/avatar-sync-panel";
-import { PerceptionEngine } from "@/components/perception-engine";
+import { usePerceptionService } from "@/components/perception-service-provider";
 import { VoiceComposer } from "@/components/voice-composer";
 import { usePresenceReporter } from "@/hooks/use-presence-reporter";
 import {
@@ -17,7 +17,6 @@ import {
   listApprovals,
   listMessages,
   patchMediaSession,
-  postActivityState,
   runDesktopAction,
   sendChatMessageWithAttachments,
   submitContextFeedback,
@@ -36,11 +35,8 @@ import {
   LifeStateName,
   MediaSession,
   Message,
-  PerceptionSignal,
-  PerceptionState,
   ReadinessState,
   RealtimeEvent,
-  SnapshotAnalysis,
 } from "@/lib/types";
 
 const SESSION_STORAGE_KEY = "joi-v2-session";
@@ -415,94 +411,17 @@ export function ChatClient({ initialSessionId }: ChatClientProps) {
   const [avatarSyncLoading, setAvatarSyncLoading] = useState(false);
   const [isSending, setIsSending] = useState(false);
   const isSendingRef = useRef(false);
-  const [perceptionState, setPerceptionState] = useState<PerceptionState>({
-    userPresent: false,
-    faceVisible: false,
-    leanedIn: false,
-    currentExpression: null,
-    lastSignal: null,
-    updatedAt: 0,
-  });
-  const [perceptionExpression, setPerceptionExpression] = useState<string | null>(null);
-  const [lastSnapshotAnalysis, setLastSnapshotAnalysis] = useState<SnapshotAnalysis | null>(null);
-  const lookAwayResetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const {
+    perceptionState,
+    perceptionExpression,
+    lastSnapshotAnalysis,
+    setSessionId: setPerceptionSessionId,
+    clearLastSnapshotAnalysis,
+  } = usePerceptionService();
   const bottomRef = useRef<HTMLDivElement | null>(null);
   const chatAbortControllerRef = useRef<AbortController | null>(null);
   const activeAssistantTurnIdRef = useRef<string | null>(null);
   const assistantInterruptedRef = useRef(false);
-
-  const handlePerceptionSignal = useCallback((signal: PerceptionSignal) => {
-    // Feed camera presence transitions into the initiative activity endpoint.
-    // returned_to_frame is edge-triggered (fires once per absence→present transition)
-    // so no additional debounce is needed here.
-    const sid = sessionIdRef.current;
-    if (sid) {
-      if (signal.signal === "returned_to_frame") {
-        postActivityState(sid, "returned", "browser_perception");
-      } else if (signal.signal === "looked_away") {
-        postActivityState(sid, "away", "browser_perception");
-      }
-    }
-
-    startTransition(() => {
-      setPerceptionState((prev) => {
-        const presenceSignals = new Set(["user_present", "face_visible", "returned_to_frame"]);
-        return {
-          userPresent: presenceSignals.has(signal.signal)
-            ? true
-            : signal.signal === "looked_away"
-              ? false
-              : prev.userPresent,
-          faceVisible: presenceSignals.has(signal.signal)
-            ? true
-            : signal.signal === "looked_away"
-              ? false
-              : prev.faceVisible,
-          leanedIn: signal.signal === "leaned_in"
-            ? true
-            : signal.signal === "leaned_back"
-              ? false
-              : prev.leanedIn,
-          currentExpression:
-            signal.signal === "expression_smile"    ? "smile"    :
-            signal.signal === "expression_stress"   ? "stress"   :
-            signal.signal === "expression_surprise" ? "surprise" :
-            signal.signal === "expression_neutral"  ? "neutral"  :
-            prev.currentExpression,
-          lastSignal: signal,
-          updatedAt: signal.timestamp,
-        };
-      });
-    });
-
-    // Map perception signals to avatar expression overrides
-    if (signal.signal === "expression_smile") {
-      setPerceptionExpression("smirk");
-    } else if (signal.signal === "expression_stress") {
-      setPerceptionExpression("concern");
-    } else if (signal.signal === "expression_surprise") {
-      setPerceptionExpression("shock");
-    } else if (signal.signal === "expression_neutral") {
-      setPerceptionExpression(null);
-    } else if (signal.signal === "looked_away") {
-      // Show Joi looking away — auto-restore after 4s
-      setPerceptionExpression("missing");
-      if (lookAwayResetTimerRef.current) clearTimeout(lookAwayResetTimerRef.current);
-      lookAwayResetTimerRef.current = setTimeout(() => {
-        setPerceptionExpression(null);
-      }, 4000);
-    } else if (signal.signal === "returned_to_frame") {
-      if (lookAwayResetTimerRef.current) clearTimeout(lookAwayResetTimerRef.current);
-      setPerceptionExpression(null);
-    } else if (signal.signal === "snapshot_analyzed" && signal.payload) {
-      setLastSnapshotAnalysis({
-        description: String(signal.payload.description ?? ""),
-        tags: Array.isArray(signal.payload.tags) ? (signal.payload.tags as string[]) : [],
-        capturedAt: String(signal.payload.capturedAt ?? ""),
-        previewDataUrl: "",
-      });
-    }
-  }, []);
 
   useEffect(() => {
     let active = true;
@@ -574,10 +493,11 @@ export function ChatClient({ initialSessionId }: ChatClientProps) {
     );
   }, [autoSendVoiceEnabled]);
 
-  // Keep ref in sync so stable callbacks (handlePerceptionSignal) always read the current sessionId.
+  // Keep refs and app-level services in sync with the active chat session.
   useEffect(() => {
     sessionIdRef.current = sessionId;
-  }, [sessionId]);
+    setPerceptionSessionId(sessionId);
+  }, [sessionId, setPerceptionSessionId]);
 
   useEffect(() => {
     isSendingRef.current = isSending;
@@ -1782,21 +1702,12 @@ export function ChatClient({ initialSessionId }: ChatClientProps) {
                 <button
                   className="button tertiary feed-dismiss"
                   type="button"
-                  onClick={() => setLastSnapshotAnalysis(null)}
+                  onClick={clearLastSnapshotAnalysis}
                 >
                   Dismiss
                 </button>
               </section>
             ) : null}
-
-            <details className="aside-accordion">
-              <summary>
-                <span>Presence sensing</span>
-              </summary>
-              <div className="aside-accordion-body">
-                <PerceptionEngine sessionId={sessionId} onSignal={handlePerceptionSignal} />
-              </div>
-            </details>
 
             <details className="aside-accordion">
               <summary>

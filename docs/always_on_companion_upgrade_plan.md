@@ -457,7 +457,7 @@ Priority: **after the context event gate**
 
 Goal: improve visual presence without continuous server-side video.
 
-Status as of 2026-06-24: **local MediaPipe WASM and face model vendored**
+Status as of 2026-06-27: **local MediaPipe assets vendored; app-level perception service started**
 
 Foundation update:
 
@@ -468,16 +468,23 @@ Foundation update:
 - The perception panel reports whether WASM is local or using fallback, and whether the local model is available.
 - Vendored model SHA-256: `64184E229B263107BC2B804C6625DB1341FF2BB731874B0BCC2FE6544E0BC9FF`.
 - Production standalone validation confirmed the local WASM route and copied `public/` model return HTTP 200 from the built Next server.
+- Perception signal handling now lives in an app-level provider mounted by `AppShell`; chat consumes shared perception state instead of owning the camera lifecycle.
+- The app-level perception panel remains mounted across route changes and sidebar collapse, so an enabled camera session is not reset by leaving `/chat`.
 
 Work:
 
-- Bundle MediaPipe WASM and models locally.
-- Move perception into an app-level service so it survives route changes.
+- [x] Bundle MediaPipe WASM and models locally.
+- [x] Move perception into an app-level service so it survives route changes.
 - Add signal duration and confidence smoothing.
 - Add optional hand/gesture and posture events.
 - Use neutral terms such as `possible_tension` instead of asserting emotional state.
 - Add explicit snapshot escalation when local events are insufficient.
 - Add native tray camera indicator and one-click suspend.
+
+Remaining validation:
+
+- Device-level camera permission, route-change persistence, and sidebar-collapse persistence still need hands-on validation in the browser and packaged WebView2 shell.
+- Packaged WebView2 should verify that the vendored model and local WASM route still report available after build/install.
 
 Exit criteria:
 
