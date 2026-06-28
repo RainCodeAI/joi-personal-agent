@@ -151,6 +151,7 @@ Success criteria:
 - Phase D API, persistence, settings, diagnostics, frontend type checking, and focused regression coverage are implemented. Packaged build/API/standalone-frontend smoke validation passed on 2026-06-24 using `C:\tmp` output; hands-on WebView2 delivery, suppression, restart, and feedback QA remain.
 - Phase E started on 2026-06-24: MediaPipe WASM now resolves through a local Next.js route in production standalone builds, and `face_landmarker.task` is vendored locally with no silent remote model fallback.
 - Phase E app-level perception service started on 2026-06-27: `AppShell` owns the mounted perception panel/provider, chat consumes shared perception state, and enabled camera sensing is no longer tied to the `/chat` route lifecycle. Device-level browser/WebView2 validation remains.
+- Phase E source WebView2 validation on 2026-06-27 reached the local camera permission prompt after fixing pywebview API recursion and native sidebar scrolling. Final allow/camera-session persistence remains a hands-on validation item.
 - Packaged WebView2 screen-picker behavior remains a device-level validation item.
 - Manual QA on 2026-05-27 confirmed click-to-record voice capture, browser `webm/opus` upload, transcription, voice auto-send, text chat, and provider-backed assistant responses.
 - Runtime fixes from QA:

@@ -112,13 +112,13 @@ def dispatch_browser_event(window: Any, event_name: str) -> None:
 
 class NativeShellApi:
     def __init__(self) -> None:
-        self.window: Any | None = None
+        self._window: Any | None = None
 
     def set_capture_active(self, active: bool) -> bool:
         title = "Joi - Screen capture active" if active else "Joi"
-        if self.window is not None:
+        if self._window is not None:
             try:
-                self.window.set_title(title)
+                self._window.set_title(title)
             except Exception as exc:
                 log.debug("Could not update native capture title: %s", exc)
         send_command(TRAY_CONTROL_PORT, "capture_start" if active else "capture_end")
@@ -230,7 +230,7 @@ def launch_window(
     try:
         native_api = NativeShellApi()
         window = webview.create_window("Joi", url, js_api=native_api, **window_kwargs)
-        native_api.window = window
+        native_api._window = window
     except Exception as exc:
         log.exception("Could not create the Joi desktop window: %s", exc)
         if browser_fallback:

@@ -470,6 +470,7 @@ Foundation update:
 - Production standalone validation confirmed the local WASM route and copied `public/` model return HTTP 200 from the built Next server.
 - Perception signal handling now lives in an app-level provider mounted by `AppShell`; chat consumes shared perception state instead of owning the camera lifecycle.
 - The app-level perception panel remains mounted across route changes and sidebar collapse, so an enabled camera session is not reset by leaving `/chat`.
+- Source WebView2 validation exposed and fixed two native-shell issues: the pywebview JS API no longer publishes the recursive window handle, and the app sidebar can scroll vertically so app-level perception controls are reachable in native window sizes.
 
 Work:
 
@@ -485,6 +486,7 @@ Remaining validation:
 
 - Device-level camera permission, route-change persistence, and sidebar-collapse persistence still need hands-on validation in the browser and packaged WebView2 shell.
 - Packaged WebView2 should verify that the vendored model and local WASM route still report available after build/install.
+- Source WebView2 reached the local camera permission prompt on 2026-06-27; final allow/camera-session persistence still needs hands-on validation because automation targeting became unreliable at the permission handoff.
 
 Exit criteria:
 
