@@ -114,14 +114,24 @@ class NativeShellApi:
     def __init__(self) -> None:
         self._window: Any | None = None
 
+    def _set_window_title(self, title: str) -> None:
+        if self._window is None:
+            return
+        try:
+            self._window.set_title(title)
+        except Exception as exc:
+            log.debug("Could not update native window title: %s", exc)
+
     def set_capture_active(self, active: bool) -> bool:
         title = "Joi - Screen capture active" if active else "Joi"
-        if self._window is not None:
-            try:
-                self._window.set_title(title)
-            except Exception as exc:
-                log.debug("Could not update native capture title: %s", exc)
+        self._set_window_title(title)
         send_command(TRAY_CONTROL_PORT, "capture_start" if active else "capture_end")
+        return True
+
+    def set_camera_active(self, active: bool) -> bool:
+        title = "Joi - Camera active" if active else "Joi"
+        self._set_window_title(title)
+        send_command(TRAY_CONTROL_PORT, "camera_start" if active else "camera_end")
         return True
 
 

@@ -12,7 +12,7 @@ const LOCAL_MEDIAPIPE_WASM_URL = "/vendor/mediapipe/tasks-vision/wasm";
 const LOCAL_FACE_LANDMARKER_MODEL_URL = "/vendor/mediapipe/models/face_landmarker.task";
 const REMOTE_MEDIAPIPE_WASM_URL = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.34/wasm";
 
-const POLL_INTERVAL_MS = 250; // 4fps — enough for presence, low CPU cost
+const POLL_INTERVAL_MS = 250; // 4fps - enough for presence, low CPU cost
 const LOOK_AWAY_THRESHOLD_MS = 2000; // emit looked_away after 2s of no face
 const PRESENCE_STABILITY_FRAMES = 2;
 const LEAN_STABILITY_FRAMES = 2;
@@ -21,6 +21,7 @@ const LEAN_OUT_THRESHOLD = 0.30;
 const EXPRESSION_DEBOUNCE_MS = 600; // min ms between expression change signals
 const EXPRESSION_STABILITY_FRAMES = 3;
 const EXPRESSION_MIN_CONFIDENCE = 0.35;
+const POLICY_POLL_INTERVAL_MS = 3000;
 
 // ARKit blendshape thresholds for expression classification
 const SMILE_THRESHOLD    = 0.45;
@@ -49,6 +50,20 @@ type PerceptionEngineProps = {
 
 function emit(signal: PerceptionSignalType, confidence?: number): PerceptionSignal {
   return { signal, timestamp: performance.now(), confidence };
+}
+
+function setNativeCameraActive(active: boolean): void {
+  const nativeApi = (
+    window as Window & {
+      pywebview?: {
+        api?: {
+          set_camera_active?: (active: boolean) => Promise<boolean> | boolean;
+        };
+      };
+    }
+  ).pywebview?.api;
+
+  void Promise.resolve(nativeApi?.set_camera_active?.(active)).catch(() => null);
 }
 
 async function urlExists(url: string): Promise<boolean> {
@@ -91,9 +106,22 @@ export function PerceptionEngine({ sessionId, onSignal }: PerceptionEngineProps)
   const [modelMode, setModelMode] = useState<AssetMode>("unknown");
 
   useEffect(() => {
-    fetchPerceptionPolicy()
-      .then((r) => setPolicy(r.policy))
-      .catch(() => null);
+    let cancelled = false;
+
+    const refreshPolicy = () => {
+      fetchPerceptionPolicy()
+        .then((r) => {
+          if (!cancelled) setPolicy(r.policy);
+        })
+        .catch(() => null);
+    };
+
+    refreshPolicy();
+    const policyTimer = window.setInterval(refreshPolicy, POLICY_POLL_INTERVAL_MS);
+    return () => {
+      cancelled = true;
+      window.clearInterval(policyTimer);
+    };
   }, []);
 
   const stopEngine = useCallback(() => {
@@ -114,6 +142,7 @@ export function PerceptionEngine({ sessionId, onSignal }: PerceptionEngineProps)
     lastExpressionEmittedAtRef.current = 0;
     pendingExpressionRef.current = null;
     setFacePresent(false);
+    setNativeCameraActive(false);
     setStatus("idle");
   }, []);
 
@@ -121,8 +150,15 @@ export function PerceptionEngine({ sessionId, onSignal }: PerceptionEngineProps)
     return () => {
       if (pollTimerRef.current !== null) clearInterval(pollTimerRef.current);
       streamRef.current?.getTracks().forEach((t) => t.stop());
+      setNativeCameraActive(false);
     };
   }, []);
+
+  useEffect(() => {
+    if (policy?.camera_enabled === false && status !== "idle") {
+      stopEngine();
+    }
+  }, [policy?.camera_enabled, status, stopEngine]);
 
   function normFaceWidth(landmarks: { x: number; y: number }[]): number {
     let minX = 1, maxX = 0;
@@ -295,6 +331,11 @@ export function PerceptionEngine({ sessionId, onSignal }: PerceptionEngineProps)
   }
 
   async function startEngine() {
+    if (policy?.camera_enabled === false) {
+      setError("Camera access is suspended in Settings.");
+      return;
+    }
+
     setError(null);
     setStatus("requesting");
 
@@ -366,6 +407,7 @@ export function PerceptionEngine({ sessionId, onSignal }: PerceptionEngineProps)
     pendingExpressionRef.current = null;
 
     pollTimerRef.current = setInterval(runDetection, POLL_INTERVAL_MS);
+    setNativeCameraActive(true);
     setStatus("active");
   }
 
@@ -427,7 +469,7 @@ export function PerceptionEngine({ sessionId, onSignal }: PerceptionEngineProps)
       {policy?.camera_enabled === false ? (
         <div className="empty-state" style={{ marginBottom: 12 }}>
           Camera access is disabled in{" "}
-          <a href="/settings" style={{ color: "var(--color-accent)" }}>Settings → Perception Policy</a>.
+          <a href="/settings" style={{ color: "var(--color-accent)" }}>Settings - Perception Policy</a>.
         </div>
       ) : null}
 
@@ -449,7 +491,7 @@ export function PerceptionEngine({ sessionId, onSignal }: PerceptionEngineProps)
               disabled={status === "requesting" || status === "loading"}
               onClick={stopEngine}
             >
-              {status === "requesting" || status === "loading" ? "Starting…" : "Disable camera"}
+              {status === "requesting" || status === "loading" ? "Starting..." : "Disable camera"}
             </button>
             <button
               className="button ghost"
@@ -457,7 +499,7 @@ export function PerceptionEngine({ sessionId, onSignal }: PerceptionEngineProps)
               disabled={status !== "active" || !sessionId || snapshotStatus === "analyzing"}
               onClick={() => void captureSnapshot()}
             >
-              {snapshotStatus === "analyzing" ? "Analyzing…" : "Capture scene"}
+              {snapshotStatus === "analyzing" ? "Analyzing..." : "Capture scene"}
             </button>
           </>
         )}

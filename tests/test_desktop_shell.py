@@ -78,7 +78,7 @@ def test_native_capture_api_updates_title_and_tray(monkeypatch) -> None:
     titles: list[str] = []
     commands: list[tuple[int, str]] = []
     api = window_shell.NativeShellApi()
-    api.window = SimpleNamespace(set_title=titles.append)
+    api._window = SimpleNamespace(set_title=titles.append)
     monkeypatch.setattr(
         window_shell,
         "send_command",
@@ -92,6 +92,27 @@ def test_native_capture_api_updates_title_and_tray(monkeypatch) -> None:
     assert commands == [
         (window_shell.TRAY_CONTROL_PORT, "capture_start"),
         (window_shell.TRAY_CONTROL_PORT, "capture_end"),
+    ]
+
+
+def test_native_camera_api_updates_title_and_tray(monkeypatch) -> None:
+    titles: list[str] = []
+    commands: list[tuple[int, str]] = []
+    api = window_shell.NativeShellApi()
+    api._window = SimpleNamespace(set_title=titles.append)
+    monkeypatch.setattr(
+        window_shell,
+        "send_command",
+        lambda port, command: commands.append((port, command)) or True,
+    )
+
+    assert api.set_camera_active(True) is True
+    assert api.set_camera_active(False) is True
+
+    assert titles == ["Joi - Camera active", "Joi"]
+    assert commands == [
+        (window_shell.TRAY_CONTROL_PORT, "camera_start"),
+        (window_shell.TRAY_CONTROL_PORT, "camera_end"),
     ]
 
 
@@ -174,6 +195,48 @@ def test_tray_capture_commands_update_visible_status(monkeypatch) -> None:
 
     assert app._capture_active is False
     assert refreshes == [True, False]
+
+
+def test_tray_camera_commands_update_visible_status(monkeypatch) -> None:
+    app = tray_app.JoiTrayApp.__new__(tray_app.JoiTrayApp)
+    app._capture_active = False
+    app._camera_active = False
+    app._camera_policy_enabled_cache = True
+    refreshes: list[bool] = []
+    monkeypatch.setattr(app, "_update_icon", lambda: refreshes.append(app._camera_active))
+
+    assert app._handle_control_command("camera_start") is True
+    assert app.status_text() == "Status: camera active"
+    assert app._handle_control_command("camera_end") is True
+
+    assert app._camera_active is False
+    assert refreshes == [True, False]
+
+
+def test_tray_suspend_camera_patches_policy(monkeypatch) -> None:
+    app = tray_app.JoiTrayApp.__new__(tray_app.JoiTrayApp)
+    app._camera_active = True
+    app._camera_policy_enabled_cache = True
+    calls: list[tuple[str, str, dict | None]] = []
+    refreshes: list[bool] = []
+
+    monkeypatch.setattr(app, "api_running", lambda: True)
+    monkeypatch.setattr(app, "_update_icon", lambda: refreshes.append(True))
+
+    def fake_api_json(path: str, *, method: str = "GET", payload: dict | None = None) -> dict:
+        calls.append((path, method, payload))
+        return {"policy": {"camera_enabled": False}}
+
+    monkeypatch.setattr(app, "_api_json", fake_api_json)
+
+    app.suspend_camera()
+
+    assert calls == [
+        ("/api/v2/perception/policy", "PATCH", {"camera_enabled": False}),
+    ]
+    assert app._camera_policy_enabled_cache is False
+    assert app._camera_active is False
+    assert refreshes == [True]
 
 
 def test_tray_screen_hotkey_focuses_window_and_dispatches(monkeypatch) -> None:

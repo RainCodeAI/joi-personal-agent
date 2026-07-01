@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import atexit
+import json
 import logging
 import os
 import secrets
@@ -150,6 +151,8 @@ class JoiTrayApp:
         self._control_server: LocalControlServer | None = None
         self._watchdog_thread: threading.Thread | None = None
         self._capture_active = False
+        self._camera_active = False
+        self._camera_policy_enabled_cache: bool | None = None
         self._restart_history: dict[str, deque[float]] = {
             "api": deque(),
             "frontend": deque(),
@@ -208,6 +211,11 @@ class JoiTrayApp:
     def status_text(self) -> str:
         if self._capture_active:
             return "Status: screen capture active"
+        if self._camera_active:
+            return "Status: camera active"
+        camera_enabled = self._camera_policy_enabled()
+        if camera_enabled is False:
+            return "Status: camera suspended"
         if self.stack_running():
             return "Status: running"
         if self.api_running() or self.frontend_running():
@@ -302,6 +310,7 @@ class JoiTrayApp:
     def stop_stack(self) -> None:
         self._desired_running = False
         self._capture_active = False
+        self._camera_active = False
         self.close_window()
         self.stop_frontend()
         self.stop_api()
@@ -422,6 +431,10 @@ class JoiTrayApp:
             self._capture_active = command == "capture_start"
             self._update_icon()
             return True
+        if command in {"camera_start", "camera_end"}:
+            self._camera_active = command == "camera_start"
+            self._update_icon()
+            return True
         if command in {"show", "focus"}:
             self.open_joi()
             return True
@@ -432,6 +445,61 @@ class JoiTrayApp:
             threading.Thread(target=self.quit, daemon=True).start()
             return True
         return False
+
+    def _api_json(self, path: str, *, method: str = "GET", payload: dict | None = None) -> dict | None:
+        body = None if payload is None else json.dumps(payload).encode("utf-8")
+        request = urllib.request.Request(f"{API_URL}{path}", data=body, method=method)
+        request.add_header("X-Joi-Api-Token", self._token)
+        request.add_header("Content-Type", "application/json")
+        try:
+            with urllib.request.urlopen(request, timeout=2) as response:
+                if response.status < 200 or response.status >= 300:
+                    return None
+                return json.loads(response.read().decode("utf-8"))
+        except (OSError, urllib.error.URLError, json.JSONDecodeError) as exc:
+            log.debug("Perception policy request failed: %s", exc)
+            return None
+
+    def _camera_policy_enabled(self) -> bool | None:
+        if not self.api_running():
+            return self._camera_policy_enabled_cache
+        payload = self._api_json("/api/v2/perception/policy")
+        policy = payload.get("policy") if isinstance(payload, dict) else None
+        if isinstance(policy, dict) and isinstance(policy.get("camera_enabled"), bool):
+            self._camera_policy_enabled_cache = policy["camera_enabled"]
+        return self._camera_policy_enabled_cache
+
+    def _camera_status_text(self) -> str:
+        if self._camera_active:
+            return "Camera: active"
+        camera_enabled = self._camera_policy_enabled()
+        if camera_enabled is False:
+            return "Camera: suspended"
+        if camera_enabled is True:
+            return "Camera: enabled"
+        return "Camera: unknown"
+
+    def _set_camera_enabled(self, enabled: bool) -> None:
+        if not self.api_running():
+            log.warning("Cannot update camera policy because the API is not running.")
+            return
+        payload = self._api_json(
+            "/api/v2/perception/policy",
+            method="PATCH",
+            payload={"camera_enabled": enabled},
+        )
+        policy = payload.get("policy") if isinstance(payload, dict) else None
+        if isinstance(policy, dict) and isinstance(policy.get("camera_enabled"), bool):
+            self._camera_policy_enabled_cache = policy["camera_enabled"]
+            if not policy["camera_enabled"]:
+                self._camera_active = False
+        self._update_icon()
+
+    def suspend_camera(self) -> None:
+        self._set_camera_enabled(False)
+
+    def resume_camera(self) -> None:
+        self._set_camera_enabled(True)
 
     def _update_icon(self) -> None:
         if self._tray_icon is None:
@@ -465,10 +533,21 @@ class JoiTrayApp:
 
         menu = pystray.Menu(
             pystray.MenuItem(lambda _: self.status_text(), None, enabled=False),
+            pystray.MenuItem(lambda _: self._camera_status_text(), None, enabled=False),
             pystray.MenuItem("Open Joi Window", lambda _icon, _item: self.open_joi(), default=True),
             pystray.MenuItem("Hide Joi Window", lambda _icon, _item: self.hide_joi()),
             pystray.MenuItem("Open Always On Top", lambda _icon, _item: self.open_joi(always_on_top=True)),
             pystray.MenuItem("Open in Browser", lambda _icon, _item: self.open_browser()),
+            pystray.MenuItem(
+                "Suspend Camera",
+                lambda _icon, _item: self.suspend_camera(),
+                enabled=lambda _: self.api_running() and self._camera_policy_enabled() is not False,
+            ),
+            pystray.MenuItem(
+                "Resume Camera",
+                lambda _icon, _item: self.resume_camera(),
+                enabled=lambda _: self.api_running() and self._camera_policy_enabled() is False,
+            ),
             pystray.MenuItem(
                 "Start Joi",
                 lambda _icon, _item: self.start_stack(),
