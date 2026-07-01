@@ -96,7 +96,7 @@ export function PerceptionServiceProvider({ children }: { children: ReactNode })
               : prev.leanedIn,
           currentExpression:
             signal.signal === "expression_smile"    ? "smile"    :
-            signal.signal === "expression_stress"   ? "stress"   :
+            signal.signal === "expression_possible_tension" ? "possible_tension" :
             signal.signal === "expression_surprise" ? "surprise" :
             signal.signal === "expression_neutral"  ? "neutral"  :
             prev.currentExpression,
@@ -108,7 +108,7 @@ export function PerceptionServiceProvider({ children }: { children: ReactNode })
 
     if (signal.signal === "expression_smile") {
       setPerceptionExpression("smirk");
-    } else if (signal.signal === "expression_stress") {
+    } else if (signal.signal === "expression_possible_tension") {
       setPerceptionExpression("concern");
     } else if (signal.signal === "expression_surprise") {
       setPerceptionExpression("shock");

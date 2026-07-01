@@ -1447,7 +1447,7 @@ export function ChatClient({ initialSessionId }: ChatClientProps) {
                     <strong>Presence</strong>
                     <p>
                       {perceptionState.userPresent
-                        ? (perceptionState.currentExpression ?? "neutral")
+                        ? (perceptionState.currentExpression?.replace(/_/g, " ") ?? "neutral")
                         : (perceptionState.lastSignal ? "away" : "not sensing")}
                     </p>
                   </div>

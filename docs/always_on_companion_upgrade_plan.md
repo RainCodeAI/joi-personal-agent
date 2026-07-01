@@ -44,7 +44,7 @@ Status: **useful local prototype; only active inside the mounted chat UI**
 What exists:
 
 - Browser-side MediaPipe face landmarks and blendshapes at roughly 4 FPS.
-- Local signals for presence, return, looking away, leaning, smile, stress, surprise, and neutral expression.
+- Local signals for presence, return, looking away, leaning, smile, possible tension, surprise, and neutral expression.
 - Signals affect avatar expression and feed return/away state into initiative.
 - Camera master switch and retention policy.
 - Explicit snapshot capture and backend image description.
@@ -53,9 +53,9 @@ What exists:
 What is missing:
 
 - Perception does not run when chat is closed, hidden, suspended, or not mounted.
-- MediaPipe model and WASM assets are loaded from external CDNs, so the path is not fully local/offline.
+- MediaPipe model and primary WASM path are local; a pinned remote WASM fallback remains for resilience.
 - Expression labels are rough heuristics and should not be treated as emotional truth.
-- There is no event quality layer for confidence, duration, deduplication, or “safe to comment” decisions.
+- Perception has basic confidence, duration, and deduplication smoothing, but no full “safe to comment” policy yet.
 - Snapshot analysis uses a basic BLIP captioner and is not automatically supplied as conversational context.
 - No object, gesture, hand, posture, activity, or multi-person event model.
 - No camera indicator in the native tray.
@@ -476,9 +476,9 @@ Work:
 
 - [x] Bundle MediaPipe WASM and models locally.
 - [x] Move perception into an app-level service so it survives route changes.
-- Add signal duration and confidence smoothing.
+- [x] Add signal duration and confidence smoothing.
 - Add optional hand/gesture and posture events.
-- Use neutral terms such as `possible_tension` instead of asserting emotional state.
+- [x] Use neutral terms such as `possible_tension` instead of asserting emotional state.
 - Add explicit snapshot escalation when local events are insufficient.
 - Add native tray camera indicator and one-click suspend.
 

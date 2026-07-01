@@ -12,7 +12,7 @@ type PerceptionPolicyFormProps = {
 const LIVE_ONLY_SIGNALS = [
   { label: "Face presence detection", detail: "Is a face visible right now?" },
   { label: "Gaze & attention state", detail: "looked_away, returned_to_frame, leaned_in" },
-  { label: "Expression classification", detail: "smile, stress, surprise — local WASM only" },
+  { label: "Expression classification", detail: "smile, possible tension, surprise - local WASM only" },
 ];
 
 export function PerceptionPolicyForm({ policy: initialPolicy }: PerceptionPolicyFormProps) {
@@ -52,7 +52,7 @@ export function PerceptionPolicyForm({ policy: initialPolicy }: PerceptionPolicy
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
 
-      {/* ── Global kill switch ─────────────────────────────────────────── */}
+      {/* Global kill switch */}
       <div className="panel">
         <p className="eyebrow">Camera Access</p>
         <h3>Master control</h3>
@@ -104,10 +104,10 @@ export function PerceptionPolicyForm({ policy: initialPolicy }: PerceptionPolicy
         </div>
       </div>
 
-      {/* ── Live-only section ──────────────────────────────────────────── */}
+      {/* Live-only section */}
       <div className="panel">
         <p className="eyebrow">Always Local</p>
-        <h3>Live sensing — never stored</h3>
+        <h3>Live sensing - never stored</h3>
         <p style={{ fontSize: "0.82rem", color: "var(--color-muted)", margin: "6px 0 14px" }}>
           These signals are computed in your browser via WebAssembly and are discarded immediately.
           No data reaches any server and nothing is written to memory.
@@ -125,7 +125,7 @@ export function PerceptionPolicyForm({ policy: initialPolicy }: PerceptionPolicy
         </div>
       </div>
 
-      {/* ── Retention section ──────────────────────────────────────────── */}
+      {/* Retention section */}
       <div className="panel">
         <p className="eyebrow">Visual Memory</p>
         <h3>What gets remembered</h3>
@@ -162,8 +162,7 @@ export function PerceptionPolicyForm({ policy: initialPolicy }: PerceptionPolicy
             <div>
               <strong>Scene snapshots</strong>
               <p style={{ fontSize: "0.78rem", color: "var(--color-muted)" }}>
-                Stores the text description from "Capture scene" in memory. No image is ever saved —
-                only the AI-generated description.
+                Stores the text description from "Capture scene" in memory. No image is ever saved - only the AI-generated description.
               </p>
             </div>
             <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 6 }}>
@@ -186,7 +185,7 @@ export function PerceptionPolicyForm({ policy: initialPolicy }: PerceptionPolicy
           <div style={{ marginTop: 18 }}>
             <div className="field">
               <label htmlFor="retention-days">
-                Retention window (days) — <strong>0 = current session only</strong>
+                Retention window (days) - <strong>0 = current session only</strong>
               </label>
               <div className="button-row" style={{ marginTop: 6 }}>
                 <input
@@ -216,7 +215,7 @@ export function PerceptionPolicyForm({ policy: initialPolicy }: PerceptionPolicy
         ) : null}
       </div>
 
-      {/* ── Status + audit trail ───────────────────────────────────────── */}
+      {/* Status + audit trail */}
       <div className="panel">
         <p className="eyebrow">Audit</p>
         <h3>Current posture</h3>

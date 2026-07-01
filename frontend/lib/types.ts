@@ -318,7 +318,7 @@ export type PerceptionSignalType =
   | "leaned_in"
   | "leaned_back"
   | "expression_smile"
-  | "expression_stress"
+  | "expression_possible_tension"
   | "expression_surprise"
   | "expression_neutral"
   | "snapshot_captured"
@@ -351,7 +351,7 @@ export type PerceptionState = {
   userPresent: boolean;
   faceVisible: boolean;
   leanedIn: boolean;
-  currentExpression: "smile" | "stress" | "surprise" | "neutral" | null;
+  currentExpression: "smile" | "possible_tension" | "surprise" | "neutral" | null;
   lastSignal: PerceptionSignal | null;
   updatedAt: number;
 };

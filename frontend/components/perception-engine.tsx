@@ -14,9 +14,13 @@ const REMOTE_MEDIAPIPE_WASM_URL = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks
 
 const POLL_INTERVAL_MS = 250; // 4fps — enough for presence, low CPU cost
 const LOOK_AWAY_THRESHOLD_MS = 2000; // emit looked_away after 2s of no face
+const PRESENCE_STABILITY_FRAMES = 2;
+const LEAN_STABILITY_FRAMES = 2;
 const LEAN_IN_THRESHOLD = 0.38; // face width as fraction of frame width
 const LEAN_OUT_THRESHOLD = 0.30;
 const EXPRESSION_DEBOUNCE_MS = 600; // min ms between expression change signals
+const EXPRESSION_STABILITY_FRAMES = 3;
+const EXPRESSION_MIN_CONFIDENCE = 0.35;
 
 // ARKit blendshape thresholds for expression classification
 const SMILE_THRESHOLD    = 0.45;
@@ -25,7 +29,12 @@ const FROWN_THRESHOLD    = 0.40;
 const EYE_WIDE_THRESHOLD = 0.40;
 const JAW_OPEN_THRESHOLD = 0.30;
 
-type ExpressionLabel = "smile" | "stress" | "surprise" | "neutral";
+type ExpressionLabel = "smile" | "possible_tension" | "surprise" | "neutral";
+
+type ExpressionCandidate = {
+  label: ExpressionLabel;
+  confidence: number;
+};
 
 type EngineStatus = "idle" | "requesting" | "loading" | "active" | "error" | "denied";
 
@@ -63,10 +72,14 @@ export function PerceptionEngine({ sessionId, onSignal }: PerceptionEngineProps)
   const faceWasPresentRef = useRef(false);
   const lookAwayFiredRef = useRef(false);
   const leanedInRef = useRef(false);
+  const detectedFaceFramesRef = useRef(0);
+  const missingFaceFramesRef = useRef(0);
+  const pendingLeanStateRef = useRef<{ leanedIn: boolean; frames: number } | null>(null);
 
   // Expression state machine
   const lastExpressionRef = useRef<ExpressionLabel>("neutral");
   const lastExpressionEmittedAtRef = useRef<number>(0);
+  const pendingExpressionRef = useRef<{ label: ExpressionLabel; confidence: number; frames: number } | null>(null);
 
   const [status, setStatus] = useState<EngineStatus>("idle");
   const [error, setError] = useState<string | null>(null);
@@ -90,6 +103,16 @@ export function PerceptionEngine({ sessionId, onSignal }: PerceptionEngineProps)
     }
     streamRef.current?.getTracks().forEach((t) => t.stop());
     streamRef.current = null;
+    lastFaceAtRef.current = null;
+    faceWasPresentRef.current = false;
+    lookAwayFiredRef.current = false;
+    leanedInRef.current = false;
+    detectedFaceFramesRef.current = 0;
+    missingFaceFramesRef.current = 0;
+    pendingLeanStateRef.current = null;
+    lastExpressionRef.current = "neutral";
+    lastExpressionEmittedAtRef.current = 0;
+    pendingExpressionRef.current = null;
     setFacePresent(false);
     setStatus("idle");
   }, []);
@@ -112,7 +135,7 @@ export function PerceptionEngine({ sessionId, onSignal }: PerceptionEngineProps)
 
   function pickExpression(
     categories: Array<{ categoryName: string; score: number }>,
-  ): ExpressionLabel {
+  ): ExpressionCandidate {
     const s = (name: string) =>
       categories.find((c) => c.categoryName === name)?.score ?? 0;
 
@@ -122,10 +145,16 @@ export function PerceptionEngine({ sessionId, onSignal }: PerceptionEngineProps)
     const eyeWide  = (s("eyeWideLeft")    + s("eyeWideRight"))    / 2;
     const jawOpen  = s("jawOpen");
 
-    if (eyeWide > EYE_WIDE_THRESHOLD && jawOpen > JAW_OPEN_THRESHOLD) return "surprise";
-    if (smile > SMILE_THRESHOLD) return "smile";
-    if (browDown > BROW_DOWN_THRESHOLD || frown > FROWN_THRESHOLD) return "stress";
-    return "neutral";
+    if (eyeWide > EYE_WIDE_THRESHOLD && jawOpen > JAW_OPEN_THRESHOLD) {
+      return { label: "surprise", confidence: Math.min(1, (eyeWide + jawOpen) / 2) };
+    }
+    if (smile > SMILE_THRESHOLD) {
+      return { label: "smile", confidence: smile };
+    }
+    if (browDown > BROW_DOWN_THRESHOLD || frown > FROWN_THRESHOLD) {
+      return { label: "possible_tension", confidence: Math.max(browDown, frown) };
+    }
+    return { label: "neutral", confidence: 1 };
   }
 
   const runDetection = useCallback(() => {
@@ -137,67 +166,93 @@ export function PerceptionEngine({ sessionId, onSignal }: PerceptionEngineProps)
     const result = landmarker.detectForVideo(video, now);
     const detected = result.faceLandmarks.length > 0;
 
-    setFacePresent(detected);
-
     if (detected) {
-      const wasAbsent = !faceWasPresentRef.current;
-      faceWasPresentRef.current = true;
+      detectedFaceFramesRef.current += 1;
+      missingFaceFramesRef.current = 0;
       lookAwayFiredRef.current = false;
       lastFaceAtRef.current = now;
 
-      if (wasAbsent) {
+      if (!faceWasPresentRef.current && detectedFaceFramesRef.current >= PRESENCE_STABILITY_FRAMES) {
+        faceWasPresentRef.current = true;
+        setFacePresent(true);
         onSignal(emit("returned_to_frame", 1));
         onSignal(emit("face_visible", 1));
         onSignal(emit("user_present", 1));
       }
 
-      // Lean detection via normalized face bounding box width
+      // Lean detection via normalized face bounding box width with frame-level stability.
       const landmarks = result.faceLandmarks[0];
       const faceWidth = normFaceWidth(landmarks);
-      if (!leanedInRef.current && faceWidth > LEAN_IN_THRESHOLD) {
-        leanedInRef.current = true;
-        onSignal(emit("leaned_in", faceWidth));
-      } else if (leanedInRef.current && faceWidth < LEAN_OUT_THRESHOLD) {
-        leanedInRef.current = false;
-        onSignal(emit("leaned_back", faceWidth));
+      const nextLeanState =
+        !leanedInRef.current && faceWidth > LEAN_IN_THRESHOLD
+          ? true
+          : leanedInRef.current && faceWidth < LEAN_OUT_THRESHOLD
+            ? false
+            : null;
+
+      if (nextLeanState === null) {
+        pendingLeanStateRef.current = null;
+      } else {
+        const pending = pendingLeanStateRef.current;
+        pendingLeanStateRef.current =
+          pending?.leanedIn === nextLeanState
+            ? { leanedIn: nextLeanState, frames: pending.frames + 1 }
+            : { leanedIn: nextLeanState, frames: 1 };
+
+        if (pendingLeanStateRef.current.frames >= LEAN_STABILITY_FRAMES) {
+          leanedInRef.current = nextLeanState;
+          pendingLeanStateRef.current = null;
+          onSignal(emit(nextLeanState ? "leaned_in" : "leaned_back", faceWidth));
+        }
       }
 
-      // Expression detection via ARKit blendshapes
+      // Expression detection via ARKit blendshapes with neutral labels and frame stability.
       if (result.faceBlendshapes.length > 0) {
         const categories = result.faceBlendshapes[0].categories;
         const expression = pickExpression(categories);
+        const pending = pendingExpressionRef.current;
+        pendingExpressionRef.current =
+          pending?.label === expression.label
+            ? {
+                label: expression.label,
+                confidence: Math.max(pending.confidence, expression.confidence),
+                frames: pending.frames + 1,
+              }
+            : { ...expression, frames: 1 };
+
         const timeSinceLast = now - lastExpressionEmittedAtRef.current;
         if (
-          expression !== lastExpressionRef.current &&
+          expression.label !== lastExpressionRef.current &&
+          pendingExpressionRef.current.frames >= EXPRESSION_STABILITY_FRAMES &&
+          pendingExpressionRef.current.confidence >= EXPRESSION_MIN_CONFIDENCE &&
           timeSinceLast >= EXPRESSION_DEBOUNCE_MS
         ) {
-          lastExpressionRef.current = expression;
+          lastExpressionRef.current = expression.label;
           lastExpressionEmittedAtRef.current = now;
           const signalType =
-            expression === "smile"    ? "expression_smile"    :
-            expression === "stress"   ? "expression_stress"   :
-            expression === "surprise" ? "expression_surprise" :
-                                        "expression_neutral";
-          onSignal(emit(signalType));
+            expression.label === "smile"            ? "expression_smile"            :
+            expression.label === "possible_tension" ? "expression_possible_tension" :
+            expression.label === "surprise"         ? "expression_surprise"         :
+                                                       "expression_neutral";
+          onSignal(emit(signalType, pendingExpressionRef.current.confidence));
         }
       }
     } else {
-      const wasPresent = faceWasPresentRef.current;
-      faceWasPresentRef.current = false;
-      leanedInRef.current = false;
+      missingFaceFramesRef.current += 1;
+      detectedFaceFramesRef.current = 0;
+      pendingLeanStateRef.current = null;
+      pendingExpressionRef.current = null;
 
-      if (wasPresent && !lookAwayFiredRef.current) {
-        // Start the absence timer — fire looked_away after threshold
-        const absenceStart = lastFaceAtRef.current ?? now;
-        const elapsed = now - absenceStart;
-        if (elapsed >= LOOK_AWAY_THRESHOLD_MS) {
+      if (lastFaceAtRef.current !== null && !lookAwayFiredRef.current) {
+        const elapsed = now - lastFaceAtRef.current;
+        if (
+          missingFaceFramesRef.current >= PRESENCE_STABILITY_FRAMES &&
+          elapsed >= LOOK_AWAY_THRESHOLD_MS
+        ) {
           lookAwayFiredRef.current = true;
-          onSignal(emit("looked_away"));
-        }
-      } else if (!wasPresent && lastFaceAtRef.current !== null && !lookAwayFiredRef.current) {
-        const elapsed = now - (lastFaceAtRef.current ?? now);
-        if (elapsed >= LOOK_AWAY_THRESHOLD_MS) {
-          lookAwayFiredRef.current = true;
+          faceWasPresentRef.current = false;
+          leanedInRef.current = false;
+          setFacePresent(false);
           onSignal(emit("looked_away"));
         }
       }
@@ -303,8 +358,12 @@ export function PerceptionEngine({ sessionId, onSignal }: PerceptionEngineProps)
     faceWasPresentRef.current = false;
     lookAwayFiredRef.current = false;
     leanedInRef.current = false;
+    detectedFaceFramesRef.current = 0;
+    missingFaceFramesRef.current = 0;
+    pendingLeanStateRef.current = null;
     lastExpressionRef.current = "neutral";
     lastExpressionEmittedAtRef.current = 0;
+    pendingExpressionRef.current = null;
 
     pollTimerRef.current = setInterval(runDetection, POLL_INTERVAL_MS);
     setStatus("active");
