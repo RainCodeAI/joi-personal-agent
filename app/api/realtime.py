@@ -11,6 +11,11 @@ from uuid import uuid4
 class RealtimeEventBus:
     """Process-local pub/sub bus for SSE clients."""
 
+    # Per-subscriber queue cap. A stalled or dead client can't grow memory without
+    # bound; once full, its oldest queued events are dropped (it still gets a
+    # backfill on reconnect).
+    _SUBSCRIBER_QUEUE_MAX = 256
+
     def __init__(self, history_limit: int = 200) -> None:
         self._history: Deque[Dict[str, Any]] = deque(maxlen=history_limit)
         self._subscribers: Dict[str, Dict[str, Any]] = {}
@@ -41,12 +46,25 @@ class RealtimeEventBus:
             target_session = subscriber["session_id"]
             if target_session is not None and target_session != session_id:
                 continue
-            await subscriber["queue"].put(envelope)
+            queue = subscriber["queue"]
+            try:
+                queue.put_nowait(envelope)
+            except asyncio.QueueFull:
+                # Drop the oldest event to make room; a wedged client must not
+                # block publishers or grow without bound.
+                try:
+                    queue.get_nowait()
+                except asyncio.QueueEmpty:
+                    pass
+                try:
+                    queue.put_nowait(envelope)
+                except asyncio.QueueFull:
+                    pass
 
         return envelope
 
     async def subscribe(self, session_id: Optional[str] = None) -> tuple[str, asyncio.Queue]:
-        queue: asyncio.Queue = asyncio.Queue()
+        queue: asyncio.Queue = asyncio.Queue(maxsize=self._SUBSCRIBER_QUEUE_MAX)
         subscriber_id = str(uuid4())
         async with self._lock:
             self._subscribers[subscriber_id] = {

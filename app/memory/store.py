@@ -96,8 +96,11 @@ class MemoryStore:
                     self.dimensions = settings.embed_dim
 
                 def encode(self, text, *args, **kwargs):
+                    # Never return a zero vector on failure: it would be cached and
+                    # written to Chroma as a real embedding, permanently breaking
+                    # retrieval for that memory. Raise so the caller can skip it.
                     if not text or not isinstance(text, str):
-                        return np.zeros(self.dimensions, dtype=np.float32)
+                        raise ValueError("Cloud embedding requires non-empty text")
                     try:
                         resp = self.client.embeddings.create(
                             input=text,
@@ -107,7 +110,7 @@ class MemoryStore:
                         return np.array(resp.data[0].embedding, dtype=np.float32)
                     except Exception as e:
                         logging.warning("Cloud embedding failed: %s", e)
-                        return np.zeros(self.dimensions, dtype=np.float32)
+                        raise
 
                 def get_sentence_embedding_dimension(self):
                     return self.dimensions
@@ -163,15 +166,19 @@ class MemoryStore:
             session.add(memory)
             session.commit()
             session.refresh(memory)
-            # Offload the heavy embedding to thread pool
+            # Offload the heavy embedding to thread pool. As in add_memory, a
+            # failure must not propagate — the SQL row is already committed.
             if self.collection:
-                embedding = await self.embed_text_async(text)
-                self.collection.add(
-                    documents=[text],
-                    embeddings=[embedding],
-                    metadatas=[{"type": mem_type, "tags": tags_str, "memory_type": memory_type}],
-                    ids=[str(memory.id)]
-                )
+                try:
+                    embedding = await self.embed_text_async(text)
+                    self.collection.add(
+                        documents=[text],
+                        embeddings=[embedding],
+                        metadatas=[{"type": mem_type, "tags": tags_str, "memory_type": memory_type}],
+                        ids=[str(memory.id)]
+                    )
+                except Exception as exc:
+                    logging.warning("Memory %s stored but not vector-indexed: %s", memory.id, exc)
 
         # Entity extraction (also heavy — offload)
         if mem_type == "user_input":
@@ -411,15 +418,20 @@ JSON:
             session.add(memory)
             session.commit()
             session.refresh(memory)
-            # Embed and add to Chroma
+            # Embed and add to Chroma. Failure here must not kill the caller's
+            # turn: the SQL row is already committed, so log and move on — the
+            # memory simply isn't vector-indexed until re-embedded.
             if self.collection:
-                embedding = self.embed_text(text)  # synchronous for simplicity, but should be async
-                self.collection.add(
-                    documents=[text],
-                    embeddings=[embedding],  # PASS THE EMBEDDING HERE!
-                    metadatas=[{"type": mem_type, "tags": tags_str, "memory_type": memory_type}],
-                    ids=[str(memory.id)]
-                )
+                try:
+                    embedding = self.embed_text(text)
+                    self.collection.add(
+                        documents=[text],
+                        embeddings=[embedding],
+                        metadatas=[{"type": mem_type, "tags": tags_str, "memory_type": memory_type}],
+                        ids=[str(memory.id)]
+                    )
+                except Exception as exc:
+                    logging.warning("Memory %s stored but not vector-indexed: %s", memory.id, exc)
 
         # Fire-and-forget entity extraction — kept off the chat hot path
         if mem_type == "user_input":

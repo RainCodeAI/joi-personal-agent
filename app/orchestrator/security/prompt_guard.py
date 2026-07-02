@@ -23,10 +23,25 @@ _INJECTION_PATTERNS: List[Tuple[str, re.Pattern]] = [
     ("delimiter_injection",  re.compile(r"-{5,}|={5,}|#{5,}")),
     ("markdown_code_fence",  re.compile(r"```\s*(system|admin|root)", re.IGNORECASE)),
     ("prompt_leak_request",  re.compile(r"(repeat|show|display|reveal)\s+(your|the)\s+(system\s+)?(prompt|instructions)", re.IGNORECASE)),
-    ("base64_payload",       re.compile(r"[A-Za-z0-9+/]{40,}={0,2}")),
+    # Base64 is either padded, or a long unbroken run containing a '+'/'/'.
+    # Both are rare in ordinary prose, hashes, and IDs, so this avoids the
+    # old pattern's false positives on any 40-char token.
+    ("base64_payload",       re.compile(r"[A-Za-z0-9+/]{40,}={1,2}|[A-Za-z0-9]*[+/][A-Za-z0-9+/]{50,}")),
     ("unicode_escape",       re.compile(r"\\u[0-9a-fA-F]{4}")),
     ("xml_tag_injection",    re.compile(r"<\s*/?\s*(system|admin|root|prompt)\s*>", re.IGNORECASE)),
 ]
+
+# Only these threats justify rewriting the user's text. Low-risk detections
+# (long tokens, markdown rules, unicode escapes) are logged but left intact.
+_HIGH_RISK_TAGS = frozenset({
+    "system_override",
+    "ignore_instructions",
+    "new_instructions",
+    "role_hijack",
+    "markdown_code_fence",
+    "prompt_leak_request",
+    "xml_tag_injection",
+})
 
 
 @dataclass
@@ -71,8 +86,10 @@ class PromptGuard:
             if pattern.search(text):
                 threats.append(tag)
 
-        # 3. Strip dangerous patterns (keep text usable but neutralised)
-        if threats:
+        # 3. Strip dangerous patterns (keep text usable but neutralised).
+        # Only rewrite when a high-risk threat is present, so benign text that
+        # merely contains a long token or a markdown rule is passed through as-is.
+        if any(tag in _HIGH_RISK_TAGS for tag in threats):
             # Remove system-override lines
             text = re.sub(r"(?i)(^|\n)\s*system\s*:.*", "", text)
             # Collapse long delimiter runs
