@@ -1,5 +1,6 @@
 from datetime import datetime
 from typing import List, Dict, Any
+from app.config import DEFAULT_USER_ID
 from app.memory.store import MemoryStore
 
 class PatternEngine:
@@ -25,8 +26,8 @@ class PatternEngine:
              # No history
              pass
 
-        # 2. Mood Trend
-        mood_data = self.store.mood_trend_analysis(session_id)
+        # 2. Mood Trend — moods are stored per user, not per session
+        mood_data = self.store.mood_trend_analysis(DEFAULT_USER_ID)
         # Check 'direction' since 'trend' is now a float slope
         if mood_data.get("direction") == "down" and mood_data.get("num_entries", 0) >= 3:
              insights.append({

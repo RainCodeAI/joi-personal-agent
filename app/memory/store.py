@@ -287,18 +287,8 @@ JSON:
         graph_results = []
         try:
             with SQLSession(engine) as session:
-                # Find similar entities via pgvector cosine distance
-                similar_entities = session.execute(
-                    sa_text("""
-                        SELECT id, name, type, description,
-                               embedding <=> cast(:qe AS vector) AS distance
-                        FROM entity
-                        WHERE embedding IS NOT NULL
-                        ORDER BY embedding <=> cast(:qe AS vector)
-                        LIMIT 5
-                    """),
-                    {"qe": str(query_embedding)}
-                ).fetchall()
+                # Find similar entities via cosine distance
+                similar_entities = self._find_similar_entities(session, query_embedding, limit=5)
 
                 # Collect entity IDs + expand via graph traversal
                 entity_ids = {row.id for row in similar_entities}
@@ -347,6 +337,59 @@ JSON:
                 merged.append(r)
         merged.sort(key=lambda x: x.get("distance", 999))
         return merged[:k]
+
+    def _find_similar_entities(
+        self,
+        session: SQLSession,
+        query_embedding: List[float],
+        limit: int = 5,
+    ):
+        """Nearest entities by cosine distance.
+
+        Uses the pgvector `<=>` operator on Postgres; on SQLite (the default
+        engine) that operator does not exist, so fall back to NumPy cosine
+        similarity over the stored embeddings. Both branches return objects
+        with .id and .name attributes.
+        """
+        if engine.dialect.name == "postgresql":
+            return session.execute(
+                sa_text("""
+                    SELECT id, name, type, description,
+                           embedding <=> cast(:qe AS vector) AS distance
+                    FROM entity
+                    WHERE embedding IS NOT NULL
+                    ORDER BY embedding <=> cast(:qe AS vector)
+                    LIMIT :limit
+                """),
+                {"qe": str(query_embedding), "limit": limit},
+            ).fetchall()
+
+        entities = session.execute(
+            select(Entity).where(Entity.embedding.is_not(None))
+        ).scalars().all()
+        query_vec = np.asarray(query_embedding, dtype=np.float32)
+        query_norm = np.linalg.norm(query_vec)
+        if query_norm == 0:
+            return []
+        scored = []
+        for entity in entities:
+            raw = entity.embedding
+            if isinstance(raw, str):
+                # SQLite stores the pgvector column as its text form "[1.0, ...]"
+                try:
+                    raw = json.loads(raw)
+                except ValueError:
+                    continue
+            vec = np.asarray(raw, dtype=np.float32)
+            if vec.shape != query_vec.shape:
+                continue
+            norm = np.linalg.norm(vec)
+            if norm == 0:
+                continue
+            distance = 1.0 - float(np.dot(vec, query_vec) / (norm * query_norm))
+            scored.append((distance, entity))
+        scored.sort(key=lambda item: item[0])
+        return [entity for _, entity in scored[:limit]]
 
     def infer_relationships(self, entities: List[Dict[str, str]], text: str):
         # Simple co-occurrence: link all pairs with "co_occurrence"
@@ -691,9 +734,8 @@ JSON:
             return positive[0] if positive else exercises[0]
         return exercises[0]
 
-    def mood_trend_analysis(self, session_id: str) -> Dict[str, Any]:
+    def mood_trend_analysis(self, user_id: str) -> Dict[str, Any]:
         # Simple trend: linear regression slope of mood over last 7 entries
-        user_id = session_id  # Adjust if session_id != user_id
         recent_moods = self.get_recent_moods(user_id, limit=7)
         if not recent_moods or len(recent_moods) < 2:
             return {"trend": 0.0, "avg_mood": 0.0, "moods": [], "direction": "flat"}

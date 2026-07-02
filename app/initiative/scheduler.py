@@ -242,12 +242,12 @@ class InitiativeScheduler:
             )
 
     def _is_ready(self) -> bool:
-        """Lightweight guard: storage must be up and initiatives must be enabled."""
-        from app.db import engine as db_engine
+        """Lightweight guard: initiatives must be enabled.
 
-        if db_engine is None:
-            logger.debug("Initiative tick skipped: database not ready")
-            return False
+        The initiative ledger is a JSON file (InitiativeStore), so ticks must not
+        be gated on the optional async Postgres engine — that engine is None in
+        the default SQLite setup and previously disabled all proactive behavior.
+        """
         if not (settings.enable_proactive_messaging and settings.initiative_enabled):
             logger.debug("Initiative tick skipped: initiatives disabled")
             return False

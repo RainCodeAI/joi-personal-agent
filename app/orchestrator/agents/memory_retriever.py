@@ -44,9 +44,10 @@ class MemoryRetrieverAgent:
     ) -> ContextBundle:
         """Build a ContextBundle by querying the memory store."""
         from datetime import datetime
-        from app.config import JOI_CORE_PROMPT
+        from app.config import DEFAULT_USER_ID, JOI_CORE_PROMPT
 
         bundle = ContextBundle()
+        user_id = DEFAULT_USER_ID
 
         # 1. Sentiment analysis
         bundle.sentiment = self._analyze_sentiment(user_msg)
@@ -54,10 +55,10 @@ class MemoryRetrieverAgent:
         # 2. Recent mood average
         # This updates bundle.profile_info with mood warnings, but we'll reset profile_info soon.
         # We should calculate avg_mood purely here.
-        bundle.avg_mood = self._compute_avg_mood_score(session_id, memory_store)
+        bundle.avg_mood = self._compute_avg_mood_score(user_id, memory_store)
 
         # 3. User Profile & Idle Time
-        profile = memory_store.get_user_profile(session_id)
+        profile = memory_store.get_user_profile(user_id)
         profile_summary = "Unknown"
         relationship_level = "Acquaintance"
         if profile:
@@ -93,7 +94,7 @@ class MemoryRetrieverAgent:
 
         # 5. Durable user-model context
         user_model_block = self._user_model_formatter.build_prompt_block(
-            user_id=session_id,
+            user_id=user_id,
             memory_store=memory_store,
         )
         if user_model_block:
@@ -114,7 +115,7 @@ class MemoryRetrieverAgent:
 
         # 8. Knowledge graph on trigger
         if "graph" in user_msg.lower() or "connections" in user_msg.lower():
-            memory_store.populate_knowledge_graph(session_id)
+            memory_store.populate_knowledge_graph(user_id)
             bundle.profile_info += "\n[System Note]: Knowledge graph updated."
 
         # 9. Graph RAG search
@@ -145,10 +146,10 @@ class MemoryRetrieverAgent:
 
     @staticmethod
     def _compute_avg_mood_score(
-        session_id: str,
+        user_id: str,
         memory_store: MemoryStore,
     ) -> float:
-        recent_moods = memory_store.get_recent_moods(session_id, 3)
+        recent_moods = memory_store.get_recent_moods(user_id, 3)
         avg_mood = 5.0
         if recent_moods:
             avg_mood = sum(m.mood for m in recent_moods) / len(recent_moods)

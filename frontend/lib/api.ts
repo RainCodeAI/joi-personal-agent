@@ -51,10 +51,17 @@ function isRetryable(status: number): boolean {
   return status === 429 || status >= 500;
 }
 
-async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
+async function apiFetch<T>(
+  path: string,
+  init?: RequestInit,
+  opts?: { retryable?: boolean },
+): Promise<T> {
   let lastError: Error | null = null;
+  // Non-idempotent POSTs (chat, transcribe) must not be retried: a slow backend
+  // turn would otherwise be re-sent and create duplicate messages.
+  const maxAttempts = opts?.retryable === false ? 1 : RETRY_ATTEMPTS;
 
-  for (let attempt = 0; attempt < RETRY_ATTEMPTS; attempt++) {
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
     const controller = new AbortController();
     let timedOut = false;
     const handleExternalAbort = () => controller.abort(init?.signal?.reason);
@@ -82,7 +89,7 @@ async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
       clearTimeout(timer);
 
       if (!response.ok) {
-        if (isRetryable(response.status) && attempt < RETRY_ATTEMPTS - 1) {
+        if (isRetryable(response.status) && attempt < maxAttempts - 1) {
           const delay = RETRY_BASE_DELAY_MS * Math.pow(2, attempt);
           await new Promise((r) => setTimeout(r, delay));
           continue;
@@ -107,7 +114,7 @@ async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
         : (err as Error);
 
       const isNetworkError = !isAbort && !(err instanceof Error && err.message.startsWith("API request"));
-      if ((isAbort || isNetworkError) && attempt < RETRY_ATTEMPTS - 1) {
+      if ((isAbort || isNetworkError) && attempt < maxAttempts - 1) {
         const delay = RETRY_BASE_DELAY_MS * Math.pow(2, attempt);
         await new Promise((r) => setTimeout(r, delay));
         continue;
@@ -150,10 +157,14 @@ export async function fetchBackendHealth() {
 }
 
 export async function sendChatMessage(sessionId: string, text: string) {
-  return apiFetch<ChatResponse>("/api/v2/chat", {
-    method: "POST",
-    body: JSON.stringify({ session_id: sessionId, text }),
-  });
+  return apiFetch<ChatResponse>(
+    "/api/v2/chat",
+    {
+      method: "POST",
+      body: JSON.stringify({ session_id: sessionId, text }),
+    },
+    { retryable: false },
+  );
 }
 
 export async function sendChatMessageWithAttachments(
@@ -165,16 +176,20 @@ export async function sendChatMessageWithAttachments(
     signal?: AbortSignal;
   },
 ) {
-  return apiFetch<ChatResponse>("/api/v2/chat", {
-    method: "POST",
-    body: JSON.stringify({
-      session_id: sessionId,
-      text,
-      attachments,
-      client_turn_id: options?.clientTurnId,
-    }),
-    signal: options?.signal,
-  });
+  return apiFetch<ChatResponse>(
+    "/api/v2/chat",
+    {
+      method: "POST",
+      body: JSON.stringify({
+        session_id: sessionId,
+        text,
+        attachments,
+        client_turn_id: options?.clientTurnId,
+      }),
+      signal: options?.signal,
+    },
+    { retryable: false },
+  );
 }
 
 export async function listMessages(sessionId: string) {
@@ -295,17 +310,21 @@ export async function transcribeAudioBlob(
   },
 ) {
   const dataUrl = await blobToDataUrl(audio);
-  return apiFetch<MediaTranscriptionResponse>("/api/v2/media/transcribe", {
-    method: "POST",
-    body: JSON.stringify({
-      session_id: sessionId,
-      media_type: audio.type || "audio/webm",
-      data_url: dataUrl,
-      duration_ms: durationMs,
-      voice_mode: options?.voiceMode ?? "push_to_talk",
-      speech_detected: options?.speechDetected ?? false,
-    }),
-  });
+  return apiFetch<MediaTranscriptionResponse>(
+    "/api/v2/media/transcribe",
+    {
+      method: "POST",
+      body: JSON.stringify({
+        session_id: sessionId,
+        media_type: audio.type || "audio/webm",
+        data_url: dataUrl,
+        duration_ms: durationMs,
+        voice_mode: options?.voiceMode ?? "push_to_talk",
+        speech_detected: options?.speechDetected ?? false,
+      }),
+    },
+    { retryable: false },
+  );
 }
 
 export async function fetchRecentMemories() {

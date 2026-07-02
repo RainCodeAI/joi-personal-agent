@@ -6,9 +6,13 @@ from typing import Optional
 from sqlalchemy.ext.asyncio import AsyncSession, AsyncEngine, create_async_engine
 from sqlalchemy.orm import sessionmaker
 
+from app.config import settings
+
 logger = logging.getLogger(__name__)
 
-DATABASE_URL = getenv("DATABASE_URL")
+# OS env var wins; fall back to .env via pydantic settings (os.getenv alone
+# misses .env because pydantic-settings does not export into os.environ).
+DATABASE_URL = getenv("DATABASE_URL") or settings.database_url
 
 _engine: Optional[AsyncEngine] = None
 _session_factory = None

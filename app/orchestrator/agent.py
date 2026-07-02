@@ -231,7 +231,8 @@ class Agent:
             pass  # WAV parse failure: use raw timeline
 
         # ── Sentiment from DB ─────────────────────────────────────────────
-        recent_moods = self.memory_store.get_recent_moods(session_id, 1)
+        from app.config import DEFAULT_USER_ID
+        recent_moods = self.memory_store.get_recent_moods(DEFAULT_USER_ID, 1)
         if recent_moods:
             mood_value = recent_moods[0].mood
             if mood_value >= 7:

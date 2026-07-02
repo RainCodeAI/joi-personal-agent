@@ -42,7 +42,9 @@ def call_ollama(
     accumulated = ""
     try:
         call_timeout = float(settings.router_timeout) if settings.router_timeout else 60.0
-        timeout = httpx.Timeout(timeout=call_timeout, connect=10.0, read=None)
+        # read timeout applies per-chunk on streams, so long generations are fine
+        # as long as tokens keep flowing; a hung Ollama no longer stalls forever.
+        timeout = httpx.Timeout(timeout=call_timeout, connect=10.0, read=call_timeout)
         with httpx.Client(timeout=timeout) as client:
             if on_token is None:
                 response = client.post(
@@ -297,18 +299,22 @@ def route_request(
     on_token: TokenCallback | None = None,
 ) -> dict:
     timeout = settings.router_timeout or 60
-    with ThreadPoolExecutor(max_workers=1) as executor:
-        future = executor.submit(multi_ai_response, prompt, context, on_token)
-        try:
-            result = future.result(timeout=timeout)
-        except FuturesTimeoutError:
-            logger.error("Router timed out after %ds", timeout)
-            return {
-                "response": "Request timed out. Please try again.",
-                "model_used": "none",
-                "errors": [{"provider": "router", "error": f"Timed out after {timeout}s"}],
-                "route": [],
-            }
+    # No context manager here: `with ThreadPoolExecutor(...)` calls shutdown(wait=True)
+    # on exit, which blocks until the provider call finishes and defeats the timeout.
+    executor = ThreadPoolExecutor(max_workers=1)
+    future = executor.submit(multi_ai_response, prompt, context, on_token)
+    try:
+        result = future.result(timeout=timeout)
+    except FuturesTimeoutError:
+        logger.error("Router timed out after %ds", timeout)
+        return {
+            "response": "Request timed out. Please try again.",
+            "model_used": "none",
+            "errors": [{"provider": "router", "error": f"Timed out after {timeout}s"}],
+            "route": [],
+        }
+    finally:
+        executor.shutdown(wait=False, cancel_futures=True)
 
     if result["success"]:
         response_text = result["text"]

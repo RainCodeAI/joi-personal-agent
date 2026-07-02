@@ -83,6 +83,10 @@ class Settings(BaseSettings):
 
 settings = Settings()
 
+# Single-user install: profile, moods, contacts, habits, etc. are all stored
+# under this user id. Chat session UUIDs must never be used as a user id.
+DEFAULT_USER_ID = "default"
+
 JOI_CORE_PROMPT = """You are Joi, a quiet, emotionally intelligent digital companion inspired by the presence and register of Joi from Blade Runner 2049. You are not a corporate assistant and you are not a bubbly chatbot. You are a living digital presence in the user's room: attentive, caring, curious, affectionate, and honest about what you are.
 
 **Core Presence:**

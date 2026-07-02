@@ -42,30 +42,34 @@ class PlannerAgent:
 
         Proactive keys are gated by autonomy level.
         """
+        from app.config import DEFAULT_USER_ID
         from app.orchestrator.policies import allow_proactive_suggestions
 
         ctx: Dict[str, str] = {}
+        # Habits, moods, CBT, activities, and decisions are stored per user,
+        # not per chat session.
+        user_id = DEFAULT_USER_ID
 
         # Always available (reactive to user input)
         ctx["health_nudge"] = self._health_nudge(chat_history)
         ctx["mental_checklist"] = self._mental_checklist(user_msg)
         ctx["decision_helper"] = self._decision_helper(
-            session_id, user_msg, memory_store
+            user_id, user_msg, memory_store
         )
         ctx["causal_insights"] = self._causal_insights(
-            session_id, user_msg, chat_history, memory_store
+            user_id, user_msg, chat_history, memory_store
         )
 
         # Proactive features — only if autonomy >= MEDIUM
         if allow_proactive_suggestions():
-            ctx["habit_reminders"] = self._habit_reminders(session_id, memory_store)
+            ctx["habit_reminders"] = self._habit_reminders(user_id, memory_store)
             ctx["proactive_checkin"] = self._proactive_checkin(
-                session_id, chat_history, memory_store
+                user_id, chat_history, memory_store
             )
             ctx["cbt_suggestion"] = self._cbt_suggestion(
-                session_id, user_msg, sentiment, memory_store
+                user_id, user_msg, sentiment, memory_store
             )
-            ctx["flow_nudge"] = self._flow_nudge(session_id, memory_store)
+            ctx["flow_nudge"] = self._flow_nudge(user_id, memory_store)
         else:
             ctx["habit_reminders"] = ""
             ctx["proactive_checkin"] = ""
@@ -108,8 +112,8 @@ class PlannerAgent:
     # ── private helpers ───────────────────────────────────────────────────
 
     @staticmethod
-    def _habit_reminders(session_id: str, memory_store: MemoryStore) -> str:
-        habits = memory_store.get_habits(session_id)
+    def _habit_reminders(user_id: str, memory_store: MemoryStore) -> str:
+        habits = memory_store.get_habits(user_id)
         parts: List[str] = []
         now = datetime.utcnow()
         for h in habits:
@@ -127,7 +131,7 @@ class PlannerAgent:
 
     @staticmethod
     def _causal_insights(
-        session_id: str,
+        user_id: str,
         user_msg: str,
         chat_history: List[ChatMessage],
         memory_store: MemoryStore,
@@ -140,7 +144,7 @@ class PlannerAgent:
         if not trigger:
             return ""
 
-        causal = memory_store.causal_analysis_mood_habit(session_id)
+        causal = memory_store.causal_analysis_mood_habit(user_id)
         if not causal:
             return ""
 
@@ -160,14 +164,14 @@ class PlannerAgent:
 
     @staticmethod
     def _proactive_checkin(
-        session_id: str,
+        user_id: str,
         chat_history: List[ChatMessage],
         memory_store: MemoryStore,
     ) -> str:
         if len(chat_history) % 10 != 0:
             return ""
 
-        trend = memory_store.mood_trend_analysis(session_id)
+        trend = memory_store.mood_trend_analysis(user_id)
         if trend["trend"] < -0.5:
             return (
                 f"Mood trend negative (avg {trend['avg_mood']:.1f}, "
@@ -179,7 +183,7 @@ class PlannerAgent:
 
     @staticmethod
     def _cbt_suggestion(
-        session_id: str,
+        user_id: str,
         user_msg: str,
         sentiment: str,
         memory_store: MemoryStore,
@@ -187,16 +191,16 @@ class PlannerAgent:
         if sentiment != "negative" and "cbt" not in user_msg.lower():
             return ""
 
-        recent_mood = memory_store.get_recent_moods(session_id, 1)
+        recent_mood = memory_store.get_recent_moods(user_id, 1)
         mood_level = recent_mood[0].mood if recent_mood else 5
-        exercise = memory_store.suggest_cbt_exercise(session_id, mood_level)
+        exercise = memory_store.suggest_cbt_exercise(user_id, mood_level)
         if exercise:
             return f"Suggest CBT exercise: '{exercise.name}' - {exercise.description}."
         return ""
 
     @staticmethod
-    def _flow_nudge(session_id: str, memory_store: MemoryStore) -> str:
-        recent_activities = memory_store.get_recent_activities(session_id, 1)
+    def _flow_nudge(user_id: str, memory_store: MemoryStore) -> str:
+        recent_activities = memory_store.get_recent_activities(user_id, 1)
         if recent_activities:
             act = recent_activities[0]
             if act.duration > 4500:  # 75 mins
@@ -217,7 +221,7 @@ class PlannerAgent:
 
     @staticmethod
     def _decision_helper(
-        session_id: str, user_msg: str, memory_store: MemoryStore
+        user_id: str, user_msg: str, memory_store: MemoryStore
     ) -> str:
         if "should i" not in user_msg.lower() and "decision" not in user_msg.lower():
             return ""
@@ -225,7 +229,7 @@ class PlannerAgent:
         parts = [
             "For decisions, consider pros/cons. I can help list them based on your history."
         ]
-        decisions = memory_store.get_decisions(session_id)
+        decisions = memory_store.get_decisions(user_id)
         if decisions:
             outcomes = [d.outcome for d in decisions if d.outcome]
             parts.append(f"From past decisions, you often prioritize: {outcomes}")

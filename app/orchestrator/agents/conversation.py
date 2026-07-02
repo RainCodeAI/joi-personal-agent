@@ -13,7 +13,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Dict, List, TYPE_CHECKING
 
-from app.config import settings
+from app.config import DEFAULT_USER_ID, settings
 from services.ai_router import route_request
 
 logger = logging.getLogger(__name__)
@@ -255,7 +255,7 @@ class ConversationAgent:
     def _append_crm_nudge(
         reply: str, session_id: str, memory_store: MemoryStore
     ) -> str:
-        overdue = memory_store.get_overdue_contacts(user_id=session_id)
+        overdue = memory_store.get_overdue_contacts(user_id=DEFAULT_USER_ID)
         if overdue:
             nudge_str = "\n\n" + " | ".join(
                 f"Haven't pinged {c['name']} in {c['days_overdue']} days?"
@@ -274,7 +274,7 @@ class ConversationAgent:
         if avg_mood >= 6:
             return reply
 
-        health_corr = memory_store.correlate_health_mood(session_id)
+        health_corr = memory_store.correlate_health_mood(DEFAULT_USER_ID)
         if "sleep_delta" in health_corr and health_corr["sleep_delta"] < -1:
             reply += (
                 "\n\nSleep's been rough lately—your moods dip after low rest. "
