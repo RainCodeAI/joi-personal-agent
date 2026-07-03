@@ -73,7 +73,7 @@ def generate_plan(habits, goals, tasks, focus_areas, energy, store, user_id):
         with httpx.Client(timeout=30.0) as client:
             response = client.post(
                 f"{settings.ollama_host}/api/generate",
-                json={"model": settings.model_chat, "prompt": prompt, "stream": False}
+                json={"model": settings.model_ollama, "prompt": prompt, "stream": False}
             )
             response.raise_for_status()
             plan_text = response.json()["response"]

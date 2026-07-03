@@ -191,8 +191,10 @@ async def oauth_callback(code: str, state: str = ""):
     token_json = flow.credentials.to_json()
     store_secret("gmail_token", token_json)
     store_secret("calendar_token", token_json)
+    # Don't echo the authorization code back — it has already been exchanged and
+    # there is no reason to surface it in the response body.
     return OAuthCallbackResponse(
-        code=code,
+        code="",
         state=state,
         success=True,
         message="Google account linked for Gmail and Calendar",

@@ -208,7 +208,7 @@ JSON:
                 response = client.post(
                     f"{self.ollama_host}/api/chat",
                     json={
-                        "model": settings.model_chat,
+                        "model": settings.model_ollama,
                         "messages": [{"role": "user", "content": prompt}],
                         "format": "json",
                         "stream": False

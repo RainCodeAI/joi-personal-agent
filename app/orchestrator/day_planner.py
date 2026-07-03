@@ -55,7 +55,7 @@ def generate_day_plan(
             response = client.post(
                 f"{settings.ollama_host}/api/generate",
                 json={
-                    "model": settings.model_chat,
+                    "model": settings.model_ollama,
                     "prompt": prompt,
                     "stream": False,
                 },
@@ -74,7 +74,7 @@ def generate_day_plan(
 
     return {
         "provider": provider,
-        "model": settings.model_chat if provider != "fallback" else "",
+        "model": settings.model_ollama if provider == "ollama" else "",
         "prompt": prompt,
         "raw_plan": raw_plan,
         "blocks": blocks,

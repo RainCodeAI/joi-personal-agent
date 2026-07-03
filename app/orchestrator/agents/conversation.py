@@ -213,12 +213,13 @@ class ConversationAgent:
     # ── persona filter (delegated) ────────────────────────────────────────
 
     def apply_persona_filter(self, response: str, mood: str) -> str:
-        """Append persona-tuning note (will be replaced by real LoRA in Phase 2)."""
-        persona_note = (
-            " Respond in a calm, witty, precise manner, adapting to user mood: "
-            + mood
-        )
-        return response + persona_note
+        """Persona tuning hook (placeholder for a future LoRA pass).
+
+        Persona is already applied via the system prompt, so this must not append
+        instruction text to the user-facing reply — doing so leaked the tuning
+        note verbatim to the user. Return the response unchanged for now.
+        """
+        return response
 
     # ── private helpers ───────────────────────────────────────────────────
 

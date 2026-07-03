@@ -19,7 +19,8 @@ class Settings(BaseSettings):
     google_client_secret: str = Field(default="")
     oauth_redirect_uri: str = Field(default="http://localhost:8000/oauth/callback")
     database_url: str = Field(default="")
-    model_chat: str = Field(default="gpt-4o-mini")
+    model_chat: str = Field(default="gpt-4o-mini")  # OpenAI-side chat model
+    model_ollama: str = Field(default="llama3.2")   # local Ollama model tag
     model_embed: str = Field(default="nomic-embed-text")
     embed_dim: int = Field(default=768)
     openai_api_key: str = Field(default="")

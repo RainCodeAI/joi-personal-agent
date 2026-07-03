@@ -49,7 +49,7 @@ def call_ollama(
             if on_token is None:
                 response = client.post(
                     f"{settings.ollama_host}/api/generate",
-                    json={"model": settings.model_chat, "prompt": prompt, "stream": False},
+                    json={"model": settings.model_ollama, "prompt": prompt, "stream": False},
                 )
                 response.raise_for_status()
                 data = response.json()
@@ -61,7 +61,7 @@ def call_ollama(
             with client.stream(
                 "POST",
                 f"{settings.ollama_host}/api/generate",
-                json={"model": settings.model_chat, "prompt": prompt, "stream": True},
+                json={"model": settings.model_ollama, "prompt": prompt, "stream": True},
             ) as response:
                 response.raise_for_status()
                 for line in response.iter_lines():
@@ -154,18 +154,52 @@ def call_grok(
     if not api_key:
         return _provider_result(False, "grok", error="Grok API key missing")
 
+    started = False
+    accumulated = ""
     try:
-        import grokpy as grok
+        # xAI is OpenAI-compatible; reuse the openai client with x.ai's base URL.
+        import openai
 
-        client = grok.Client(api_key=api_key)
-        response = client.generate(prompt)
-        text = response.strip() if response else ""
-        if text:
-            return _provider_result(True, "grok", text=text)
-        return _provider_result(False, "grok", error="Empty response from Grok")
+        call_timeout = float(settings.router_timeout) if settings.router_timeout else 30.0
+        client = openai.OpenAI(
+            api_key=api_key,
+            base_url="https://api.x.ai/v1",
+            timeout=call_timeout,
+        )
+        if on_token is None:
+            response = client.chat.completions.create(
+                model="grok-2-latest",
+                messages=[{"role": "user", "content": prompt}],
+            )
+            text = (response.choices[0].message.content or "").strip()
+            if text:
+                return _provider_result(True, "grok", text=text)
+            return _provider_result(False, "grok", error="Empty response from Grok")
+
+        stream = client.chat.completions.create(
+            model="grok-2-latest",
+            messages=[{"role": "user", "content": prompt}],
+            stream=True,
+        )
+        for chunk in stream:
+            for choice in getattr(chunk, "choices", []):
+                delta = getattr(choice, "delta", None)
+                text = getattr(delta, "content", None)
+                if not text:
+                    continue
+                started = True
+                accumulated += text
+                on_token(text)
+
+        final_text = accumulated.strip()
+        if final_text:
+            return _provider_result(True, "grok", text=final_text, started=started)
+        return _provider_result(
+            False, "grok", text=accumulated, error="Empty response from Grok", started=started
+        )
     except Exception as e:
         logger.warning("Provider failed: grok error=%s", e)
-        return _provider_result(False, "grok", error=str(e))
+        return _provider_result(False, "grok", text=accumulated, error=str(e), started=started)
 
 
 def call_gemini(
