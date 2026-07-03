@@ -1665,8 +1665,37 @@ async def patch_media_session(request: MediaSessionPatchRequest):
     return MediaSessionResponse(media_session=_media_session_resource(state))
 
 
+async def _transcribe_wake_probe(request: MediaTranscribeRequest) -> MediaTranscribeResponse:
+    """Transcribe an ambient wake-word probe without any side effects.
+
+    No media-session mutation and no event publishing, so speech Joi merely
+    overhears while listening for the wake word never drives the avatar/hardware
+    or shows up in the event stream. Returns the current session state unchanged.
+    """
+    started = datetime.utcnow()
+    try:
+        decoded_type, raw_bytes = _decode_data_url(request.data_url, max_bytes=MAX_AUDIO_BYTES)
+        media_type = request.media_type or decoded_type
+        transcript = await asyncio.to_thread(_transcribe_browser_audio, raw_bytes, media_type)
+    except Exception:
+        # A failed probe is a non-event: report empty, stay silent.
+        transcript = ""
+        media_type = request.media_type
+    latency_ms = int((datetime.utcnow() - started).total_seconds() * 1000)
+    return MediaTranscribeResponse(
+        media_session=_media_session_resource(media_sessions.get(request.session_id)),
+        transcript=transcript or "",
+        media_type=media_type,
+        duration_ms=request.duration_ms,
+        latency_ms=latency_ms,
+    )
+
+
 @router.post("/media/transcribe", response_model=MediaTranscribeResponse)
 async def transcribe_media(request: MediaTranscribeRequest):
+    if request.wake_probe:
+        return await _transcribe_wake_probe(request)
+
     try:
         decoded_type, raw_bytes = _decode_data_url(request.data_url, max_bytes=MAX_AUDIO_BYTES)
     except Exception as exc:

@@ -4,6 +4,37 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { patchMediaSession, transcribeAudioBlob } from "@/lib/api";
 import { MediaSession } from "@/lib/types";
+import { useAmbientListener, type AmbientStatus } from "@/hooks/use-ambient-listener";
+import { DEFAULT_WAKE_PHRASE } from "@/lib/wake-word";
+
+const VOICE_MODE_LABELS: Record<MediaSession["voice_mode"], string> = {
+  push_to_talk: "Push to talk",
+  conversation: "Conversation mode",
+  ambient: "Ambient · Hey Joi",
+};
+
+const VOICE_MODE_CYCLE: MediaSession["voice_mode"][] = [
+  "push_to_talk",
+  "conversation",
+  "ambient",
+];
+
+function ambientStatusLabel(status: AmbientStatus, phrase: string): string {
+  switch (status) {
+    case "listening":
+      return `Listening for “${phrase}”…`;
+    case "recording":
+      return "Hearing you…";
+    case "thinking":
+      return "Checking if that was for me…";
+    case "active":
+      return "Joi’s listening — go ahead";
+    case "heard":
+      return "On it.";
+    default:
+      return "Ambient listening is off.";
+  }
+}
 
 type VoiceComposerProps = {
   sessionId: string | null;
@@ -87,11 +118,16 @@ export function VoiceComposer({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [voiceMode, setVoiceMode] = useState<MediaSession["voice_mode"]>("push_to_talk");
+  const [wakePhrase, setWakePhrase] = useState(DEFAULT_WAKE_PHRASE);
 
   useEffect(() => {
     const stored = window.localStorage.getItem("joi_voice_mode");
-    if (stored === "conversation" || stored === "push_to_talk") {
+    if (stored === "conversation" || stored === "push_to_talk" || stored === "ambient") {
       setVoiceMode(stored);
+    }
+    const storedPhrase = window.localStorage.getItem("joi_wake_phrase");
+    if (storedPhrase && storedPhrase.trim()) {
+      setWakePhrase(storedPhrase.trim());
     }
     setIsSupported(
       typeof window !== "undefined" &&
@@ -258,6 +294,11 @@ export function VoiceComposer({
   }, [interruptPlayback, sessionId, syncSession, voiceMode]);
 
   const startRecording = useCallback(async () => {
+    // Ambient mode owns the mic through useAmbientListener; manual capture
+    // (button, Ctrl+Shift+Space, native PTT) is inert while it's active.
+    if (voiceMode === "ambient") {
+      return;
+    }
     if (!sessionId || busy || captureInFlightRef.current || !isSupported) {
       return;
     }
@@ -477,6 +518,32 @@ export function VoiceComposer({
     startRecordingRef.current = startRecording;
   }, [startRecording]);
 
+  const ambientEnabled = voiceMode === "ambient";
+  const assistantSpeaking =
+    assistantTurnActive ||
+    mediaSession?.speaking_state === "playing" ||
+    mediaSession?.speaking_state === "queued";
+
+  const handleAmbientCommand = useCallback(
+    async (command: string) => {
+      await onTranscript(command);
+    },
+    [onTranscript],
+  );
+  const handleAmbientInterrupt = useCallback(
+    () => onInterruptPlayback("Ambient wake interrupted Joi"),
+    [onInterruptPlayback],
+  );
+
+  const { status: ambientStatus, error: ambientError } = useAmbientListener({
+    enabled: ambientEnabled && isSupported && Boolean(sessionId),
+    sessionId,
+    wakePhrase,
+    assistantSpeaking,
+    onCommand: handleAmbientCommand,
+    onInterrupt: handleAmbientInterrupt,
+  });
+
   const isRecording = mediaSession?.mic_state === "recording";
   const isCapturing =
     mediaSession?.mic_state === "requesting" ||
@@ -578,9 +645,11 @@ export function VoiceComposer({
     await interruptPlayback("Voice playback stopped");
   }
 
-  function toggleVoiceMode() {
-    const next = voiceMode === "push_to_talk" ? "conversation" : "push_to_talk";
-    if (next === "push_to_talk") {
+  function cycleVoiceMode() {
+    const next =
+      VOICE_MODE_CYCLE[(VOICE_MODE_CYCLE.indexOf(voiceMode) + 1) % VOICE_MODE_CYCLE.length];
+    // Leaving a manual continuous capture: tear down any in-flight recording.
+    if (next !== "conversation") {
       conversationActiveRef.current = false;
       if (captureInFlightRef.current || recorderRef.current?.state === "recording") {
         cancelRecording();
@@ -593,6 +662,12 @@ export function VoiceComposer({
     }
   }
 
+  function handleWakePhraseChange(value: string) {
+    setWakePhrase(value);
+    const trimmed = value.trim();
+    window.localStorage.setItem("joi_wake_phrase", trimmed || DEFAULT_WAKE_PHRASE);
+  }
+
   return (
     <div className="voice-panel">
       <div className="voice-panel-header">
@@ -602,12 +677,12 @@ export function VoiceComposer({
         </div>
         <div className="voice-badges">
           <button
-            className={`button ${voiceMode === "conversation" ? "secondary" : "ghost"} voice-default-toggle`}
+            className={`button ${voiceMode === "push_to_talk" ? "ghost" : "secondary"} voice-default-toggle`}
             type="button"
-            aria-pressed={voiceMode === "conversation"}
-            onClick={toggleVoiceMode}
+            title="Cycle capture mode"
+            onClick={cycleVoiceMode}
           >
-            {voiceMode === "conversation" ? "Conversation mode" : "Push to talk"}
+            {VOICE_MODE_LABELS[voiceMode]}
           </button>
           <button
             className={`button ${spokenRepliesEnabled ? "secondary" : "ghost"} voice-default-toggle`}
@@ -636,7 +711,7 @@ export function VoiceComposer({
         <button
           className={`button ${isRecording ? "secondary" : "ghost"}`}
           type="button"
-          disabled={!sessionId || busy || !isSupported}
+          disabled={!sessionId || busy || !isSupported || ambientEnabled}
           onClick={() => void (isRecording ? stopRecording() : startRecording())}
         >
           {isRecording ? "Stop recording" : "Record voice"}
@@ -683,7 +758,35 @@ export function VoiceComposer({
         ) : null}
       </div>
 
-      {!isSupported ? (
+      {ambientEnabled ? (
+        <div className="voice-ambient" aria-live="polite">
+          <div className="voice-ambient-status">
+            <span
+              className={`badge ${
+                ambientStatus === "active" || ambientStatus === "heard" ? "ok" : "warn"
+              }`}
+            >
+              ● {ambientStatusLabel(ambientStatus, wakePhrase)}
+            </span>
+          </div>
+          <label className="voice-ambient-phrase">
+            <span>Wake phrase</span>
+            <input
+              type="text"
+              value={wakePhrase}
+              onChange={(event) => handleWakePhraseChange(event.target.value)}
+              placeholder={DEFAULT_WAKE_PHRASE}
+              spellCheck={false}
+              autoCapitalize="off"
+            />
+          </label>
+          <p className="voice-ambient-note">
+            Joi is always listening for your wake phrase. Speech is transcribed on-device and
+            anything that isn’t addressed to her is discarded — never saved or sent to chat.
+          </p>
+          {ambientError ? <div className="voice-error">{ambientError}</div> : null}
+        </div>
+      ) : !isSupported ? (
         <div className="empty-state">This browser does not expose MediaRecorder microphone capture.</div>
       ) : error ? (
         <div className="voice-error">{error}</div>

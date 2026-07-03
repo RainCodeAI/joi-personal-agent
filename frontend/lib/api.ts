@@ -313,6 +313,7 @@ export async function transcribeAudioBlob(
   options?: {
     voiceMode?: MediaSession["voice_mode"];
     speechDetected?: boolean;
+    wakeProbe?: boolean;
   },
 ) {
   const dataUrl = await blobToDataUrl(audio);
@@ -327,6 +328,8 @@ export async function transcribeAudioBlob(
         duration_ms: durationMs,
         voice_mode: options?.voiceMode ?? "push_to_talk",
         speech_detected: options?.speechDetected ?? false,
+        // Ambient wake probes transcribe silently (no state/events on the backend).
+        wake_probe: options?.wakeProbe ?? false,
       }),
     },
     { retryable: false },

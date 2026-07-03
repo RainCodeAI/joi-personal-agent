@@ -171,7 +171,7 @@ export type AvatarSyncPayload = {
 export type MediaSession = {
   session_id: string;
   assistant_turn_id?: string | null;
-  voice_mode: "push_to_talk" | "conversation";
+  voice_mode: "push_to_talk" | "conversation" | "ambient";
   turn_state:
     | "idle"
     | "listening"

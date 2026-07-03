@@ -1157,6 +1157,52 @@ textarea {
   color: #fecaca;
 }
 
+.voice-ambient {
+  margin-top: 14px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: rgba(10, 16, 28, 0.46);
+  border: 1px solid rgba(126, 242, 255, 0.16);
+  display: grid;
+  gap: 10px;
+}
+
+.voice-ambient-status .badge {
+  animation: voice-ambient-pulse 2.4s ease-in-out infinite;
+}
+
+@keyframes voice-ambient-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.55; }
+}
+
+.voice-ambient-phrase {
+  display: grid;
+  gap: 4px;
+  font-size: 0.68rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.voice-ambient-phrase input {
+  padding: 8px 10px;
+  border-radius: 10px;
+  border: 1px solid rgba(126, 242, 255, 0.18);
+  background: rgba(4, 8, 16, 0.5);
+  color: rgba(218, 231, 248, 0.92);
+  font-size: 0.9rem;
+  letter-spacing: normal;
+  text-transform: none;
+}
+
+.voice-ambient-note {
+  margin: 0;
+  color: rgba(218, 231, 248, 0.66);
+  font-size: 0.8rem;
+  line-height: 1.45;
+}
+
 .desktop-action-panel {
   display: grid;
   gap: 14px;

@@ -193,7 +193,7 @@ class AvatarSyncResponse(V2ResponseBase):
 class MediaSessionResource(BaseModel):
     session_id: str
     assistant_turn_id: Optional[str] = None
-    voice_mode: Literal["push_to_talk", "conversation"] = "push_to_talk"
+    voice_mode: Literal["push_to_talk", "conversation", "ambient"] = "push_to_talk"
     turn_state: Literal[
         "idle",
         "listening",
@@ -225,7 +225,7 @@ class MediaSessionResource(BaseModel):
 class MediaSessionPatchRequest(BaseModel):
     session_id: str
     assistant_turn_id: Optional[str] = None
-    voice_mode: Optional[Literal["push_to_talk", "conversation"]] = None
+    voice_mode: Optional[Literal["push_to_talk", "conversation", "ambient"]] = None
     turn_state: Optional[
         Literal[
             "idle",
@@ -264,8 +264,12 @@ class MediaTranscribeRequest(BaseModel):
     media_type: str
     data_url: str
     duration_ms: Optional[int] = None
-    voice_mode: Literal["push_to_talk", "conversation"] = "push_to_talk"
+    voice_mode: Literal["push_to_talk", "conversation", "ambient"] = "push_to_talk"
     speech_detected: bool = False
+    # A silent wake-word probe: transcribe only, without mutating media-session
+    # state or broadcasting events, so ambient overhearing doesn't drive the
+    # avatar/hardware or pollute the event stream.
+    wake_probe: bool = False
 
 
 class MediaTranscribeResponse(V2ResponseBase):
