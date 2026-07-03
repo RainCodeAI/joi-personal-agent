@@ -10,6 +10,7 @@ journal_prompt, analyze_journal_entry) are preserved for backward compat.
 from __future__ import annotations
 
 import base64
+import hashlib
 import io
 import json
 import struct
@@ -17,6 +18,21 @@ import wave
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Dict, List
+
+
+# Ledger retention: keep only the most recent N action entries on disk.
+_LEDGER_MAX_LINES = 5_000
+_LEDGER_PREVIEW_CHARS = 120
+
+
+def _redact(text: str) -> Dict[str, Any]:
+    """Privacy-preserving summary of free text for the local action ledger."""
+    text = text or ""
+    return {
+        "preview": text[:_LEDGER_PREVIEW_CHARS],
+        "sha256": hashlib.sha256(text.encode("utf-8")).hexdigest()[:16],
+        "length": len(text),
+    }
 
 from app.api.models import ChatMessage, ChatResponse, ToolCall
 from app.config import settings
@@ -125,12 +141,14 @@ class Agent:
         # Persist assistant reply
         assistant_record = self.memory_store.add_chat_message(session_id, "assistant", reply)
 
-        # Audit ledger
+        # Audit ledger — store previews + hashes, not full transcripts, so the
+        # local ledger isn't a plaintext copy of every conversation. The full
+        # text already lives in the chat store; the hash lets you correlate.
         self.log_action(
             "chat_reply",
             {
-                "user_msg": user_msg,
-                "reply": reply,
+                "user_msg": _redact(user_msg),
+                "reply": _redact(reply),
                 "tool_calls": [tc.dict() for tc in tool_calls],
             },
         )
@@ -488,6 +506,30 @@ class Agent:
                 f,
             )
             f.write("\n")
+        self._trim_ledger(ledger_path)
+
+    @staticmethod
+    def _trim_ledger(ledger_path: Path) -> None:
+        """Cap the ledger at _LEDGER_MAX_LINES, keeping the most recent entries.
+
+        Gated on a cheap size stat so the O(n) rewrite runs rarely, not on every
+        logged action.
+        """
+        try:
+            # ~2KB/line upper bound; only scan+trim once the file could plausibly
+            # exceed the line cap.
+            if ledger_path.stat().st_size < _LEDGER_MAX_LINES * 2048:
+                return
+            with open(ledger_path, "r", encoding="utf-8") as f:
+                lines = f.readlines()
+            if len(lines) <= _LEDGER_MAX_LINES:
+                return
+            tmp = ledger_path.with_suffix(ledger_path.suffix + ".tmp")
+            with open(tmp, "w", encoding="utf-8") as f:
+                f.writelines(lines[-_LEDGER_MAX_LINES:])
+            tmp.replace(ledger_path)
+        except OSError:
+            pass
 
     # ── journal helpers ───────────────────────────────────────────────────
 

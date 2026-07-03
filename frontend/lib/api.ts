@@ -28,11 +28,17 @@ import {
   UserModelResponse,
 } from "@/lib/types";
 
-const API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_BASE_URL ||
-  process.env.API_BASE_URL ||
-  "http://127.0.0.1:8000";
-const API_TOKEN = process.env.NEXT_PUBLIC_JOI_API_TOKEN || process.env.JOI_API_TOKEN || "";
+// When NEXT_PUBLIC_API_BASE_URL is set (desktop shell, Docker), call that backend
+// directly. Otherwise default to the same-origin proxy at /api/backend, which
+// injects the token server-side so it never ships in the browser bundle.
+const CONFIGURED_BASE_URL =
+  process.env.NEXT_PUBLIC_API_BASE_URL || process.env.API_BASE_URL || "";
+const API_BASE_URL = CONFIGURED_BASE_URL || "/api/backend";
+const IS_PROXY_MODE = CONFIGURED_BASE_URL === "";
+// Only used in direct mode; in proxy mode the token stays server-side.
+const API_TOKEN = IS_PROXY_MODE
+  ? ""
+  : process.env.NEXT_PUBLIC_JOI_API_TOKEN || process.env.JOI_API_TOKEN || "";
 
 const REQUEST_TIMEOUT_MS = 35_000;
 const RETRY_ATTEMPTS = 3;
@@ -564,9 +570,12 @@ export function createEventStream(
 
   function connect() {
     if (closed) return;
-    const streamUrl = new URL(toUrl("/api/v2/events/stream"));
+    // toUrl() may be relative in proxy mode, so resolve against the page origin.
+    const streamUrl = new URL(toUrl("/api/v2/events/stream"), window.location.origin);
     streamUrl.searchParams.set("session_id", sessionId);
     streamUrl.searchParams.set("backfill", retries === 0 ? "8" : "0");
+    // Direct mode carries the token as a query param (EventSource can't set
+    // headers); proxy mode injects it server-side, so API_TOKEN is empty here.
     if (API_TOKEN) {
       streamUrl.searchParams.set("api_token", API_TOKEN);
     }

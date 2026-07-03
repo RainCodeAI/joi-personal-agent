@@ -12,17 +12,20 @@ from app.tools import voice
 
 class TestVisionVoice:
     
+    @patch("app.tools.vision_clip._caption_pipeline", None)
+    @patch("app.tools.vision_clip._VISION_AVAILABLE", True)
     @patch("app.tools.vision_clip.pipeline")
     @patch("app.tools.vision_clip.Image.open")
     def test_describe_image(self, mock_open, mock_pipeline):
-        # Setup mocks
+        # Setup mocks — force the "vision available" path even when transformers
+        # isn't installed, and start with an empty pipeline cache.
         mock_pipe_instance = MagicMock()
         mock_pipeline.return_value = mock_pipe_instance
         mock_pipe_instance.return_value = [{'generated_text': 'a cute cat'}]
-        
+
         # Test
         desc = vision_clip.describe_image("fake_path.jpg")
-        
+
         # Verify
         assert desc == "a cute cat"
         mock_pipeline.assert_called_with("image-to-text", model="Salesforce/blip-image-captioning-base")

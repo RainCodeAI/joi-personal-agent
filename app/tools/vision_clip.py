@@ -1,11 +1,18 @@
 import logging
 
+# Keep PIL independent of transformers: a transformers/torch import failure must
+# not also unbind Image, and both names must always exist so they stay patchable.
 try:
     from PIL import Image
+except Exception:
+    Image = None
+
+try:
     from transformers import pipeline
     _VISION_AVAILABLE = True
 except Exception:
     logging.warning("vision_clip: transformers/torch unavailable — image description disabled")
+    pipeline = None
     _VISION_AVAILABLE = False
 
 _caption_pipeline = None
