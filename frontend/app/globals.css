@@ -1203,6 +1203,63 @@ textarea {
   line-height: 1.45;
 }
 
+/* App-wide floating indicator so ambient listening is visible on every page. */
+.ambient-indicator {
+  position: fixed;
+  right: 18px;
+  bottom: 18px;
+  z-index: 1000;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  border-radius: 999px;
+  background: rgba(6, 12, 22, 0.86);
+  border: 1px solid rgba(126, 242, 255, 0.28);
+  box-shadow: 0 8px 26px rgba(0, 0, 0, 0.4);
+  backdrop-filter: blur(6px);
+  color: rgba(218, 231, 248, 0.92);
+  font-size: 0.82rem;
+}
+
+.ambient-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: #7ef2ff;
+  box-shadow: 0 0 8px rgba(126, 242, 255, 0.85);
+  animation: ambient-dot-pulse 2s ease-in-out infinite;
+}
+
+.ambient-dot.speaking {
+  background: #a78bfa;
+  box-shadow: 0 0 10px rgba(167, 139, 250, 0.9);
+  animation-duration: 0.9s;
+}
+
+@keyframes ambient-dot-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.45; transform: scale(0.82); }
+}
+
+.ambient-indicator-label {
+  white-space: nowrap;
+}
+
+.ambient-indicator-off {
+  border: none;
+  background: transparent;
+  color: rgba(218, 231, 248, 0.6);
+  font-size: 1.05rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 2px;
+}
+
+.ambient-indicator-off:hover {
+  color: #fecaca;
+}
+
 .desktop-action-panel {
   display: grid;
   gap: 14px;

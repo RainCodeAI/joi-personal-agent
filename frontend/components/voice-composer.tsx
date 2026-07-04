@@ -4,37 +4,17 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { patchMediaSession, transcribeAudioBlob } from "@/lib/api";
 import { MediaSession } from "@/lib/types";
-import { useAmbientListener, type AmbientStatus } from "@/hooks/use-ambient-listener";
+import { useAmbient, ambientStatusLabel } from "@/components/ambient-listener-provider";
 import { DEFAULT_WAKE_PHRASE } from "@/lib/wake-word";
 
-const VOICE_MODE_LABELS: Record<MediaSession["voice_mode"], string> = {
+// Manual capture modes. Ambient always-listening is a separate, app-wide toggle
+// owned by AmbientListenerProvider, not a capture mode.
+type CaptureMode = "push_to_talk" | "conversation";
+
+const CAPTURE_MODE_LABELS: Record<CaptureMode, string> = {
   push_to_talk: "Push to talk",
   conversation: "Conversation mode",
-  ambient: "Ambient · Hey Joi",
 };
-
-const VOICE_MODE_CYCLE: MediaSession["voice_mode"][] = [
-  "push_to_talk",
-  "conversation",
-  "ambient",
-];
-
-function ambientStatusLabel(status: AmbientStatus, phrase: string): string {
-  switch (status) {
-    case "listening":
-      return `Listening for “${phrase}”…`;
-    case "recording":
-      return "Hearing you…";
-    case "thinking":
-      return "Checking if that was for me…";
-    case "active":
-      return "Joi’s listening — go ahead";
-    case "heard":
-      return "On it.";
-    default:
-      return "Ambient listening is off.";
-  }
-}
 
 type VoiceComposerProps = {
   sessionId: string | null;
@@ -117,17 +97,20 @@ export function VoiceComposer({
   const [isSupported, setIsSupported] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [voiceMode, setVoiceMode] = useState<MediaSession["voice_mode"]>("push_to_talk");
-  const [wakePhrase, setWakePhrase] = useState(DEFAULT_WAKE_PHRASE);
+  const [voiceMode, setVoiceMode] = useState<CaptureMode>("push_to_talk");
+
+  // App-wide always-listening state lives in AmbientListenerProvider.
+  const ambient = useAmbient();
+  const ambientEnabled = ambient.enabled;
+  const ambientEnabledRef = useRef(ambientEnabled);
+  useEffect(() => {
+    ambientEnabledRef.current = ambientEnabled;
+  }, [ambientEnabled]);
 
   useEffect(() => {
     const stored = window.localStorage.getItem("joi_voice_mode");
-    if (stored === "conversation" || stored === "push_to_talk" || stored === "ambient") {
+    if (stored === "conversation" || stored === "push_to_talk") {
       setVoiceMode(stored);
-    }
-    const storedPhrase = window.localStorage.getItem("joi_wake_phrase");
-    if (storedPhrase && storedPhrase.trim()) {
-      setWakePhrase(storedPhrase.trim());
     }
     setIsSupported(
       typeof window !== "undefined" &&
@@ -294,9 +277,9 @@ export function VoiceComposer({
   }, [interruptPlayback, sessionId, syncSession, voiceMode]);
 
   const startRecording = useCallback(async () => {
-    // Ambient mode owns the mic through useAmbientListener; manual capture
-    // (button, Ctrl+Shift+Space, native PTT) is inert while it's active.
-    if (voiceMode === "ambient") {
+    // Ambient always-listening owns the mic app-wide; manual capture (button,
+    // Ctrl+Shift+Space, native PTT) is inert while it's active.
+    if (ambientEnabledRef.current) {
       return;
     }
     if (!sessionId || busy || captureInFlightRef.current || !isSupported) {
@@ -518,32 +501,6 @@ export function VoiceComposer({
     startRecordingRef.current = startRecording;
   }, [startRecording]);
 
-  const ambientEnabled = voiceMode === "ambient";
-  const assistantSpeaking =
-    assistantTurnActive ||
-    mediaSession?.speaking_state === "playing" ||
-    mediaSession?.speaking_state === "queued";
-
-  const handleAmbientCommand = useCallback(
-    async (command: string) => {
-      await onTranscript(command);
-    },
-    [onTranscript],
-  );
-  const handleAmbientInterrupt = useCallback(
-    () => onInterruptPlayback("Ambient wake interrupted Joi"),
-    [onInterruptPlayback],
-  );
-
-  const { status: ambientStatus, error: ambientError } = useAmbientListener({
-    enabled: ambientEnabled && isSupported && Boolean(sessionId),
-    sessionId,
-    wakePhrase,
-    assistantSpeaking,
-    onCommand: handleAmbientCommand,
-    onInterrupt: handleAmbientInterrupt,
-  });
-
   const isRecording = mediaSession?.mic_state === "recording";
   const isCapturing =
     mediaSession?.mic_state === "requesting" ||
@@ -645,11 +602,10 @@ export function VoiceComposer({
     await interruptPlayback("Voice playback stopped");
   }
 
-  function cycleVoiceMode() {
-    const next =
-      VOICE_MODE_CYCLE[(VOICE_MODE_CYCLE.indexOf(voiceMode) + 1) % VOICE_MODE_CYCLE.length];
-    // Leaving a manual continuous capture: tear down any in-flight recording.
-    if (next !== "conversation") {
+  function toggleCaptureMode() {
+    const next: CaptureMode = voiceMode === "push_to_talk" ? "conversation" : "push_to_talk";
+    // Leaving conversation: tear down any in-flight recording.
+    if (next === "push_to_talk") {
       conversationActiveRef.current = false;
       if (captureInFlightRef.current || recorderRef.current?.state === "recording") {
         cancelRecording();
@@ -660,12 +616,6 @@ export function VoiceComposer({
     if (sessionId) {
       void syncSession({ session_id: sessionId, voice_mode: next });
     }
-  }
-
-  function handleWakePhraseChange(value: string) {
-    setWakePhrase(value);
-    const trimmed = value.trim();
-    window.localStorage.setItem("joi_wake_phrase", trimmed || DEFAULT_WAKE_PHRASE);
   }
 
   return (
@@ -679,10 +629,20 @@ export function VoiceComposer({
           <button
             className={`button ${voiceMode === "push_to_talk" ? "ghost" : "secondary"} voice-default-toggle`}
             type="button"
-            title="Cycle capture mode"
-            onClick={cycleVoiceMode}
+            title="Toggle manual capture mode"
+            disabled={ambientEnabled}
+            onClick={toggleCaptureMode}
           >
-            {VOICE_MODE_LABELS[voiceMode]}
+            {CAPTURE_MODE_LABELS[voiceMode]}
+          </button>
+          <button
+            className={`button ${ambientEnabled ? "secondary" : "ghost"} voice-default-toggle`}
+            type="button"
+            aria-pressed={ambientEnabled}
+            title="Always listen for the wake phrase (runs on every page)"
+            onClick={() => ambient.setEnabled(!ambientEnabled)}
+          >
+            Ambient {ambientEnabled ? "on" : "off"}
           </button>
           <button
             className={`button ${spokenRepliesEnabled ? "secondary" : "ghost"} voice-default-toggle`}
@@ -763,28 +723,28 @@ export function VoiceComposer({
           <div className="voice-ambient-status">
             <span
               className={`badge ${
-                ambientStatus === "active" || ambientStatus === "heard" ? "ok" : "warn"
+                ambient.status === "active" || ambient.status === "heard" ? "ok" : "warn"
               }`}
             >
-              ● {ambientStatusLabel(ambientStatus, wakePhrase)}
+              ● {ambientStatusLabel(ambient.status, ambient.wakePhrase)}
             </span>
           </div>
           <label className="voice-ambient-phrase">
             <span>Wake phrase</span>
             <input
               type="text"
-              value={wakePhrase}
-              onChange={(event) => handleWakePhraseChange(event.target.value)}
+              value={ambient.wakePhrase}
+              onChange={(event) => ambient.setWakePhrase(event.target.value)}
               placeholder={DEFAULT_WAKE_PHRASE}
               spellCheck={false}
               autoCapitalize="off"
             />
           </label>
           <p className="voice-ambient-note">
-            Joi is always listening for your wake phrase. Speech is transcribed on-device and
+            Joi is listening on every page for your wake phrase. Speech is transcribed on-device and
             anything that isn’t addressed to her is discarded — never saved or sent to chat.
           </p>
-          {ambientError ? <div className="voice-error">{ambientError}</div> : null}
+          {ambient.error ? <div className="voice-error">{ambient.error}</div> : null}
         </div>
       ) : !isSupported ? (
         <div className="empty-state">This browser does not expose MediaRecorder microphone capture.</div>

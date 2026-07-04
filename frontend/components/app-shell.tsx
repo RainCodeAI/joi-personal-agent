@@ -7,6 +7,7 @@ import {
   PerceptionServicePanel,
   PerceptionServiceProvider,
 } from "@/components/perception-service-provider";
+import { AmbientListenerProvider } from "@/components/ambient-listener-provider";
 
 const NAV_ITEMS = [
   { href: "/chat",        label: "Chat",        copy: "Realtime conversation and presence." },
@@ -39,6 +40,7 @@ export function AppShell({ children }: { children: ReactNode }) {
 
   return (
     <PerceptionServiceProvider>
+      <AmbientListenerProvider>
       <div className={`app-shell${collapsed ? " nav-collapsed" : ""}`}>
         <aside className="app-nav">
           <div className="brand-chip">
@@ -88,6 +90,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           <div className="content-frame">{children}</div>
         </main>
       </div>
+      </AmbientListenerProvider>
     </PerceptionServiceProvider>
   );
 }

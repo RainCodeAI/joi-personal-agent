@@ -40,16 +40,27 @@ const API_TOKEN = IS_PROXY_MODE
   ? ""
   : process.env.NEXT_PUBLIC_JOI_API_TOKEN || process.env.JOI_API_TOKEN || "";
 
+// Server-side rendering can't fetch the relative proxy path (Node fetch needs an
+// absolute URL) and has no browser to hide the token from, so in proxy mode the
+// server calls the backend directly with the server-only token.
+const USE_SERVER_DIRECT = IS_PROXY_MODE && typeof window === "undefined";
+const SERVER_BACKEND_URL =
+  process.env.API_BASE_URL || process.env.BACKEND_API_BASE_URL || "http://127.0.0.1:8000";
+const SERVER_API_TOKEN = process.env.JOI_API_TOKEN || "";
+
 const REQUEST_TIMEOUT_MS = 35_000;
 const RETRY_ATTEMPTS = 3;
 const RETRY_BASE_DELAY_MS = 1_000;
 const HEALTH_TIMEOUT_MS = 1_800;
 
 function toUrl(path: string) {
-  return `${API_BASE_URL}${path}`;
+  return `${USE_SERVER_DIRECT ? SERVER_BACKEND_URL : API_BASE_URL}${path}`;
 }
 
 function authHeaders(): Record<string, string> {
+  if (USE_SERVER_DIRECT) {
+    return SERVER_API_TOKEN ? { "X-Joi-Api-Token": SERVER_API_TOKEN } : {};
+  }
   return API_TOKEN ? { "X-Joi-Api-Token": API_TOKEN } : {};
 }
 
