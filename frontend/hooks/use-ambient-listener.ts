@@ -32,6 +32,10 @@ type UseAmbientListenerArgs = {
   assistantSpeaking: boolean;
   onCommand: (command: string) => void | Promise<void>;
   onInterrupt: () => void | Promise<void>;
+  /** Fired the instant the wake phrase is recognized, before the command runs. */
+  onWake?: () => void;
+  /** Bumping this re-acquires the microphone — used to retry after a denial. */
+  retryToken?: number;
 };
 
 type UseAmbientListenerResult = {
@@ -61,6 +65,8 @@ export function useAmbientListener({
   assistantSpeaking,
   onCommand,
   onInterrupt,
+  onWake,
+  retryToken = 0,
 }: UseAmbientListenerArgs): UseAmbientListenerResult {
   const [status, setStatus] = useState<AmbientStatus>("idle");
   const [error, setError] = useState<string | null>(null);
@@ -85,6 +91,7 @@ export function useAmbientListener({
   const wakePhraseRef = useRef(wakePhrase);
   const onCommandRef = useRef(onCommand);
   const onInterruptRef = useRef(onInterrupt);
+  const onWakeRef = useRef(onWake);
   useEffect(() => {
     assistantSpeakingRef.current = assistantSpeaking;
   }, [assistantSpeaking]);
@@ -97,6 +104,9 @@ export function useAmbientListener({
   useEffect(() => {
     onInterruptRef.current = onInterrupt;
   }, [onInterrupt]);
+  useEffect(() => {
+    onWakeRef.current = onWake;
+  }, [onWake]);
 
   useEffect(() => {
     setSupported(
@@ -127,6 +137,12 @@ export function useAmbientListener({
       activeUntilRef.current = 0;
     }
     // Otherwise: overheard speech, silently discarded.
+
+    // Acknowledge the moment we recognize we're being addressed — before the
+    // (slower) command round-trip — so the chime/flash feels instant.
+    if (matched || dispatch) {
+      onWakeRef.current?.();
+    }
 
     if (dispatch) {
       setStatus("heard");
@@ -309,7 +325,14 @@ export function useAmbientListener({
       samplesRef.current = null;
       setStatus("idle");
     };
-  }, [enabled, sessionId, supported, gateTranscript]);
+    // retryToken is intentionally a dependency: bumping it re-runs this effect,
+    // tearing down and re-acquiring the mic (used to retry after a denial).
+  }, [enabled, sessionId, supported, gateTranscript, retryToken]);
+
+  // Clear a stale error on each fresh (re)start attempt.
+  useEffect(() => {
+    if (enabled) setError(null);
+  }, [enabled, retryToken]);
 
   return { status, supported, error };
 }

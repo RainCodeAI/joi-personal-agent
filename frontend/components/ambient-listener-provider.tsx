@@ -33,8 +33,29 @@ export function ambientStatusLabel(status: AmbientStatus, phrase: string): strin
     case "heard":
       return "On it.";
     default:
-      return "Ambient listening is off.";
+      return "Starting ambient listening…";
   }
+}
+
+// A short, gentle two-note rise synthesized with the Web Audio API — no asset,
+// no dependency. Reuses a primed AudioContext so it survives autoplay policy.
+function playWakeChime(ctx: AudioContext | null) {
+  if (!ctx) return;
+  if (ctx.state === "suspended") void ctx.resume();
+  const now = ctx.currentTime;
+  [660, 988].forEach((freq, index) => {
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = "sine";
+    osc.frequency.value = freq;
+    const start = now + index * 0.085;
+    gain.gain.setValueAtTime(0, start);
+    gain.gain.linearRampToValueAtTime(0.14, start + 0.015);
+    gain.gain.exponentialRampToValueAtTime(0.0001, start + 0.22);
+    osc.connect(gain).connect(ctx.destination);
+    osc.start(start);
+    osc.stop(start + 0.24);
+  });
 }
 
 type AmbientContextValue = {
@@ -45,6 +66,7 @@ type AmbientContextValue = {
   status: AmbientStatus;
   error: string | null;
   speaking: boolean;
+  retry: () => void;
 };
 
 const AmbientContext = createContext<AmbientContextValue | null>(null);
@@ -55,13 +77,49 @@ export function AmbientListenerProvider({ children }: { children: ReactNode }) {
   const [wakePhrase, setWakePhraseState] = useState(DEFAULT_WAKE_PHRASE);
   const [speaking, setSpeaking] = useState(false);
   const [dispatchError, setDispatchError] = useState<string | null>(null);
+  const [wakeFlash, setWakeFlash] = useState(false);
+  const [retryToken, setRetryToken] = useState(0);
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const chimeCtxRef = useRef<AudioContext | null>(null);
+  const flashTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const sessionIdRef = useRef<string | null>(sessionId);
   const ensuringSessionRef = useRef(false);
   useEffect(() => {
     sessionIdRef.current = sessionId;
   }, [sessionId]);
+
+  // Lazily create/resume the chime AudioContext. Called from user gestures
+  // (the enable toggle) so it satisfies the browser autoplay policy.
+  const primeChime = useCallback(() => {
+    try {
+      if (!chimeCtxRef.current) chimeCtxRef.current = new window.AudioContext();
+      if (chimeCtxRef.current.state === "suspended") void chimeCtxRef.current.resume();
+    } catch {
+      chimeCtxRef.current = null;
+    }
+    return chimeCtxRef.current;
+  }, []);
+
+  const handleWake = useCallback(() => {
+    playWakeChime(primeChime());
+    setWakeFlash(true);
+    if (flashTimerRef.current) clearTimeout(flashTimerRef.current);
+    flashTimerRef.current = setTimeout(() => setWakeFlash(false), 700);
+  }, [primeChime]);
+
+  const retry = useCallback(() => {
+    setDispatchError(null);
+    primeChime();
+    setRetryToken((token) => token + 1);
+  }, [primeChime]);
+
+  useEffect(() => {
+    return () => {
+      if (flashTimerRef.current) clearTimeout(flashTimerRef.current);
+      void chimeCtxRef.current?.close();
+    };
+  }, []);
 
   // Restore persisted ambient state — an always-on companion stays on across reloads.
   useEffect(() => {
@@ -74,14 +132,20 @@ export function AmbientListenerProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  const setEnabled = useCallback((next: boolean) => {
-    setEnabledState(next);
-    try {
-      window.localStorage.setItem(AMBIENT_ENABLED_KEY, String(next));
-    } catch {
-      // ignore persistence failures
-    }
-  }, []);
+  const setEnabled = useCallback(
+    (next: boolean) => {
+      // Turning on is a user gesture — prime the chime context now so it's
+      // allowed to play later without further interaction.
+      if (next) primeChime();
+      setEnabledState(next);
+      try {
+        window.localStorage.setItem(AMBIENT_ENABLED_KEY, String(next));
+      } catch {
+        // ignore persistence failures
+      }
+    },
+    [primeChime],
+  );
 
   const setWakePhrase = useCallback((phrase: string) => {
     setWakePhraseState(phrase);
@@ -164,6 +228,8 @@ export function AmbientListenerProvider({ children }: { children: ReactNode }) {
     assistantSpeaking: speaking,
     onCommand: handleCommand,
     onInterrupt: stopSpeaking,
+    onWake: handleWake,
+    retryToken,
   });
 
   // Ambient turned off: stop any in-progress reply.
@@ -171,6 +237,7 @@ export function AmbientListenerProvider({ children }: { children: ReactNode }) {
     if (!enabled) stopSpeaking();
   }, [enabled, stopSpeaking]);
 
+  const error = listenerError ?? dispatchError;
   const value = useMemo<AmbientContextValue>(
     () => ({
       enabled,
@@ -178,19 +245,45 @@ export function AmbientListenerProvider({ children }: { children: ReactNode }) {
       wakePhrase,
       setWakePhrase,
       status,
-      error: listenerError ?? dispatchError,
+      error,
       speaking,
+      retry,
     }),
-    [enabled, setEnabled, wakePhrase, setWakePhrase, status, listenerError, dispatchError, speaking],
+    [enabled, setEnabled, wakePhrase, setWakePhrase, status, error, speaking, retry],
   );
+
+  // A mic error only matters while ambient is meant to be on.
+  const micError = enabled ? listenerError : null;
 
   return (
     <AmbientContext.Provider value={value}>
       {children}
       {enabled ? (
-        <div className="ambient-indicator" role="status" aria-live="polite">
-          <span className={`ambient-dot${speaking ? " speaking" : ""}`} aria-hidden="true" />
-          <span className="ambient-indicator-label">{ambientStatusLabel(status, wakePhrase)}</span>
+        <div
+          className={`ambient-indicator${micError ? " error" : ""}${wakeFlash ? " wake" : ""}${
+            speaking ? " speaking" : ""
+          }`}
+          role="status"
+          aria-live="polite"
+        >
+          {micError ? (
+            <button
+              type="button"
+              className="ambient-indicator-retry"
+              onClick={retry}
+              title="Microphone blocked or unavailable — click to retry"
+            >
+              <span className="ambient-dot error" aria-hidden="true" />
+              <span className="ambient-indicator-label">Mic unavailable — retry</span>
+            </button>
+          ) : (
+            <>
+              <span className={`ambient-dot${speaking ? " speaking" : ""}`} aria-hidden="true" />
+              <span className="ambient-indicator-label">
+                {ambientStatusLabel(status, wakePhrase)}
+              </span>
+            </>
+          )}
           <button
             type="button"
             className="ambient-indicator-off"

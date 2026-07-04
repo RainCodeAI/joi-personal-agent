@@ -744,7 +744,14 @@ export function VoiceComposer({
             Joi is listening on every page for your wake phrase. Speech is transcribed on-device and
             anything that isn’t addressed to her is discarded — never saved or sent to chat.
           </p>
-          {ambient.error ? <div className="voice-error">{ambient.error}</div> : null}
+          {ambient.error ? (
+            <div className="voice-error voice-ambient-error">
+              <span>{ambient.error}</span>
+              <button type="button" className="button ghost" onClick={ambient.retry}>
+                Retry mic
+              </button>
+            </div>
+          ) : null}
         </div>
       ) : !isSupported ? (
         <div className="empty-state">This browser does not expose MediaRecorder microphone capture.</div>

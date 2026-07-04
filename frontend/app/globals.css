@@ -1260,6 +1260,58 @@ textarea {
   color: #fecaca;
 }
 
+/* Brief flash when the wake phrase is recognized (pairs with the chime). */
+.ambient-indicator.wake {
+  animation: ambient-wake-flash 0.7s ease-out;
+}
+
+@keyframes ambient-wake-flash {
+  0% {
+    border-color: rgba(126, 242, 255, 1);
+    box-shadow: 0 0 0 0 rgba(126, 242, 255, 0.55), 0 8px 26px rgba(0, 0, 0, 0.4);
+    transform: scale(1.06);
+  }
+  100% {
+    border-color: rgba(126, 242, 255, 0.28);
+    box-shadow: 0 0 0 14px rgba(126, 242, 255, 0), 0 8px 26px rgba(0, 0, 0, 0.4);
+    transform: scale(1);
+  }
+}
+
+/* Mic blocked / unavailable while ambient is meant to be on. */
+.ambient-indicator.error {
+  border-color: rgba(248, 113, 113, 0.5);
+}
+
+.ambient-dot.error {
+  background: #f87171;
+  box-shadow: 0 0 8px rgba(248, 113, 113, 0.85);
+  animation: none;
+}
+
+.ambient-indicator-retry {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  border: none;
+  background: transparent;
+  color: #fecaca;
+  font: inherit;
+  cursor: pointer;
+  padding: 0;
+}
+
+.ambient-indicator-retry:hover .ambient-indicator-label {
+  text-decoration: underline;
+}
+
+.voice-ambient-error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
 .desktop-action-panel {
   display: grid;
   gap: 14px;
