@@ -51,8 +51,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             <>
               <h1 className="brand-title">Joi</h1>
               <p className="brand-copy">
-                Blade Runner-inspired control surface for chat, memory, planning, diagnostics, and
-                avatar-state orchestration.
+                I&apos;m here. Always on, always listening for you.
               </p>
             </>
           )}

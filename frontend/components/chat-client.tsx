@@ -42,6 +42,7 @@ import {
 const SESSION_STORAGE_KEY = "joi-v2-session";
 const SPOKEN_REPLIES_STORAGE_KEY = "joi-v2-spoken-replies";
 const AUTO_SEND_VOICE_STORAGE_KEY = "joi-v2-auto-send-voice";
+const DEV_MODE_STORAGE_KEY = "joi-v2-dev-mode";
 
 type ChatClientProps = {
   initialSessionId?: string | null;
@@ -408,6 +409,9 @@ export function ChatClient({ initialSessionId }: ChatClientProps) {
   const [spokenRepliesEnabled, setSpokenRepliesEnabled] = useState(true);
   const spokenRepliesEnabledRef = useRef(true);
   const [autoSendVoiceEnabled, setAutoSendVoiceEnabled] = useState(true);
+  // Developer view keeps raw telemetry (event stream, VRM audit, phoneme track,
+  // desktop actions) out of the default "room" but a click away when needed.
+  const [devMode, setDevMode] = useState(false);
   const [avatarSyncLoading, setAvatarSyncLoading] = useState(false);
   const [isSending, setIsSending] = useState(false);
   const isSendingRef = useRef(false);
@@ -468,7 +472,22 @@ export function ChatClient({ initialSessionId }: ChatClientProps) {
     if (storedAutoSend === "off") {
       setAutoSendVoiceEnabled(false);
     }
+    if (window.localStorage.getItem(DEV_MODE_STORAGE_KEY) === "on") {
+      setDevMode(true);
+    }
   }, []);
+
+  function handleDevModeToggle() {
+    setDevMode((current) => {
+      const next = !current;
+      try {
+        window.localStorage.setItem(DEV_MODE_STORAGE_KEY, next ? "on" : "off");
+      } catch {
+        // localStorage unavailable — dev view still toggles for the session.
+      }
+      return next;
+    });
+  }
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -1127,7 +1146,7 @@ export function ChatClient({ initialSessionId }: ChatClientProps) {
           <div className="chat-panel-header">
             <h2>Conversation</h2>
             <p className="panel-copy">
-              Ask for a plan, drop in context, or keep the realtime thread moving.
+              Talk to me — type, speak, or share what you&apos;re looking at.
             </p>
           </div>
 
@@ -1230,7 +1249,7 @@ export function ChatClient({ initialSessionId }: ChatClientProps) {
             <textarea
               id="chat-draft"
               className="textarea chat-textarea"
-              placeholder="Tell Joi what you need, attach context, or ask for a plan."
+              placeholder="What's on your mind?"
               value={draft}
               onChange={(event) => setDraft(event.target.value)}
             />
@@ -1256,7 +1275,7 @@ export function ChatClient({ initialSessionId }: ChatClientProps) {
                 Look at this
               </button>
               <button className="button primary" disabled={!sessionId || isSending || (!draft.trim() && attachments.length === 0)} type="submit">
-                {isSending ? "Transmitting..." : "Send to Joi"}
+                {isSending ? "Transmitting..." : "Send"}
               </button>
               <button
                 className="button tertiary"
@@ -1336,6 +1355,7 @@ export function ChatClient({ initialSessionId }: ChatClientProps) {
               cue={avatarCue}
               loading={avatarSyncLoading}
               sync={avatarSyncPayload}
+              showDiagnostics={devMode}
               compact={presenceMode === "mini"}
               perceptionExpression={perceptionExpression}
               perceptionState={perceptionState}
@@ -1579,6 +1599,7 @@ export function ChatClient({ initialSessionId }: ChatClientProps) {
               </section>
             ) : null}
 
+            {devMode ? (
             <section className="joi-approvals">
               <div className="aside-section-head">
                 <p className="eyebrow">Desktop</p>
@@ -1677,12 +1698,24 @@ export function ChatClient({ initialSessionId }: ChatClientProps) {
                 ) : null}
               </div>
             </section>
+            ) : null}
           </section>
 
           <section className="panel chat-feed-panel">
-            <div className="aside-panel-header">
-              <p className="eyebrow">Feed</p>
-              <h3>Signals and diagnostics</h3>
+            <div className="aside-panel-header feed-panel-header">
+              <div>
+                <p className="eyebrow">Feed</p>
+                <h3>Signals</h3>
+              </div>
+              <button
+                className="button ghost avatar-mode-toggle"
+                type="button"
+                onClick={handleDevModeToggle}
+                aria-pressed={devMode}
+                title={devMode ? "Hide developer telemetry" : "Show developer telemetry"}
+              >
+                {devMode ? "Dev on" : "Dev"}
+              </button>
             </div>
 
             {lastSnapshotAnalysis ? (
@@ -1709,26 +1742,32 @@ export function ChatClient({ initialSessionId }: ChatClientProps) {
               </section>
             ) : null}
 
-            <details className="aside-accordion">
-              <summary>
-                <span>Event stream {events.length > 0 ? `(${events.length})` : ""}</span>
-              </summary>
-              <div className="event-list aside-accordion-body">
-                {events.length === 0 ? (
-                  <div className="empty-state">No events yet.</div>
-                ) : (
-                  events.map((event) => (
-                    <article key={event.event_id} className="event-card">
-                      <header>
-                        <span>{event.event}</span>
-                        <span>{formatTimestamp(event.timestamp)}</span>
-                      </header>
-                      <pre>{JSON.stringify(event.payload, null, 2)}</pre>
-                    </article>
-                  ))
-                )}
-              </div>
-            </details>
+            {devMode ? (
+              <details className="aside-accordion">
+                <summary>
+                  <span>Event stream {events.length > 0 ? `(${events.length})` : ""}</span>
+                </summary>
+                <div className="event-list aside-accordion-body">
+                  {events.length === 0 ? (
+                    <div className="empty-state">No events yet.</div>
+                  ) : (
+                    events.map((event) => (
+                      <article key={event.event_id} className="event-card">
+                        <header>
+                          <span>{event.event}</span>
+                          <span>{formatTimestamp(event.timestamp)}</span>
+                        </header>
+                        <pre>{JSON.stringify(event.payload, null, 2)}</pre>
+                      </article>
+                    ))
+                  )}
+                </div>
+              </details>
+            ) : (
+              <p className="feed-copy">
+                Scene notes and signals from Joi appear here. Toggle Dev for raw telemetry.
+              </p>
+            )}
           </section>
         </aside>
       </div>

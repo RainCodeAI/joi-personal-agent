@@ -17,6 +17,7 @@ type AvatarSyncPanelProps = {
   sync: AvatarSyncPayload | null;
   loading: boolean;
   compact?: boolean;
+  showDiagnostics?: boolean;
   perceptionExpression?: string | null;
   perceptionState?: PerceptionState | null;
   lifeState?: LifeStateName;
@@ -32,6 +33,7 @@ export function AvatarSyncPanel({
   sync,
   loading,
   compact = false,
+  showDiagnostics = false,
   perceptionExpression,
   perceptionState,
   lifeState,
@@ -180,7 +182,7 @@ export function AvatarSyncPanel({
             ref={audioRef}
             src={sync.audio_url}
           />
-          {!compact ? (
+          {!compact && showDiagnostics ? (
             <details className="viseme-details">
               <summary>Phoneme track ({sync.phoneme_timeline.length} frames)</summary>
               <div className="viseme-track">
@@ -196,7 +198,7 @@ export function AvatarSyncPanel({
         </>
       ) : null}
 
-      {!compact ? (
+      {!compact && showDiagnostics ? (
         <details className="avatar-audit-details">
           <summary>VRM audit ({auditSummary})</summary>
           {audit ? (
