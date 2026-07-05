@@ -159,7 +159,7 @@ class MemoryStore:
 
     async def add_memory_async(self, mem_type: str, text: str, tags: List[str]):
         """Non-blocking add_memory — offloads embedding + entity extraction to thread pool."""
-        memory_type = "semantic" if mem_type in ["entity", "summary", "goal", "habit", "decision"] else "episodic"
+        memory_type = "semantic" if mem_type in ["entity", "summary", "goal", "habit", "decision", "consolidation"] else "episodic"
         with SQLSession(engine) as session:
             tags_str = json.dumps(tags)
             memory = Memory(type=mem_type, text=text, tags=tags_str, memory_type=memory_type)
@@ -342,6 +342,12 @@ JSON:
             if key not in seen:
                 seen.add(key)
                 merged.append(r)
+        # Consolidation/summary memories are dense, deliberate syntheses — surface
+        # them ahead of raw episodic fragments by lowering their distance.
+        for r in merged:
+            mem_type = (r.get("metadata") or {}).get("type")
+            if mem_type in ("consolidation", "summary"):
+                r["distance"] = r.get("distance", 1.0) * 0.7
         merged.sort(key=lambda x: x.get("distance", 999))
         return merged[:k]
 
@@ -411,7 +417,7 @@ JSON:
 
     def add_memory(self, mem_type: str, text: str, tags: List[str]):
         # Determine memory_type: semantic for facts/entities, episodic for events/conversations
-        memory_type = "semantic" if mem_type in ["entity", "summary", "goal", "habit", "decision"] else "episodic"
+        memory_type = "semantic" if mem_type in ["entity", "summary", "goal", "habit", "decision", "consolidation"] else "episodic"
         with SQLSession(engine) as session:
             tags_str = json.dumps(tags)
             memory = Memory(type=mem_type, text=text, tags=tags_str, memory_type=memory_type)
@@ -460,6 +466,29 @@ JSON:
                 statement = statement.where(Memory.memory_type == memory_type)
             statement = statement.order_by(Memory.created_at.desc()).limit(limit)
             return session.execute(statement).scalars().all()
+
+    def get_memories_since(
+        self,
+        cutoff: datetime,
+        *,
+        memory_type: str | None = None,
+        exclude_types: List[str] | None = None,
+        limit: int = 500,
+    ) -> List[Memory]:
+        """Return memories created at/after *cutoff*, newest first.
+
+        Used by the consolidation pass to gather a window of episodic memories.
+        """
+        with SQLSession(engine) as session:
+            statement = select(Memory).where(Memory.created_at >= cutoff)
+            if memory_type is not None:
+                statement = statement.where(Memory.memory_type == memory_type)
+            statement = statement.order_by(Memory.created_at.desc()).limit(limit)
+            rows = session.execute(statement).scalars().all()
+        if exclude_types:
+            excluded = set(exclude_types)
+            rows = [row for row in rows if row.type not in excluded]
+        return rows
 
     def search_embeddings(
         self,

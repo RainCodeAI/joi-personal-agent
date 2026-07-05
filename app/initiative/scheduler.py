@@ -19,6 +19,7 @@ Guard before every tick:
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING, Any
@@ -104,6 +105,19 @@ class InitiativeScheduler:
             coalesce=True,
             max_instances=1,
         )
+        # Nightly memory consolidation ("sleep"). Independent of the initiative
+        # toggles — it's memory maintenance, gated only by its own setting — and
+        # runs at a fixed local hour via the scheduler's local timezone.
+        self._scheduler.add_job(
+            self._consolidation_tick,
+            trigger="cron",
+            hour=settings.memory_consolidation_hour,
+            minute=30,
+            id="memory_consolidation_tick",
+            name="Memory consolidation (sleep)",
+            coalesce=True,
+            max_instances=1,
+        )
         self._scheduler.start()
         logger.info(
             "Initiative scheduler started - general tick every %dm, memory tick every %dh, "
@@ -168,6 +182,24 @@ class InitiativeScheduler:
             memory_store=self._memory_store,
         )
         await self._evaluate(candidate, media=media)
+
+    async def _consolidation_tick(self) -> None:
+        """Nightly memory consolidation. Independent of initiative toggles."""
+        if not settings.memory_consolidation_enabled:
+            return
+        try:
+            from app.memory.consolidation import MemoryConsolidator
+
+            consolidator = MemoryConsolidator(self._memory_store)
+            result = await asyncio.to_thread(consolidator.consolidate)
+            logger.info(
+                "Consolidation tick: status=%s consolidated=%s sources=%s",
+                result.get("status"),
+                result.get("consolidated"),
+                result.get("source_count"),
+            )
+        except Exception as exc:
+            logger.warning("Consolidation tick failed: %s", exc)
 
     async def _context_tick(self) -> None:
         if not self._is_ready() or self._context_events is None:

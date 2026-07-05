@@ -1268,6 +1268,35 @@ async def search_memory(
     )
 
 
+@router.get("/memory/consolidation")
+async def get_consolidation_status(user_id: str = "default"):
+    from app.config import settings
+    from app.memory.consolidation import MemoryConsolidator
+
+    consolidator = MemoryConsolidator(memory_store)
+    return {
+        "api_version": "v2",
+        "enabled": settings.memory_consolidation_enabled,
+        "last_run_at": consolidator.last_run_at(),
+    }
+
+
+@router.post("/memory/consolidate")
+async def run_consolidation(user_id: str = "default", force: bool = False):
+    """Run a memory-consolidation pass now (also runs nightly via the scheduler)."""
+    from app.memory.consolidation import MemoryConsolidator
+
+    consolidator = MemoryConsolidator(memory_store)
+    result = await asyncio.to_thread(consolidator.consolidate, user_id=user_id, force=force)
+    await event_bus.publish(
+        "memory.consolidated",
+        {"result": result},
+        session_id=None,
+        source="memory",
+    )
+    return {"api_version": "v2", **result}
+
+
 @router.post("/chat", response_model=V2ChatResponse)
 async def chat_v2(request: V2ChatRequest):
     client_turn_id = request.client_turn_id or str(uuid.uuid4())

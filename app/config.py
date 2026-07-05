@@ -68,6 +68,12 @@ class Settings(BaseSettings):
     gguf_model_path: str = Field(default="")  # Path to .gguf file
     gguf_n_ctx: int = Field(default=2048)
     gguf_n_gpu_layers: int = Field(default=0)  # 0 = CPU only
+    # Memory consolidation ("sleep") — nightly synthesis of episodic memories +
+    # moods into durable semantic summaries.
+    memory_consolidation_enabled: bool = Field(default=True)
+    memory_consolidation_hour: int = Field(default=3)  # local hour of the nightly run
+    memory_consolidation_min_items: int = Field(default=5)  # skip if fewer new memories
+    memory_consolidation_max_lookback_hours: int = Field(default=168)  # cap the window at 7 days
 
     class Config:
         env_file = ".env"
