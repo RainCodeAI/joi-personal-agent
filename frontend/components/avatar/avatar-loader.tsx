@@ -32,6 +32,39 @@ import { getSpeechTargets, smoothSpeechWeights, VRM_VISEME_NAMES } from "./avata
 
 useGLTF.preload(GLB_MODEL_URL);
 
+// The cyan hologram accent used for the rim glow.
+const HOLOGRAM_RIM_COLOR = new THREE.Color("#8bf4ff");
+
+/** Give VRM (MToon) materials a fresnel rim — the translucent, lit-from-within
+ *  edge that sells the projection look. MToon has native parametric rim params,
+ *  so no shader surgery is needed. Duck-typed + guarded so a param-name mismatch
+ *  degrades quietly instead of throwing. */
+function applyHologramRim(material: THREE.Material): void {
+  const mtoon = material as unknown as {
+    isMToonMaterial?: boolean;
+    parametricRimColorFactor?: THREE.Color;
+    parametricRimFresnelPowerFactor?: number;
+    parametricRimLiftFactor?: number;
+    rimLightingMixFactor?: number;
+  };
+  if (!mtoon.isMToonMaterial) {
+    return;
+  }
+  if (mtoon.parametricRimColorFactor) {
+    mtoon.parametricRimColorFactor = HOLOGRAM_RIM_COLOR.clone();
+  }
+  if (typeof mtoon.parametricRimFresnelPowerFactor === "number") {
+    mtoon.parametricRimFresnelPowerFactor = 2.6;
+  }
+  if (typeof mtoon.parametricRimLiftFactor === "number") {
+    mtoon.parametricRimLiftFactor = 0.18;
+  }
+  if (typeof mtoon.rimLightingMixFactor === "number") {
+    mtoon.rimLightingMixFactor = 1;
+  }
+  material.needsUpdate = true;
+}
+
 function tuneMaterial(material: THREE.Material): void {
   material.needsUpdate = true;
 
@@ -70,6 +103,7 @@ function prepareModelMaterials(model: THREE.Object3D, doubleSide = false): void 
         material.side = THREE.DoubleSide;
       }
       tuneMaterial(material);
+      applyHologramRim(material);
     }
   });
 }
