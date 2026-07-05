@@ -38,6 +38,33 @@ def create_db_and_tables():
 
 _EMBED_CACHE_MAX = 256
 
+# Retrieval treats memories at/above this salience as emotionally significant.
+SALIENCE_THRESHOLD = 0.7
+
+
+def _emotional_salience(sentiment: str | None, mood: float | None) -> float:
+    """Score 0..1 for how emotionally charged a memory is.
+
+    Non-neutral sentiment and moods far from the midpoint (5/10) raise salience,
+    so an upset message on a low-mood day scores high and neutral chatter low.
+    """
+    base = 0.2 if (not sentiment or sentiment == "neutral") else 0.6
+    extremity = 0.0
+    if mood is not None:
+        extremity = min(0.4, abs(float(mood) - 5.0) / 5.0 * 0.4)
+    return round(min(1.0, base + extremity), 3)
+
+
+def _emotion_metadata(sentiment: str | None, mood: float | None) -> Dict[str, Any]:
+    """Chroma-safe metadata (str/float only) describing a memory's emotional context."""
+    meta: Dict[str, Any] = {"salience": _emotional_salience(sentiment, mood)}
+    if sentiment:
+        meta["sentiment"] = str(sentiment)
+    if mood is not None:
+        meta["mood"] = float(mood)
+    return meta
+
+
 class MemoryStore:
     _executor = ThreadPoolExecutor(max_workers=2)
 
@@ -157,9 +184,20 @@ class MemoryStore:
         loop = asyncio.get_event_loop()
         return await loop.run_in_executor(self._executor, self.embed_text, text)
 
-    async def add_memory_async(self, mem_type: str, text: str, tags: List[str]):
+    async def add_memory_async(
+        self,
+        mem_type: str,
+        text: str,
+        tags: List[str],
+        *,
+        sentiment: str | None = None,
+        mood: float | None = None,
+    ):
         """Non-blocking add_memory — offloads embedding + entity extraction to thread pool."""
         memory_type = "semantic" if mem_type in ["entity", "summary", "goal", "habit", "decision", "consolidation"] else "episodic"
+        emotion_meta = _emotion_metadata(sentiment, mood) if (sentiment or mood is not None) else {}
+        if sentiment and sentiment != "neutral":
+            tags = [*tags, f"emotion:{sentiment}"]
         with SQLSession(engine) as session:
             tags_str = json.dumps(tags)
             memory = Memory(type=mem_type, text=text, tags=tags_str, memory_type=memory_type)
@@ -174,7 +212,7 @@ class MemoryStore:
                     self.collection.add(
                         documents=[text],
                         embeddings=[embedding],
-                        metadatas=[{"type": mem_type, "tags": tags_str, "memory_type": memory_type}],
+                        metadatas=[{"type": mem_type, "tags": tags_str, "memory_type": memory_type, **emotion_meta}],
                         ids=[str(memory.id)]
                     )
                 except Exception as exc:
@@ -342,12 +380,15 @@ JSON:
             if key not in seen:
                 seen.add(key)
                 merged.append(r)
-        # Consolidation/summary memories are dense, deliberate syntheses — surface
-        # them ahead of raw episodic fragments by lowering their distance.
+        # Bias the ranking: dense syntheses first, then emotionally salient
+        # moments, so recall favors what mattered over incidental chatter.
         for r in merged:
-            mem_type = (r.get("metadata") or {}).get("type")
-            if mem_type in ("consolidation", "summary"):
+            meta = r.get("metadata") or {}
+            if meta.get("type") in ("consolidation", "summary"):
                 r["distance"] = r.get("distance", 1.0) * 0.7
+            salience = meta.get("salience")
+            if isinstance(salience, (int, float)) and salience >= SALIENCE_THRESHOLD:
+                r["distance"] = r.get("distance", 1.0) * 0.85
         merged.sort(key=lambda x: x.get("distance", 999))
         return merged[:k]
 
@@ -415,9 +456,22 @@ JSON:
                 self.add_relationship(entity_ids[i], entity_ids[j], "co_occurrence")
                 self.add_relationship(entity_ids[j], entity_ids[i], "co_occurrence")  # bidirectional
 
-    def add_memory(self, mem_type: str, text: str, tags: List[str]):
+    def add_memory(
+        self,
+        mem_type: str,
+        text: str,
+        tags: List[str],
+        *,
+        sentiment: str | None = None,
+        mood: float | None = None,
+    ):
         # Determine memory_type: semantic for facts/entities, episodic for events/conversations
         memory_type = "semantic" if mem_type in ["entity", "summary", "goal", "habit", "decision", "consolidation"] else "episodic"
+        # Optional emotional context (from the chat path): recorded in Chroma
+        # metadata + a light SQL tag so retrieval can surface salient moments.
+        emotion_meta = _emotion_metadata(sentiment, mood) if (sentiment or mood is not None) else {}
+        if sentiment and sentiment != "neutral":
+            tags = [*tags, f"emotion:{sentiment}"]
         with SQLSession(engine) as session:
             tags_str = json.dumps(tags)
             memory = Memory(type=mem_type, text=text, tags=tags_str, memory_type=memory_type)
@@ -433,7 +487,7 @@ JSON:
                     self.collection.add(
                         documents=[text],
                         embeddings=[embedding],
-                        metadatas=[{"type": mem_type, "tags": tags_str, "memory_type": memory_type}],
+                        metadatas=[{"type": mem_type, "tags": tags_str, "memory_type": memory_type, **emotion_meta}],
                         ids=[str(memory.id)]
                     )
                 except Exception as exc:

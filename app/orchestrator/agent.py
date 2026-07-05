@@ -95,11 +95,20 @@ class Agent:
 
         # Persist the incoming user message
         user_record = self.memory_store.add_chat_message(session_id, "user", user_msg)
-        self.memory_store.add_memory("user_input", user_msg, ["chat", session_id])
 
-        # 1. Memory Retriever — gather context
+        # 1. Memory Retriever — gather context (also yields the emotional read)
         context = self._memory_retriever.retrieve_context(
             session_id, user_msg, chat_history, self.memory_store
+        )
+
+        # Store the user message as memory, tagged with the emotional context at
+        # the time so retrieval can later surface emotionally salient moments.
+        self.memory_store.add_memory(
+            "user_input",
+            user_msg,
+            ["chat", session_id],
+            sentiment=context.sentiment,
+            mood=context.avg_mood,
         )
 
         # 2. Planner — assemble proactive-planning context

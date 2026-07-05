@@ -123,10 +123,32 @@ class MemoryRetrieverAgent:
         if bundle.relevant_memories:
             bundle.memory_context = (
                 "Relevant past context:\n"
-                + "\n".join(mem["text"] for mem in bundle.relevant_memories)
+                + "\n".join(
+                    f"{mem['text']}{self._emotion_note(mem.get('metadata'))}"
+                    for mem in bundle.relevant_memories
+                )
             )
 
         return bundle
+
+    @staticmethod
+    def _emotion_note(metadata: Dict[str, Any] | None) -> str:
+        """A subtle parenthetical about how the user felt when a memory was formed.
+
+        Only annotates emotionally salient memories, so Joi can reference the past
+        feeling ("last time you were pretty low") without narrating every recall.
+        """
+        if not metadata:
+            return ""
+        salience = metadata.get("salience")
+        if not isinstance(salience, (int, float)) or salience < 0.6:
+            return ""
+        sentiment = metadata.get("sentiment")
+        if sentiment == "negative":
+            return " (they seemed low then)"
+        if sentiment == "positive":
+            return " (they were upbeat then)"
+        return ""
 
     # ── private helpers ───────────────────────────────────────────────────
 
