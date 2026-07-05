@@ -7,10 +7,12 @@ import {
   Bloom,
   ChromaticAberration,
   EffectComposer,
+  Glitch,
   Noise,
+  Scanline,
   Vignette,
 } from "@react-three/postprocessing";
-import { BlendFunction } from "postprocessing";
+import { BlendFunction, GlitchMode } from "postprocessing";
 
 import {
   CA_OFFSET,
@@ -23,6 +25,11 @@ type AvatarLightingProps = {
   colors: { key: string; fill: string; rim: string; accent: string };
   assetKind: AvatarAssetKind;
 };
+
+// Glitch effect expects Vector2 ranges; define once to avoid per-render allocs.
+const GLITCH_DELAY = new THREE.Vector2(0, 0);
+const GLITCH_DURATION = new THREE.Vector2(0.06, 0.16);
+const GLITCH_STRENGTH = new THREE.Vector2(0.06, 0.22);
 
 export function CameraRig({ assetKind, compact = false }: { assetKind: AvatarAssetKind; compact?: boolean }) {
   const { camera, gl } = useThree();
@@ -83,7 +90,13 @@ export function AvatarLighting({ colors, assetKind }: AvatarLightingProps) {
   );
 }
 
-export function AvatarPostEffects({ assetKind }: { assetKind: AvatarAssetKind }) {
+export function AvatarPostEffects({
+  assetKind,
+  glitchActive = false,
+}: {
+  assetKind: AvatarAssetKind;
+  glitchActive?: boolean;
+}) {
   const isVrm = isVrmAsset(assetKind);
 
   return (
@@ -98,6 +111,19 @@ export function AvatarPostEffects({ assetKind }: { assetKind: AvatarAssetKind })
         offset={CA_OFFSET}
         radialModulation={false}
         modulationOffset={0}
+      />
+      {/* Faint projection scanlines — always on, low opacity so it reads as
+          texture rather than a CRT filter. */}
+      <Scanline blendFunction={BlendFunction.OVERLAY} density={1.15} opacity={0.045} />
+      {/* Event-driven flicker: quiet by default, pulsed on for a beat when Joi
+          materializes to speak or her state shifts (driven by HologramScene). */}
+      <Glitch
+        mode={glitchActive ? GlitchMode.CONSTANT_MILD : GlitchMode.DISABLED}
+        active={glitchActive}
+        delay={GLITCH_DELAY}
+        duration={GLITCH_DURATION}
+        strength={GLITCH_STRENGTH}
+        ratio={0.72}
       />
       <Noise opacity={0.022} blendFunction={BlendFunction.ADD} />
       <Vignette eskil={false} offset={0.1} darkness={0.62} />

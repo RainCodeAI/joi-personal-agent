@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 import { useFrame } from "@react-three/fiber";
 
@@ -105,6 +105,39 @@ export function HologramScene({
   const colors = EXPRESSION_TINT[expression] ?? EXPRESSION_TINT.neutral;
   const isVrm = isVrmAsset(assetKind);
 
+  // A brief glitch flicker on meaningful transitions, so the effect reads as
+  // Joi reacting rather than random noise.
+  const [glitchActive, setGlitchActive] = useState(false);
+  const glitchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const triggerGlitch = useCallback(() => {
+    setGlitchActive(true);
+    if (glitchTimerRef.current) clearTimeout(glitchTimerRef.current);
+    glitchTimerRef.current = setTimeout(() => setGlitchActive(false), 220);
+  }, []);
+  useEffect(() => () => {
+    if (glitchTimerRef.current) clearTimeout(glitchTimerRef.current);
+  }, []);
+
+  // Materializing to speak — the strongest flicker moment.
+  const prevPlayingRef = useRef(playing);
+  useEffect(() => {
+    if (playing && !prevPlayingRef.current) triggerGlitch();
+    prevPlayingRef.current = playing;
+  }, [playing, triggerGlitch]);
+
+  // Expression / life-state shifts — subtler flickers.
+  const prevExpressionRef = useRef(expression);
+  useEffect(() => {
+    if (expression !== prevExpressionRef.current) triggerGlitch();
+    prevExpressionRef.current = expression;
+  }, [expression, triggerGlitch]);
+
+  const prevLifeStateRef = useRef(lifeState);
+  useEffect(() => {
+    if (lifeState !== prevLifeStateRef.current) triggerGlitch();
+    prevLifeStateRef.current = lifeState;
+  }, [lifeState, triggerGlitch]);
+
   useFrame((state, delta) => {
     const elapsed = state.clock.elapsedTime;
 
@@ -185,7 +218,7 @@ export function HologramScene({
         perceptionState={perceptionState}
       />
 
-      <AvatarPostEffects assetKind={assetKind} />
+      <AvatarPostEffects assetKind={assetKind} glitchActive={glitchActive} />
     </>
   );
 }
