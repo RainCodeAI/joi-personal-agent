@@ -76,19 +76,94 @@ has a distinct warm colour, telemetry is one click away but out of the room.
 The big remaining avatar piece. Structural — sequence the model swap and the
 stage redesign together so each informs the other.
 
+### 2.0 PIVOT (2026-07-05): 2.5D hologram portrait, not a 3D VRM
+The free "upload a photo → realistic rigged 3D avatar" path collapsed in 2026:
+Ready Player Me shut down (Jan 31 2026), Avaturn now gates behind a live selfie
+and rejects uploads, Avatar SDK/MetaPerson is $800/yr after a 7-day trial. Rather
+than pay or settle for a stylized VRoid, we render her likeness as a **2.5D
+hologram portrait** from the generated reference images — film-accurate (Joi is a
+projection) and all in-code.
+
+SHIPPED (2026-07-05, on disk, not yet committed):
+- `frontend/public/avatar/joi/portrait-neutral.png` + `portrait-smile.png` —
+  background-removed cutouts of her (rembg `u2net_human_seg`, isolated venv),
+  from the locked reference headshots.
+- `frontend/components/avatar/avatar-portrait.tsx` — layered projection renderer
+  (idle breathe + speaking brightness lift), rendered inside the existing
+  `.avatar-hologram` frame (scanlines/glow/pulse-ring reused).
+- `AVATAR_MODE` switch in `avatar-sync-panel.tsx` (`"portrait"` active; `"vrm"`
+  keeps the 3D path intact for later).
+- CSS `.avatar-portrait-*` in `globals.css`: bottom-dissolve mask (beamed-from-
+  below look), cyan silhouette glow, cyan/violet projection wash.
+- Verified: transparent cutout floats (cornerAlpha 0), tsc clean.
+
+2.5D follow-ups (deferred):
+- Expression swaps (need matching-framing art of her — neutral/warm/concern).
+- Real 2D viseme lip-sync via the dormant `.avatar-layer--mouth` path (needs a
+  mouth-removed base + her viseme mouth sprites; wire to the phoneme timeline).
+- Blink / micro-motion; parallax.
+
+The 3D VRM route below is preserved but on ice unless a free path reopens.
+
 ### 2.1 Choose the model (decide framing first)
-- [ ] Replace the anime VRoid with something that **reads as her**.
-- [ ] Decide framing up front (portrait / three-quarter / full standing) — it
-      dictates both the model choice and the stage dimensions in 2.3.
+Decisions locked (2026-07-05):
+- **Style:** semi-realistic (not anime VRoid, not the GLB fallback, not the dead
+  2D Gemini sprites). New rigged VRM that reads as her.
+- **Framing:** three-quarter / waist-up (current camera rig is already close).
+- **Sourcing route:** MetaPerson Creator (Avatar SDK) — upload our headshot →
+  realistic GLB → convert to VRM. (Superseded earlier picks: Ready Player Me shut
+  down 2026-01-31; Avaturn now gates behind a live selfie and rejects uploads.
+  MetaPerson verified 2026-07-05 to accept an uploaded front photo, first avatar
+  free to create+export, GLB/GLTF export, 60+ blendshapes + visemes.)
+- **Look spec (her):** fair-skinned, slim/athletic white woman; brown hair in a
+  neat low bun with soft bangs; striking blue eyes; fitted black high-neck
+  long-sleeve (the BR2049 apartment look). Warm register.
+- **Reference locked:** Higgsfield `soul_cast` "Bun 1" (job
+  `9b132d26-1647-440a-948b-3725decab21d`). Saved in scratchpad as `v3_bun1.png`.
+- **Consistency:** training a reusable Higgsfield **Soul** from the locked look so
+  every future image (RPM headshot, expression/emotion sheets) is the same face.
+
+Consistent reference set generated (nano_banana_pro, anchored to Bun 1):
+- 4 clean even-lit neutral front headshots (RPM-ready): jobs `52bd5ca6`,
+  `b5d10f04`, `07289ce6` (cleanest), `740c9b48`. Saved as scratchpad
+  `lock1..4.png`.
+- 2 three-quarter warm-smile shots: jobs `7db56947`, `5b054f5b` (`smile1/2.png`).
+- These 6 are the Soul training set (min 5 met).
+
+Remaining:
+- [ ] BLOCKED ON CREDITS: train the reusable Soul from the 6-image set (Higgsfield
+      workspace ran out of credits 2026-07-05; did NOT auto-refill — user's call).
+- [ ] Build the VRM in Ready Player Me from a neutral front headshot (job
+      `07289ce6` / `lock3.png`). NOTE: not blocked on the Soul — the headshot is
+      already in hand; the Soul is the consistency upgrade for future expression
+      sheets, not a prerequisite for the VRM.
 - [ ] Confirm license is acceptable (VRM audit surfaces `licenseName` /
       `licenseUrl`).
 
 ### 2.2 Re-map lip-sync blendshapes
-- [ ] Map the new model's viseme/expression blendshapes to the existing
-      phoneme timeline pipeline (`avatar-renderer.tsx`, avatar audit shows
-      available expressions/presets).
+Pipeline requirement (confirmed by reading the code):
+- `VrmBust` drives the standard `@pixiv/three-vrm` presets. `setExpressionIfAvailable`
+  (`avatar-expression.ts:62`) SILENTLY SKIPS missing expressions, so **a VRM with
+  the standard presets works with zero code changes**:
+  - Visemes: `aa`, `ih`, `ou`, `ee`, `oh` (`avatar-speech.ts:9`).
+  - Emotions: `happy`, `sad`, `angry`, `surprised`, `relaxed`, `neutral`
+    (`avatar-expression.ts`).
+
+Bridge decision (user, 2026-07-05): **Avaturn selfie → GLB → convert to VRM.**
+Realistic photo tools export GLB + ARKit/Oculus visemes, not native VRM.
+
+Conversion tooling — READY (2026-07-05):
+- Blender 5.0 at `C:\Program Files\Blender Foundation\Blender 5.0\blender.exe`.
+- VRM add-on v4.3.2 (Extension) installed headlessly → module
+  `bl_ext.user_default.vrm`. Verified `INSTALL_OK`.
+- Plan: headless Blender python script imports the Avaturn GLB, adds VRM humanoid
+  (auto-map bones), binds VRM expressions to the GLB's ARKit/Oculus morphs
+  (Oculus `viseme_aa/E/ih/oh/ou` → VRM `aa/ee/ih/oh/oh`; ARKit smile/frown/brow →
+  happy/sad/angry/surprised; eyeBlink → blink), exports VRM. Write + iterate the
+  script once the real GLB (with its exact morph-target names) is in hand.
+
 - [ ] Verify sentiment→expression mapping still lands
-      (`avatar-sync-panel.tsx:112`).
+      (`avatar-sync-panel.tsx:112`) after the swap.
 
 ### 2.3 Flip the chat page hierarchy (make her the stage)
 - [ ] Avatar becomes the **stage**: tall column, ~40% of the frame, full frame

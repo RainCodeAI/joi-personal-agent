@@ -6,6 +6,11 @@ import { createPortal } from "react-dom";
 
 import { AvatarCue, AvatarSyncPayload, LifeStateName, PerceptionState } from "@/lib/types";
 import type { VrmAuditOutput } from "@/components/avatar/avatar-audit";
+import { AvatarPortrait } from "@/components/avatar/avatar-portrait";
+
+// "portrait" = 2.5D hologram portrait (her likeness as a layered projection).
+// "vrm" = the 3D VRM/GLB three.js pipeline (kept for a future model swap).
+const AVATAR_MODE: "portrait" | "vrm" = "portrait";
 
 const AvatarRenderer = dynamic(
   () => import("@/components/avatar-renderer").then((m) => m.AvatarRenderer),
@@ -149,15 +154,24 @@ export function AvatarSyncPanel({
           </div>
         </div>
         <div className="avatar-hologram-wrap">
-          <AvatarRenderer
-            expression={expression}
-            sync={sync}
-            audioRef={audioRef}
-            playing={playing}
-            compact={compact}
-            lifeState={lifeState}
-            perceptionState={perceptionState}
-          />
+          {AVATAR_MODE === "portrait" ? (
+            <AvatarPortrait
+              expression={expression}
+              playing={playing}
+              compact={compact}
+              perceptionState={perceptionState}
+            />
+          ) : (
+            <AvatarRenderer
+              expression={expression}
+              sync={sync}
+              audioRef={audioRef}
+              playing={playing}
+              compact={compact}
+              lifeState={lifeState}
+              perceptionState={perceptionState}
+            />
+          )}
           <div className="avatar-badges-overlay">
             <span className="badge avatar-badge">{cue?.voice_hint ?? "default"}</span>
             <span className="badge avatar-badge">{expression}</span>
