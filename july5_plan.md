@@ -97,11 +97,17 @@ SHIPPED (2026-07-05, on disk, not yet committed):
   below look), cyan silhouette glow, cyan/violet projection wash.
 - Verified: transparent cutout floats (cornerAlpha 0), tsc clean.
 
-2.5D follow-ups (deferred):
-- Expression swaps (need matching-framing art of her — neutral/warm/concern).
-- Real 2D viseme lip-sync via the dormant `.avatar-layer--mouth` path (needs a
-  mouth-removed base + her viseme mouth sprites; wire to the phoneme timeline).
-- Blink / micro-motion; parallax.
+2.5D follow-ups:
+- [x] Expression swaps — 8 expressions (neutral/smile/happy/tender/concerned/sad/
+  surprised/smirk) generated via ChatGPT/Gemini (face-locked to her), processed
+  (rembg cutout + silhouette alignment + grade-normalize + WebP), crossfaded on
+  sentiment. `EXPRESSION_IMAGE` map in `avatar-portrait.tsx`.
+- [x] 2D viseme lip-sync — 6 visemes (rest/aa/ee/ih/oh/ou), flipped off the
+  phoneme timeline + audio clock via rAF; fast (70ms) crossfade. `PHONEME_IMAGE`
+  map. Speaking → visemes, idle → expression.
+- [ ] Blink / micro-motion; parallax. (`expr-surprised` is mild — optional regen.)
+- Pipeline for reprocessing art: `scratchpad/process_avatar.py` (rembg + PIL);
+  drop new frames in `docs/avatar-refs/incoming/` named `expr-*` / `viseme-*`.
 
 The 3D VRM route below is preserved but on ice unless a free path reopens.
 

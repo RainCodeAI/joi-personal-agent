@@ -159,6 +159,8 @@ export function AvatarSyncPanel({
               expression={expression}
               playing={playing}
               compact={compact}
+              sync={sync}
+              audioRef={audioRef}
               perceptionState={perceptionState}
             />
           ) : (
