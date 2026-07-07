@@ -20,7 +20,9 @@ class JoiApiError(Exception):
 class JoiClient:
     def __init__(self, base_url: str, token: str = "", timeout: float = 30.0) -> None:
         self._base_url = base_url.rstrip("/")
-        self._token = token
+        # Strip so a stray whitespace-only token becomes "" (no header) rather than
+        # an illegal HTTP header value that httpx refuses to send.
+        self._token = (token or "").strip()
         self._timeout = timeout
 
     def _headers(self) -> Dict[str, str]:

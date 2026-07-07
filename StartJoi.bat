@@ -9,8 +9,12 @@ ECHO ----------------------------------
 
 cd /d "%~dp0"
 
+REM Generate a random API token if one is not already set. Uses the .NET
+REM Framework RNG (Create().GetBytes) so it works in Windows PowerShell 5.1 —
+REM the static GetBytes(int) overload is .NET 6+ only and silently fails on 5.1,
+REM which used to leave the token blank/whitespace (illegal HTTP header).
 if "%JOI_API_TOKEN%"=="" (
-  for /f "usebackq delims=" %%T in (`powershell -NoProfile -Command "[Convert]::ToBase64String([Security.Cryptography.RandomNumberGenerator]::GetBytes(32)).TrimEnd('=').Replace('+','-').Replace('/','_')"`) do set "JOI_API_TOKEN=%%T"
+  for /f "usebackq delims=" %%T in (`powershell -NoProfile -Command "$b=New-Object byte[] 32; [Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($b); [Convert]::ToBase64String($b).TrimEnd('=').Replace('+','-').Replace('/','_')"`) do set "JOI_API_TOKEN=%%T"
 )
 REM The frontend reaches the backend through its same-origin /api/backend proxy,
 REM which injects JOI_API_TOKEN server-side. The token is intentionally NOT
