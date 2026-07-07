@@ -48,7 +48,8 @@ def _session_for(user_id: int) -> str:
 
 
 def _client() -> JoiClient:
-    return JoiClient(settings.telegram_api_base_url, settings.telegram_api_token)
+    # Generous timeout: the first chat can trigger slow model loading on the backend.
+    return JoiClient(settings.telegram_api_base_url, settings.telegram_api_token, timeout=90.0)
 
 
 def allowlisted(
@@ -157,8 +158,9 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     try:
         await _ensure_session(client, session_id)
         response = await client.chat(session_id, text)
-    except JoiApiError:
-        await message.reply_text("I can't reach my backend right now. Try again once the laptop's awake.")
+    except JoiApiError as exc:
+        logger.warning("Chat routing failed for session %s: %s", session_id, exc)
+        await message.reply_text("Something's off between me and my backend right now — give me a moment and try again.")
         return
 
     reply = str(response.get("assistant_message", {}).get("content", "")).strip()
@@ -181,6 +183,9 @@ def build_application() -> Application:
 
 def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
+    # httpx logs each request URL at INFO — for Telegram that URL embeds the bot
+    # token. Quiet it so the token never lands in the console/screenshots.
+    logging.getLogger("httpx").setLevel(logging.WARNING)
     if not settings.telegram_bot_token:
         # Not an error — the bridge is simply disabled until configured. This lets
         # StartJoi.bat launch it unconditionally without a noisy failure.
