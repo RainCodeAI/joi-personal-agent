@@ -18,7 +18,7 @@ import type { AvatarSyncPayload, PerceptionState } from "@/lib/types";
 const EXPRESSIONS = [
   "neutral", "smile", "happy", "tender", "concerned", "sad", "surprised", "smirk",
 ] as const;
-const VISEMES = ["rest", "aa", "ee", "ih", "oh", "ou"] as const;
+const VISEMES = ["rest", "aa", "ee", "ih", "oh", "ou", "fv", "mbp", "l"] as const;
 
 const EXPRESSION_IMAGE: Record<string, (typeof EXPRESSIONS)[number]> = {
   neutral: "neutral",
@@ -33,7 +33,7 @@ const EXPRESSION_IMAGE: Record<string, (typeof EXPRESSIONS)[number]> = {
 
 const PHONEME_IMAGE: Record<string, (typeof VISEMES)[number]> = {
   A: "aa", E: "ee", I: "ih", O: "oh", Oh: "oh", U: "ou",
-  MB: "rest", FV: "ih", TH: "ee", S: "ee", R: "ih", L: "ih", K: "aa", rest: "rest",
+  MB: "mbp", FV: "fv", TH: "l", S: "ee", R: "ih", L: "l", K: "aa", rest: "rest",
 };
 
 // Lip-sync tuning.
