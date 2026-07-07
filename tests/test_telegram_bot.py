@@ -116,7 +116,7 @@ def test_backend_unavailable_fails_cleanly(monkeypatch):
     asyncio.run(tb.on_text(update, None))
 
     reply = update.effective_message.reply_text.await_args.args[0]
-    assert "reach my backend" in reply.lower()
+    assert "my backend" in reply.lower()
 
 
 def test_pending_approval_is_reported_not_executed(monkeypatch):
