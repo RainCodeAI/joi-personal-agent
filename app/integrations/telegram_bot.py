@@ -182,7 +182,10 @@ def build_application() -> Application:
 def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
     if not settings.telegram_bot_token:
-        raise SystemExit("TELEGRAM_BOT_TOKEN is not set — nothing to run.")
+        # Not an error — the bridge is simply disabled until configured. This lets
+        # StartJoi.bat launch it unconditionally without a noisy failure.
+        logger.info("TELEGRAM_BOT_TOKEN not set — Telegram bridge disabled. Add it to .env to enable.")
+        return
     if not settings.telegram_allowed_ids:
         logger.warning("TELEGRAM_ALLOWED_USER_IDS is empty — the bot will reject everyone.")
     logger.info("Starting Joi Telegram bridge (allowlisted users: %d)", len(settings.telegram_allowed_ids))
