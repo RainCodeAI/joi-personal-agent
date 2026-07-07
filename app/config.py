@@ -74,6 +74,14 @@ class Settings(BaseSettings):
     memory_consolidation_hour: int = Field(default=3)  # local hour of the nightly run
     memory_consolidation_min_items: int = Field(default=5)  # skip if fewer new memories
     memory_consolidation_max_lookback_hours: int = Field(default=168)  # cap the window at 7 days
+    # Remote surface: Telegram bridge. A standalone localhost client of /api/v2/chat.
+    # The bot is disabled unless a token is set; only allowlisted numeric user IDs
+    # may talk to it. Never exposes the Joi API to the internet.
+    telegram_bot_token: str = Field(default="")
+    telegram_allowed_user_ids: str = Field(default="")  # comma-separated numeric IDs
+    telegram_session_prefix: str = Field(default="telegram")
+    telegram_api_base_url: str = Field(default="http://127.0.0.1:8000")
+    telegram_joi_api_token: str = Field(default="")  # falls back to joi_api_token
 
     class Config:
         env_file = ".env"
@@ -87,6 +95,21 @@ class Settings(BaseSettings):
     @property
     def chroma_path_abs(self) -> Path:
         return Path(self.chroma_path).resolve()
+
+    @property
+    def telegram_api_token(self) -> str:
+        """Token the Telegram bridge sends to the Joi API (falls back to the main one)."""
+        return self.telegram_joi_api_token or self.joi_api_token
+
+    @property
+    def telegram_allowed_ids(self) -> set[int]:
+        """Parsed allowlist of numeric Telegram user IDs."""
+        ids: set[int] = set()
+        for part in self.telegram_allowed_user_ids.split(","):
+            part = part.strip()
+            if part.isdigit():
+                ids.add(int(part))
+        return ids
 
 settings = Settings()
 

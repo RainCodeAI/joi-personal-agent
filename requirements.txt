@@ -45,3 +45,5 @@ pyinstaller
 llama-cpp-python
 # Phase 8: Ambient Hardware
 aiomqtt>=2.0
+# Remote surfaces: Telegram bridge (localhost client of the Joi API)
+python-telegram-bot>=21,<23
