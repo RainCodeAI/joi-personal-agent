@@ -170,6 +170,38 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 # ── entrypoint ─────────────────────────────────────────────────────────────
 
+def _startup_selftest() -> None:
+    """Log, at startup, exactly whether the bridge can authenticate to the backend.
+    Turns the Joi Telegram window into a self-diagnosis — no message needed."""
+    import asyncio
+
+    async def check() -> None:
+        token = settings.telegram_api_token
+        client = _client()
+        healthy = await client.health()
+        logger.info(
+            "Self-test: base_url=%s | api_token=%s (%d chars) | backend_health=%s",
+            settings.telegram_api_base_url,
+            "set" if token else "MISSING",
+            len(token),
+            "ok" if healthy else "unreachable",
+        )
+        try:
+            await client.ensure_session("telegram:selftest")
+            logger.info("Self-test: AUTH OK — backend accepted the token. Chat should work.")
+        except JoiApiError as exc:
+            logger.warning("Self-test: BACKEND CALL FAILED — %s", exc)
+            logger.warning(
+                "Self-test hint: a 401 means the bridge's token != the backend's token "
+                "(launch both from ONE StartJoi.bat, or set a fixed JOI_API_TOKEN in .env)."
+            )
+
+    try:
+        asyncio.run(check())
+    except Exception as exc:  # never block startup on the self-test
+        logger.warning("Self-test could not run: %s", exc)
+
+
 def build_application() -> Application:
     app = Application.builder().token(settings.telegram_bot_token).build()
     app.add_handler(CommandHandler("start", cmd_start))
@@ -194,6 +226,7 @@ def main() -> None:
     if not settings.telegram_allowed_ids:
         logger.warning("TELEGRAM_ALLOWED_USER_IDS is empty — the bot will reject everyone.")
     logger.info("Starting Joi Telegram bridge (allowlisted users: %d)", len(settings.telegram_allowed_ids))
+    _startup_selftest()
     build_application().run_polling(allowed_updates=Update.ALL_TYPES)
 
 
