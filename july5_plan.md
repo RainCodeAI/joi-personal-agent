@@ -102,9 +102,11 @@ SHIPPED (2026-07-05, on disk, not yet committed):
   surprised/smirk) generated via ChatGPT/Gemini (face-locked to her), processed
   (rembg cutout + silhouette alignment + grade-normalize + WebP), crossfaded on
   sentiment. `EXPRESSION_IMAGE` map in `avatar-portrait.tsx`.
-- [x] 2D viseme lip-sync — 6 visemes (rest/aa/ee/ih/oh/ou), flipped off the
-  phoneme timeline + audio clock via rAF; fast (70ms) crossfade. `PHONEME_IMAGE`
-  map. Speaking → visemes, idle → expression.
+- [x] 2D viseme lip-sync — 6 visemes (rest/aa/ee/ih/oh/ou). SHAPE from the phoneme
+  timeline (`PHONEME_IMAGE`), TIMING from live audio loudness (Web Audio analyser)
+  so the mouth closes on real silences and never drifts; min-hold (85ms) + 95ms
+  crossfade kill flicker; graceful fallback to timeline-only if Web Audio is
+  unavailable. Speaking → visemes, idle → expression.
 - [ ] Blink / micro-motion; parallax. (`expr-surprised` is mild — optional regen.)
 - Pipeline for reprocessing art: `scratchpad/process_avatar.py` (rembg + PIL);
   drop new frames in `docs/avatar-refs/incoming/` named `expr-*` / `viseme-*`.

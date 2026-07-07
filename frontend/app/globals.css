@@ -986,9 +986,10 @@ textarea {
   user-select: none;
 }
 
-/* Visemes flip fast for lip-sync; expressions cross-fade slowly (base rule). */
+/* Visemes cross-fade quickly for lip-sync; expressions slowly (base rule). A
+   softer-than-instant fade pairs with the min-hold to avoid a choppy snap. */
 .avatar-portrait-face--viseme {
-  transition: opacity 70ms linear;
+  transition: opacity 95ms ease-out;
 }
 
 .avatar-portrait-face[data-active="true"] {
