@@ -70,6 +70,15 @@ class JoiClient:
         )
         return response.json()
 
+    async def search_memory(self, query: str, limit: int = 5) -> List[Dict[str, Any]]:
+        """Search Joi's memory; returns a list of {text, metadata, distance, ...}."""
+        from urllib.parse import quote
+
+        response = await self._request(
+            "GET", f"/api/v2/memory/search?query={quote(query)}&limit={limit}"
+        )
+        return response.json().get("items", [])
+
     async def recent_messages(self, session_id: str, limit: int = 6) -> List[Dict[str, Any]]:
         """Return the last `limit` messages for a session (empty if none/unknown)."""
         try:

@@ -111,6 +111,7 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "/status — is the Joi backend up?\n"
         "/new — start a fresh conversation thread\n"
         "/recent — show the last few messages\n"
+        "/memory <query> — search what Joi remembers\n"
         "Anything else routes to Joi. Actions like sending email are staged for "
         "approval on the laptop, never run from here."
     )
@@ -128,6 +129,32 @@ async def cmd_new(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     session_id = f"{_default_session_id(user_id)}:{int(time.time())}"
     _active_session[user_id] = session_id
     await update.effective_message.reply_text("Fresh thread started.")
+
+
+@allowlisted
+async def cmd_memory(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    message = update.effective_message
+    parts = (message.text or "").split(maxsplit=1)
+    query = parts[1].strip() if len(parts) > 1 else ""
+    if not query:
+        await message.reply_text("Usage: /memory <what to search for>")
+        return
+    try:
+        items = await _client().search_memory(query, limit=5)
+    except JoiApiError as exc:
+        logger.warning("Memory search failed: %s", exc)
+        await message.reply_text("I couldn't reach my memory right now — try again in a moment.")
+        return
+    if not items:
+        await message.reply_text(f"I don't have anything in memory for “{query}”.")
+        return
+    lines = [f"What I remember about “{query}”:"]
+    for item in items[:5]:
+        text = str(item.get("text", "")).strip().replace("\n", " ")
+        if len(text) > 180:
+            text = text[:177] + "..."
+        lines.append(f"• {text}")
+    await message.reply_text("\n".join(lines))
 
 
 @allowlisted
@@ -222,6 +249,7 @@ def build_application() -> Application:
     app.add_handler(CommandHandler("status", cmd_status))
     app.add_handler(CommandHandler("new", cmd_new))
     app.add_handler(CommandHandler("recent", cmd_recent))
+    app.add_handler(CommandHandler("memory", cmd_memory))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_text))
     return app
 

@@ -40,6 +40,7 @@ def _fake_client(**overrides):
         "pending_approvals": [],
     }))
     client.recent_messages = AsyncMock(return_value=overrides.get("recent", []))
+    client.search_memory = AsyncMock(return_value=overrides.get("memory", []))
     return client
 
 
@@ -154,3 +155,40 @@ def test_new_rotates_session(monkeypatch):
     asyncio.run(tb.cmd_new(update, None))
     assert tb._active_session[111] != "telegram:111"
     assert tb._active_session[111].startswith("telegram:111:")
+
+
+def test_memory_command_searches_and_formats(monkeypatch):
+    client = _fake_client(memory=[
+        {"text": "Avery is building Joi, a companion app", "distance": 0.1},
+        {"text": "Prefers free/in-code tooling", "distance": 0.2},
+    ])
+    monkeypatch.setattr(tb, "_client", lambda: client)
+    update = FakeUpdate(user_id=111, text="/memory what am I building")
+
+    asyncio.run(tb.cmd_memory(update, None))
+
+    client.search_memory.assert_awaited_once_with("what am I building", limit=5)
+    reply = update.effective_message.reply_text.await_args.args[0]
+    assert "building Joi" in reply and "free/in-code" in reply
+
+
+def test_memory_command_empty_query_shows_usage(monkeypatch):
+    client = _fake_client()
+    monkeypatch.setattr(tb, "_client", lambda: client)
+    update = FakeUpdate(user_id=111, text="/memory")
+
+    asyncio.run(tb.cmd_memory(update, None))
+
+    client.search_memory.assert_not_called()
+    assert "usage" in update.effective_message.reply_text.await_args.args[0].lower()
+
+
+def test_memory_command_no_results(monkeypatch):
+    client = _fake_client(memory=[])
+    monkeypatch.setattr(tb, "_client", lambda: client)
+    update = FakeUpdate(user_id=111, text="/memory unicorns")
+
+    asyncio.run(tb.cmd_memory(update, None))
+
+    reply = update.effective_message.reply_text.await_args.args[0]
+    assert "don't have anything" in reply.lower()
