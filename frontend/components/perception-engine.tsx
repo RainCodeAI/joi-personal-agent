@@ -30,6 +30,26 @@ const FROWN_THRESHOLD    = 0.40;
 const EYE_WIDE_THRESHOLD = 0.40;
 const JAW_OPEN_THRESHOLD = 0.30;
 
+// MediaPipe/TFLite route their native glog INFO/WARNING lines (e.g. "Created
+// TensorFlow Lite XNNPACK delegate for CPU") through console.error, which the
+// Next.js dev overlay then surfaces as a scary "Console Error". These are
+// informational, not failures — filter just those benign lines once so the
+// overlay stops crying wolf. Real errors (which never carry these prefixes)
+// pass through untouched.
+let mediapipeLogsFiltered = false;
+function filterBenignMediapipeLogs(): void {
+  if (mediapipeLogsFiltered || typeof window === "undefined") return;
+  mediapipeLogsFiltered = true;
+  const benign = /^(INFO|WARNING): |Created TensorFlow Lite|XNNPACK delegate/;
+  for (const method of ["error", "info"] as const) {
+    const original = console[method].bind(console);
+    console[method] = (...args: unknown[]) => {
+      if (typeof args[0] === "string" && benign.test(args[0])) return;
+      original(...args);
+    };
+  }
+}
+
 type ExpressionLabel = "smile" | "possible_tension" | "surprise" | "neutral";
 
 type ExpressionCandidate = {
@@ -362,6 +382,7 @@ export function PerceptionEngine({ sessionId, onSignal }: PerceptionEngineProps)
     setStatus("loading");
 
     try {
+      filterBenignMediapipeLogs();
       const { FaceLandmarker, FilesetResolver } = await import("@mediapipe/tasks-vision");
       let vision: Awaited<ReturnType<typeof FilesetResolver.forVisionTasks>>;
       try {

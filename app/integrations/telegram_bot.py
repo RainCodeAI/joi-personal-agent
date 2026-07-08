@@ -17,7 +17,7 @@ import time
 from functools import wraps
 from typing import Any, Awaitable, Callable, Dict, List
 
-from telegram import Update
+from telegram import BotCommand, Update
 from telegram.ext import (
     Application,
     CommandHandler,
@@ -242,8 +242,23 @@ def _startup_selftest() -> None:
         logger.warning("Self-test could not run: %s", exc)
 
 
+BOT_COMMANDS = [
+    BotCommand("start", "What I can do"),
+    BotCommand("help", "Show commands"),
+    BotCommand("status", "Is the Joi backend up?"),
+    BotCommand("new", "Start a fresh conversation thread"),
+    BotCommand("recent", "Show the last few messages"),
+    BotCommand("memory", "Search what Joi remembers"),
+]
+
+
+async def _post_init(app: Application) -> None:
+    """Publish the command list to Telegram so the "/" menu autocompletes."""
+    await app.bot.set_my_commands(BOT_COMMANDS)
+
+
 def build_application() -> Application:
-    app = Application.builder().token(settings.telegram_bot_token).build()
+    app = Application.builder().token(settings.telegram_bot_token).post_init(_post_init).build()
     app.add_handler(CommandHandler("start", cmd_start))
     app.add_handler(CommandHandler("help", cmd_help))
     app.add_handler(CommandHandler("status", cmd_status))
