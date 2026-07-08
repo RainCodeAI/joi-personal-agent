@@ -133,6 +133,7 @@ from app.api.v2_models import (
     UserProfileResource,
     V2ChatRequest,
     V2ChatResponse,
+    PerceptionContextRequest,
     PerceptionPolicyPatchRequest,
     PerceptionPolicyResource,
     PerceptionPolicyResponse,
@@ -1297,6 +1298,32 @@ async def run_consolidation(user_id: str = "default", force: bool = False):
     return {"api_version": "v2", **result}
 
 
+def _perception_extra_context(perception: PerceptionContextRequest | None) -> str | None:
+    """Turn live camera-perception state into a prompt note Joi can reference.
+
+    Returns None when the camera isn't actively sensing, so she never claims to
+    see when she can't — she only gets a live signal when one genuinely exists.
+    """
+    if perception is None or not perception.camera_active:
+        return None
+    if perception.user_present:
+        bits = ["the user is present in frame"]
+        if perception.leaned_in:
+            bits.append("leaning in close")
+        expr = (perception.expression or "").replace("_", " ").strip()
+        if expr and expr != "neutral":
+            bits.append(f"their expression reads as {expr}")
+        return (
+            "[Live perception]: The camera is on and " + ", ".join(bits) + ". "
+            "You may reference this naturally if it fits the moment, but keep it light "
+            "and do not over-describe or narrate it."
+        )
+    return (
+        "[Live perception]: The camera is on but the user isn't visible right now "
+        "(they may have stepped out of frame or covered the camera)."
+    )
+
+
 @router.post("/chat", response_model=V2ChatResponse)
 async def chat_v2(request: V2ChatRequest):
     client_turn_id = request.client_turn_id or str(uuid.uuid4())
@@ -1398,6 +1425,12 @@ async def chat_v2(request: V2ChatRequest):
         )
         sharing_extra_context = acknowledgement_hint(share)
 
+    # Fold live camera perception (when the camera is on) into the prompt context
+    # so Joi can reference real presence instead of denying/guessing.
+    extra_context = "\n".join(
+        part for part in (sharing_extra_context, _perception_extra_context(request.perception)) if part
+    ) or None
+
     loop = asyncio.get_running_loop()
     on_token, flush_deltas = _create_delta_bridge(
         loop,
@@ -1412,7 +1445,7 @@ async def chat_v2(request: V2ChatRequest):
         request.session_id,
         on_token=on_token,
         attachment_contexts=attachment_contexts,
-        extra_context=sharing_extra_context,
+        extra_context=extra_context,
     )
     model_latency_ms = int((time.perf_counter() - model_started) * 1000)
     await flush_deltas()

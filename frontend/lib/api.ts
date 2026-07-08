@@ -184,6 +184,13 @@ export async function sendChatMessage(sessionId: string, text: string) {
   );
 }
 
+export type PerceptionContextPayload = {
+  camera_active: boolean;
+  user_present?: boolean | null;
+  expression?: string | null;
+  leaned_in?: boolean | null;
+};
+
 export async function sendChatMessageWithAttachments(
   sessionId: string,
   text: string,
@@ -191,6 +198,7 @@ export async function sendChatMessageWithAttachments(
   options?: {
     clientTurnId?: string;
     signal?: AbortSignal;
+    perception?: PerceptionContextPayload;
   },
 ) {
   return apiFetch<ChatResponse>(
@@ -202,6 +210,7 @@ export async function sendChatMessageWithAttachments(
         text,
         attachments,
         client_turn_id: options?.clientTurnId,
+        perception: options?.perception,
       }),
       signal: options?.signal,
     },

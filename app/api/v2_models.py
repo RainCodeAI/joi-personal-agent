@@ -158,11 +158,21 @@ class ChatAttachmentResource(BaseModel):
     ocr_status: Optional[Literal["complete", "unavailable", "not_requested"]] = None
 
 
+class PerceptionContextRequest(BaseModel):
+    """Live camera-perception state the client sends with a chat turn, so Joi can
+    reference real presence. Only sent when the camera is actively sensing."""
+    camera_active: bool = False
+    user_present: Optional[bool] = None
+    expression: Optional[str] = None
+    leaned_in: Optional[bool] = None
+
+
 class V2ChatRequest(BaseModel):
     session_id: str
     text: str
     attachments: List[ChatAttachmentRequest] = Field(default_factory=list)
     client_turn_id: Optional[str] = None
+    perception: Optional[PerceptionContextRequest] = None
 
 
 class V2ChatResponse(V2ResponseBase):
