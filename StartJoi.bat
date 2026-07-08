@@ -20,7 +20,10 @@ REM The frontend reaches the backend through its same-origin /api/backend proxy,
 REM which injects JOI_API_TOKEN server-side. The token is intentionally NOT
 REM exposed to the browser as NEXT_PUBLIC_JOI_API_TOKEN.
 
-start "Joi API" cmd /k "cd /d ""%~dp0"" && python -m uvicorn app.api.main:app --reload"
+REM Use the .venv312 interpreter (Python 3.12) for the backend, not bare "python"
+REM (which resolves to system Python 3.14 where ChromaDB fails on numpy 2.0 and
+REM silently drops to SQL-only mode, disabling vector/semantic memory).
+start "Joi API" cmd /k "cd /d ""%~dp0"" && .venv312\Scripts\python.exe -m uvicorn app.api.main:app --reload"
 start "Joi Web" cmd /k "cd /d ""%~dp0frontend"" && npm run dev"
 
 REM Telegram bridge — launched from the same session, so it inherits the same
