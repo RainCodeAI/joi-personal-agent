@@ -178,14 +178,27 @@ def _startup_selftest() -> None:
     async def check() -> None:
         token = settings.telegram_api_token
         client = _client()
-        healthy = await client.health()
+        # The backend (launched by the same StartJoi.bat) can take 30-60s to load
+        # its models, so wait for it rather than failing instantly on a cold start.
+        healthy = False
+        for _ in range(20):  # ~40s
+            if await client.health():
+                healthy = True
+                break
+            await asyncio.sleep(2)
         logger.info(
             "Self-test: base_url=%s | api_token=%s (%d chars) | backend_health=%s",
             settings.telegram_api_base_url,
             "set" if token else "MISSING",
             len(token),
-            "ok" if healthy else "unreachable",
+            "ok" if healthy else "unreachable after 40s",
         )
+        if not healthy:
+            logger.warning(
+                "Self-test: backend not reachable yet — it may still be starting. "
+                "Chat will work once the API window says 'Application startup complete'."
+            )
+            return
         try:
             await client.ensure_session("telegram:selftest")
             logger.info("Self-test: AUTH OK — backend accepted the token. Chat should work.")
