@@ -476,6 +476,14 @@ def _attachment_context(attachment: ChatAttachmentRequest) -> tuple[ChatAttachme
                     metadata=capture_metadata,
                 )
                 context_text = f"Screen capture '{attachment.name}':\n{screen_summary}"
+            elif attachment.source == "camera_snapshot":
+                ocr_status = "not_requested"
+                context_text = (
+                    f"[Camera glance] You just took a live look through the camera. You can see: "
+                    f"{preview_text}. Describe this as your own seeing — warmly and honestly, in your "
+                    f"own voice — not as a file or 'attachment'. The captioning is rough, so treat "
+                    f"specifics as an impression and don't over-claim detail."
+                )
             else:
                 ocr_status = "not_requested"
                 context_text = (

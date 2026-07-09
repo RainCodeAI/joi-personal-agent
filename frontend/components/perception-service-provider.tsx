@@ -28,6 +28,9 @@ type PerceptionServiceContextValue = {
   clearLastSnapshotAnalysis: () => void;
   handleSignal: (signal: PerceptionSignal) => void;
   handleActiveChange: (active: boolean) => void;
+  registerCameraCapture: (capture: (() => string | null) | null) => void;
+  // Grab a single frame from the live camera (null if the camera isn't running).
+  captureCameraFrame: () => string | null;
 };
 
 const INITIAL_PERCEPTION_STATE: PerceptionState = {
@@ -49,6 +52,11 @@ export function PerceptionServiceProvider({ children }: { children: ReactNode })
   );
   const [perceptionExpression, setPerceptionExpression] = useState<string | null>(null);
   const [cameraActive, setCameraActive] = useState(false);
+  const cameraCaptureRef = useRef<(() => string | null) | null>(null);
+  const registerCameraCapture = useCallback((capture: (() => string | null) | null) => {
+    cameraCaptureRef.current = capture;
+  }, []);
+  const captureCameraFrame = useCallback((): string | null => cameraCaptureRef.current?.() ?? null, []);
   const [lastSnapshotAnalysis, setLastSnapshotAnalysis] = useState<SnapshotAnalysis | null>(null);
   const lookAwayResetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -153,11 +161,15 @@ export function PerceptionServiceProvider({ children }: { children: ReactNode })
       clearLastSnapshotAnalysis,
       handleSignal: handlePerceptionSignal,
       handleActiveChange: setCameraActive,
+      registerCameraCapture,
+      captureCameraFrame,
     }),
     [
       cameraActive,
+      captureCameraFrame,
       clearLastSnapshotAnalysis,
       handlePerceptionSignal,
+      registerCameraCapture,
       lastSnapshotAnalysis,
       perceptionExpression,
       perceptionState,
@@ -174,12 +186,14 @@ export function PerceptionServiceProvider({ children }: { children: ReactNode })
 }
 
 export function PerceptionServicePanel() {
-  const { sessionId, handleSignal, handleActiveChange } = usePerceptionService();
+  const { sessionId, handleSignal, handleActiveChange, registerCameraCapture } =
+    usePerceptionService();
   return (
     <PerceptionEngine
       sessionId={sessionId}
       onSignal={handleSignal}
       onActiveChange={handleActiveChange}
+      registerCameraCapture={registerCameraCapture}
     />
   );
 }

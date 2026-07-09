@@ -67,6 +67,7 @@ type PerceptionEngineProps = {
   sessionId: string | null;
   onSignal: (signal: PerceptionSignal) => void;
   onActiveChange?: (active: boolean) => void;
+  registerCameraCapture?: (capture: (() => string | null) | null) => void;
 };
 
 function emit(signal: PerceptionSignalType, confidence?: number): PerceptionSignal {
@@ -96,7 +97,7 @@ async function urlExists(url: string): Promise<boolean> {
   }
 }
 
-export function PerceptionEngine({ sessionId, onSignal, onActiveChange }: PerceptionEngineProps) {
+export function PerceptionEngine({ sessionId, onSignal, onActiveChange, registerCameraCapture }: PerceptionEngineProps) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -321,6 +322,24 @@ export function PerceptionEngine({ sessionId, onSignal, onActiveChange }: Percep
       }
     }
   }, [onSignal]);
+
+  // Grab a single still from the live camera (for an on-demand "let her look").
+  const captureFrame = useCallback((): string | null => {
+    const video = videoRef.current;
+    const canvas = canvasRef.current;
+    if (!video || !canvas || video.readyState < 2) return null;
+    canvas.width = video.videoWidth || 640;
+    canvas.height = video.videoHeight || 480;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return null;
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    return canvas.toDataURL("image/jpeg", 0.82);
+  }, []);
+
+  useEffect(() => {
+    registerCameraCapture?.(status === "active" ? captureFrame : null);
+    return () => registerCameraCapture?.(null);
+  }, [status, captureFrame, registerCameraCapture]);
 
   async function captureSnapshot() {
     const video = videoRef.current;

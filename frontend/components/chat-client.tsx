@@ -419,6 +419,7 @@ export function ChatClient({ initialSessionId }: ChatClientProps) {
     perceptionState,
     perceptionExpression,
     cameraActive,
+    captureCameraFrame,
     lastSnapshotAnalysis,
     setSessionId: setPerceptionSessionId,
     clearLastSnapshotAnalysis,
@@ -768,6 +769,36 @@ export function ChatClient({ initialSessionId }: ChatClientProps) {
     } finally {
       event.target.value = "";
     }
+  }
+
+  function handleCameraGlance() {
+    if (isSending) {
+      return;
+    }
+    if (!cameraActive) {
+      setStatus("Turn on Presence sensing first, then Joi can take a look.");
+      return;
+    }
+    const dataUrl = captureCameraFrame();
+    if (!dataUrl) {
+      setStatus("Couldn't grab a camera frame — is the camera running?");
+      return;
+    }
+    const capturedAt = new Date();
+    const draft: AttachmentDraft = {
+      id: crypto.randomUUID(),
+      kind: "image",
+      name: `camera-${capturedAt.toISOString().replace(/[:.]/g, "-")}.jpg`,
+      media_type: "image/jpeg",
+      data_url: dataUrl,
+      size_bytes: Math.max(0, Math.floor((dataUrl.length - dataUrl.indexOf(",") - 1) * 0.75)),
+      preview_url: dataUrl,
+      preview_text: "A live look through your camera. The image is discarded after this message.",
+      source: "camera_snapshot",
+      capture_metadata: {},
+    };
+    setAttachments((current) => [...current, draft]);
+    setStatus("Joi took a look — add a note if you like, then send.");
   }
 
   async function handleScreenCapture() {
@@ -1287,6 +1318,19 @@ export function ChatClient({ initialSessionId }: ChatClientProps) {
                 onClick={() => void handleScreenCapture()}
               >
                 Look at this
+              </button>
+              <button
+                className="button secondary"
+                type="button"
+                disabled={!sessionId || isSending || !cameraActive}
+                title={
+                  cameraActive
+                    ? "Joi takes a live look through your camera"
+                    : "Turn on Presence sensing so Joi can look"
+                }
+                onClick={handleCameraGlance}
+              >
+                Let her look
               </button>
               <button className="button primary" disabled={!sessionId || isSending || (!draft.trim() && attachments.length === 0)} type="submit">
                 {isSending ? "Transmitting..." : "Send"}
