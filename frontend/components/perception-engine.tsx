@@ -66,6 +66,7 @@ type AssetMode = "local" | "remote-fallback" | "missing" | "unknown";
 type PerceptionEngineProps = {
   sessionId: string | null;
   onSignal: (signal: PerceptionSignal) => void;
+  onActiveChange?: (active: boolean) => void;
 };
 
 function emit(signal: PerceptionSignalType, confidence?: number): PerceptionSignal {
@@ -95,7 +96,7 @@ async function urlExists(url: string): Promise<boolean> {
   }
 }
 
-export function PerceptionEngine({ sessionId, onSignal }: PerceptionEngineProps) {
+export function PerceptionEngine({ sessionId, onSignal, onActiveChange }: PerceptionEngineProps) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -179,6 +180,12 @@ export function PerceptionEngine({ sessionId, onSignal }: PerceptionEngineProps)
       stopEngine();
     }
   }, [policy?.camera_enabled, status, stopEngine]);
+
+  // Surface the true running state so consumers (chat) know the camera is on
+  // even when a still, present user has stopped emitting change-signals.
+  useEffect(() => {
+    onActiveChange?.(status === "active");
+  }, [status, onActiveChange]);
 
   function normFaceWidth(landmarks: { x: number; y: number }[]): number {
     let minX = 1, maxX = 0;

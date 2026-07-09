@@ -19,11 +19,15 @@ import type { PerceptionSignal, PerceptionState, SnapshotAnalysis } from "@/lib/
 type PerceptionServiceContextValue = {
   perceptionState: PerceptionState;
   perceptionExpression: string | null;
+  // True while the camera engine is actually running (not derived from signal
+  // freshness — a present-but-still user stops emitting signals).
+  cameraActive: boolean;
   lastSnapshotAnalysis: SnapshotAnalysis | null;
   sessionId: string | null;
   setSessionId: (sessionId: string | null) => void;
   clearLastSnapshotAnalysis: () => void;
   handleSignal: (signal: PerceptionSignal) => void;
+  handleActiveChange: (active: boolean) => void;
 };
 
 const INITIAL_PERCEPTION_STATE: PerceptionState = {
@@ -44,6 +48,7 @@ export function PerceptionServiceProvider({ children }: { children: ReactNode })
     INITIAL_PERCEPTION_STATE,
   );
   const [perceptionExpression, setPerceptionExpression] = useState<string | null>(null);
+  const [cameraActive, setCameraActive] = useState(false);
   const [lastSnapshotAnalysis, setLastSnapshotAnalysis] = useState<SnapshotAnalysis | null>(null);
   const lookAwayResetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -141,13 +146,16 @@ export function PerceptionServiceProvider({ children }: { children: ReactNode })
     () => ({
       perceptionState,
       perceptionExpression,
+      cameraActive,
       lastSnapshotAnalysis,
       sessionId,
       setSessionId,
       clearLastSnapshotAnalysis,
       handleSignal: handlePerceptionSignal,
+      handleActiveChange: setCameraActive,
     }),
     [
+      cameraActive,
       clearLastSnapshotAnalysis,
       handlePerceptionSignal,
       lastSnapshotAnalysis,
@@ -166,8 +174,14 @@ export function PerceptionServiceProvider({ children }: { children: ReactNode })
 }
 
 export function PerceptionServicePanel() {
-  const { sessionId, handleSignal } = usePerceptionService();
-  return <PerceptionEngine sessionId={sessionId} onSignal={handleSignal} />;
+  const { sessionId, handleSignal, handleActiveChange } = usePerceptionService();
+  return (
+    <PerceptionEngine
+      sessionId={sessionId}
+      onSignal={handleSignal}
+      onActiveChange={handleActiveChange}
+    />
+  );
 }
 
 export function usePerceptionService() {

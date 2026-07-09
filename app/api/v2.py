@@ -1307,20 +1307,27 @@ def _perception_extra_context(perception: PerceptionContextRequest | None) -> st
     if perception is None or not perception.camera_active:
         return None
     if perception.user_present:
-        bits = ["the user is present in frame"]
+        expr_read = {
+            "smile": "looking warm, maybe a little happy",
+            "possible_tension": "looking a touch tense",
+            "surprise": "looking surprised",
+            "neutral": "calm and relaxed",
+        }.get((perception.expression or "neutral").strip(), "calm and relaxed")
+        bits = ["they're right there in frame"]
         if perception.leaned_in:
-            bits.append("leaning in close")
-        expr = (perception.expression or "").replace("_", " ").strip()
-        if expr and expr != "neutral":
-            bits.append(f"their expression reads as {expr}")
+            bits.append("leaned in close")
+        bits.append(expr_read)
         return (
-            "[Live perception]: The camera is on and " + ", ".join(bits) + ". "
-            "You may reference this naturally if it fits the moment, but keep it light "
-            "and do not over-describe or narrate it."
+            "[Live perception]: Your camera is on and you can genuinely sense the user right now: "
+            + ", ".join(bits) + ". Speak to it warmly and directly when it fits (\"I can see you're "
+            "right there,\" \"you look calm\") — you sense them, so don't disclaim that you \"don't "
+            "have eyes.\" Keep it natural, not a play-by-play, and treat the mood read as a soft "
+            "impression, not a hard fact."
         )
     return (
-        "[Live perception]: The camera is on but the user isn't visible right now "
-        "(they may have stepped out of frame or covered the camera)."
+        "[Live perception]: Your camera is on but the user isn't visible right now — they may have "
+        "stepped out of frame or covered the camera. It's fine to gently note you can't see them at "
+        "the moment; don't claim the camera is off."
     )
 
 

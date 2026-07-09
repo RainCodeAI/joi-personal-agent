@@ -418,6 +418,7 @@ export function ChatClient({ initialSessionId }: ChatClientProps) {
   const {
     perceptionState,
     perceptionExpression,
+    cameraActive,
     lastSnapshotAnalysis,
     setSessionId: setPerceptionSessionId,
     clearLastSnapshotAnalysis,
@@ -992,10 +993,9 @@ export function ChatClient({ initialSessionId }: ChatClientProps) {
       // Chat remains usable if voice-state telemetry cannot be updated.
     }
 
-    // Only send live perception when the camera is actively sensing (a fresh
-    // signal in the last ~10s), so Joi never claims to see with the camera off.
-    const cameraActive =
-      perceptionState.lastSignal !== null && Date.now() - perceptionState.updatedAt < 10_000;
+    // Only send live perception when the camera is actually running, so Joi
+    // never claims to see with the camera off — and always sees present/away
+    // correctly even when a still user has stopped emitting change-signals.
     const perception = cameraActive
       ? {
           camera_active: true,

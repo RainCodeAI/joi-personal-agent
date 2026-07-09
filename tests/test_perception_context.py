@@ -14,17 +14,19 @@ def test_camera_off_injects_nothing():
 def test_present_includes_expression_and_lean():
     out = ctx(P(camera_active=True, user_present=True, expression="smile", leaned_in=True))
     assert out is not None
-    assert "present in frame" in out
-    assert "leaning in" in out
-    assert "smile" in out
+    assert "in frame" in out
+    assert "leaned in" in out
+    assert "happy" in out or "warm" in out
 
 
-def test_present_neutral_omits_noisy_expression():
+def test_present_neutral_reads_as_calm():
     out = ctx(P(camera_active=True, user_present=True, expression="neutral"))
-    assert out is not None and "present in frame" in out
-    assert "neutral" not in out  # don't narrate a non-signal
+    assert out is not None and "in frame" in out
+    assert "calm" in out  # she has something concrete to say
 
 
 def test_away_is_reported_not_denied():
     out = ctx(P(camera_active=True, user_present=False))
-    assert out is not None and "isn't visible" in out
+    assert out is not None
+    assert "isn't visible" in out
+    assert "camera is on" in out  # she knows the camera is on — just no face right now
