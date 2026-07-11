@@ -47,8 +47,12 @@ class Settings(BaseSettings):
     # Comma-separated list of enabled initiative types.
     # prolonged_silence and memory_followup are off by default until tested.
     initiative_allowed_types: str = Field(
-        default="daily_greeting,return_after_absence,late_night_checkin,context_commentary"
+        default="daily_greeting,return_after_absence,late_night_checkin,context_commentary,calendar_heads_up"
     )
+    # Lead window (minutes before an event) for calendar heads-ups. The scheduler
+    # only nudges about an event whose start falls inside this window.
+    initiative_calendar_lead_min_minutes: int = Field(default=15)
+    initiative_calendar_lead_max_minutes: int = Field(default=90)
     # Phase 10 quality gate: score evidence-bound (context-triggered) initiatives
     # for relevance/timing/recency/novelty/safety before the policy gate. Timer-
     # driven initiatives bypass it, so this is safe to leave on.

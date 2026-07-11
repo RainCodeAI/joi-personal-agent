@@ -42,6 +42,7 @@ _TICK_INTERVAL_MINUTES = 15
 _MEMORY_TICK_INTERVAL_HOURS = 4
 _CONTEXT_TICK_INTERVAL_MINUTES = 5
 _LIFE_STATE_TICK_INTERVAL_MINUTES = 1
+_CALENDAR_TICK_INTERVAL_MINUTES = 10
 _BOOT_DELAY_SECONDS = 30
 _DEFAULT_SESSION = "default"
 
@@ -122,6 +123,16 @@ class InitiativeScheduler:
             coalesce=True,
             max_instances=1,
         )
+        self._scheduler.add_job(
+            self._calendar_tick,
+            trigger="interval",
+            minutes=_CALENDAR_TICK_INTERVAL_MINUTES,
+            next_run_time=first_run,
+            id="initiative_calendar_tick",
+            name="Initiative calendar heads-up tick",
+            coalesce=True,
+            max_instances=1,
+        )
         # Nightly memory consolidation ("sleep"). Independent of the initiative
         # toggles — it's memory maintenance, gated only by its own setting — and
         # runs at a fixed local hour via the scheduler's local timezone.
@@ -198,6 +209,32 @@ class InitiativeScheduler:
             session_id=session_id,
             memory_store=self._memory_store,
         )
+        await self._evaluate(candidate, media=media)
+
+    async def _calendar_tick(self) -> None:
+        """Nudge about the soonest upcoming calendar event in the lead window.
+
+        The candidate builder makes a blocking Google Calendar call, so it runs
+        off the event loop. It no-ops when the calendar isn't connected or no
+        event falls in the window, and the quality + policy gates govern emission
+        (per-event repeat suppression means each event is only surfaced once).
+        """
+        if not self._is_ready():
+            return
+        session_id = _DEFAULT_SESSION
+        try:
+            candidate = await asyncio.to_thread(
+                self._service.build_calendar_heads_up_candidate,
+                session_id=session_id,
+                lead_minutes_min=settings.initiative_calendar_lead_min_minutes,
+                lead_minutes_max=settings.initiative_calendar_lead_max_minutes,
+            )
+        except Exception as exc:
+            logger.warning("Calendar heads-up tick failed to build candidate: %s", exc)
+            return
+        if candidate is None:
+            return
+        media = self._media_sessions.get(session_id)
         await self._evaluate(candidate, media=media)
 
     async def _consolidation_tick(self) -> None:

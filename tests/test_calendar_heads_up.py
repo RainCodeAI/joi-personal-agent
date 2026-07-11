@@ -1,10 +1,14 @@
-"""Tests for the calendar_heads_up initiative type (diagnostics-only)."""
+"""Tests for the calendar_heads_up initiative type and its scheduler tick."""
 
+import asyncio
 from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, MagicMock
 
 from app.initiative.emission_memory import InitiativeEmissionMemory
 from app.initiative.policy import ALLOWED_INITIATIVE_TYPES, InitiativePolicy
 from app.initiative.quality import InitiativeQualityGate
+from app.initiative.scheduler import InitiativeScheduler
 from app.initiative.service import InitiativeService
 from app.initiative.store import InitiativeStore
 
@@ -153,3 +157,68 @@ def test_endpoint_reports_no_event_when_calendar_unavailable(tmp_path):
     body = response.json()
     assert body["decision"]["candidate"] is None
     assert body["quality"] is None
+
+
+# ── scheduler tick ───────────────────────────────────────────────────────────
+
+
+def _scheduler_with_service(service):
+    return InitiativeScheduler(
+        service,
+        event_bus=MagicMock(),
+        memory_store=MagicMock(),
+        media_sessions=MagicMock(),
+    )
+
+
+def test_calendar_tick_emits_when_candidate_built(tmp_path, monkeypatch):
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "enable_proactive_messaging", True)
+    monkeypatch.setattr(settings, "initiative_enabled", True)
+
+    candidate = _service(tmp_path).build_calendar_heads_up_candidate(
+        events=[_event("e2", "Sync with Dana", 30)], now=_now()
+    )
+    service = MagicMock()
+    service.build_calendar_heads_up_candidate = MagicMock(return_value=candidate)
+    service.emit = AsyncMock(return_value=SimpleNamespace(allowed=True, suppressed_reason=None))
+
+    asyncio.run(_scheduler_with_service(service)._calendar_tick())
+
+    service.build_calendar_heads_up_candidate.assert_called_once()
+    service.emit.assert_awaited_once()
+
+
+def test_calendar_tick_noops_without_candidate(tmp_path, monkeypatch):
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "enable_proactive_messaging", True)
+    monkeypatch.setattr(settings, "initiative_enabled", True)
+
+    service = MagicMock()
+    service.build_calendar_heads_up_candidate = MagicMock(return_value=None)
+    service.emit = AsyncMock()
+
+    asyncio.run(_scheduler_with_service(service)._calendar_tick())
+
+    service.emit.assert_not_awaited()
+
+
+def test_calendar_tick_skipped_when_initiatives_disabled(tmp_path, monkeypatch):
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "initiative_enabled", False)
+
+    service = MagicMock()
+    service.build_calendar_heads_up_candidate = MagicMock(return_value=None)
+
+    asyncio.run(_scheduler_with_service(service)._calendar_tick())
+
+    service.build_calendar_heads_up_candidate.assert_not_called()
+
+
+def test_calendar_heads_up_in_default_allowed_types():
+    """Taken live: the default policy now permits calendar_heads_up."""
+    policy = InitiativePolicy.from_settings()
+    assert "calendar_heads_up" in policy.allowed_types
