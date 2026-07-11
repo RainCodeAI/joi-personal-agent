@@ -1,4 +1,6 @@
 import logging
+from dataclasses import dataclass
+from typing import Literal
 
 # Keep PIL independent of transformers: a transformers/torch import failure must
 # not also unbind Image, and both names must always exist so they stay patchable.
@@ -17,6 +19,26 @@ except Exception:
 
 _caption_pipeline = None
 
+VisionErrorCode = Literal[
+    "model_unavailable",
+    "pipeline_unavailable",
+    "empty_description",
+    "processing_failed",
+]
+
+
+@dataclass(frozen=True)
+class VisionDescriptionResult:
+    """Structured vision result so failures cannot masquerade as observations."""
+
+    description: str | None = None
+    error_code: VisionErrorCode | None = None
+
+    @property
+    def ok(self) -> bool:
+        return bool(self.description) and self.error_code is None
+
+
 def get_pipeline():
     global _caption_pipeline
     if not _VISION_AVAILABLE:
@@ -26,14 +48,14 @@ def get_pipeline():
         _caption_pipeline = pipeline("image-to-text", model="Salesforce/blip-image-captioning-base")
     return _caption_pipeline
 
-def describe_image(image_input) -> str:
-    """Generate a text description from a file path or PIL image."""
+def describe_image_result(image_input) -> VisionDescriptionResult:
+    """Generate a description without encoding failures as descriptive text."""
     if not _VISION_AVAILABLE:
-        return "Vision model unavailable (torch not loaded)."
+        return VisionDescriptionResult(error_code="model_unavailable")
     try:
         pipe = get_pipeline()
         if pipe is None:
-            return "Vision pipeline unavailable."
+            return VisionDescriptionResult(error_code="pipeline_unavailable")
         if hasattr(image_input, "convert") and not isinstance(image_input, (str, bytes)):
             image = image_input.convert('RGB')
         else:
@@ -43,7 +65,28 @@ def describe_image(image_input) -> str:
         results = pipe(image)
         # results list of dicts, e.g. [{'generated_text': 'a photography of a cat'}]
         if results and len(results) > 0:
-            return results[0].get('generated_text', "No description generated.")
-        return "Could not describe image."
-    except Exception as e:
-        return f"Error describing image: {str(e)}"
+            description = str(results[0].get('generated_text', '')).strip()
+            if description:
+                return VisionDescriptionResult(description=description)
+        return VisionDescriptionResult(error_code="empty_description")
+    except Exception:
+        logging.exception("vision_clip: image description failed")
+        return VisionDescriptionResult(error_code="processing_failed")
+
+
+def describe_image(image_input) -> str:
+    """Backward-compatible text API for legacy UI callers.
+
+    New camera and API paths should use :func:`describe_image_result` so they
+    can branch on failure without treating an error message as something seen.
+    """
+    result = describe_image_result(image_input)
+    if result.ok:
+        return result.description or ""
+    messages = {
+        "model_unavailable": "Vision model unavailable (torch not loaded).",
+        "pipeline_unavailable": "Vision pipeline unavailable.",
+        "empty_description": "Could not describe image.",
+        "processing_failed": "Error describing image.",
+    }
+    return messages.get(result.error_code, "Could not describe image.")
