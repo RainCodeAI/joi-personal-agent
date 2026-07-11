@@ -15,17 +15,22 @@ What exists:
 - Session and message persistence.
 - Approval queue for sensitive tool proposals.
 - Realtime event bus that can later feed remote notifications.
+- Telegram long-polling bridge launched alongside Joi when configured.
+- Allowlisted Telegram identities with stable Joi sessions.
+- `/status`, `/new`, `/recent`, `/memory`, and read-only `/approvals` commands.
+- Mocked authorization, routing, redaction, failure, and approval-safety coverage.
 
 Main gaps:
 
-- No remote client bridge yet.
-- No allowlist for remote identities.
 - No remote delivery policy for proactive messages.
-- No remote health/status surface.
+- No shared remote-surface identity/audit abstraction yet.
+- No Telegram voice-note or image-attachment routing yet.
 
 ## Coding Tasks
 
 ### Phase 1 - Telegram V1
+
+Status: implemented; real-device smoke testing remains a manual validation item.
 
 - Implement the plan in `docs/telegram_bot_plan.md`.
 - Add a local long-polling Telegram bridge process.

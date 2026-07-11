@@ -1,5 +1,17 @@
 # Telegram Bot Integration Plan
 
+## Implementation Status (2026-07-10)
+
+Telegram v1 is implemented. The standalone long-polling bridge routes allowlisted
+users through the local Joi API, reuses deterministic per-user sessions, reports
+approval-required actions without executing them, and exposes `/status`, `/new`,
+`/recent`, `/memory`, and read-only `/approvals` commands. `StartJoi.bat` launches
+the bridge when configured, and mocked coverage does not require Telegram access.
+
+Remaining work in this document is either manual smoke testing or a future
+enhancement such as remote approval decisions, proactive delivery, voice notes,
+or image attachments.
+
 ## Objective
 
 Add Telegram as a remote chat and task-direction surface for Joi while keeping the Joi PC as the brain.
@@ -267,3 +279,6 @@ Keep raw media retention explicit and consistent with Joi's privacy settings.
 - Pending approvals are reported but not remotely executed.
 - Backend-down and unauthorized cases fail cleanly.
 - Tests cover routing, authorization, and approval formatting.
+
+Automated implementation status: complete. Real-device behavior remains covered
+by the manual smoke-test sections above.

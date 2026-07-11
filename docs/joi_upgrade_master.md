@@ -2,13 +2,19 @@
 
 This is the single front door for Joi's upgrade planning. It reconciles the 10 capability plans, the higher-level roadmaps, and the specs in `docs/` against the actual codebase. Every status below is grounded in code or git history as of `a19d5b3` (HEAD, main). Where a plan doc and the code disagree, the code wins — see [Reconciliation notes](#reconciliation-notes).
 
+> **2026-07-10 tool-platform update:** Joi now has schema-validated LLM tool
+> planning with deterministic keyword fallback, proposal-bound write identity,
+> provider-level idempotency, and post-execution read-back verification for
+> Gmail and Calendar. Next: remaining registered handlers and draft-first/scope
+> hardening for connectors.
+
 ## Where Joi is now
 
 Joi is much further along than most of the planning docs admit. The backend (`app/`) is a full FastAPI v2 API with sessions/chat, memory search + **nightly consolidation with emotion-tagged salience** (`app/memory/consolidation.py`, `app/memory/store.py`, commits `a0e3ec8`, `d160f25`), a user-model layer with LLM dry-run synthesis and durable corrections (`app/user_model/`), an initiative service + scheduler with quiet-hours/DND/caps/spacing gating and diagnostics (`app/initiative/`), a context-event service with sanitized payloads, dedupe, commentary candidates and feedback (`app/context_events/service.py`), a desktop action broker allowlisted to `open_url` + `show_notification` with local-only checks (`app/desktop_actions.py`), an approvals queue (`app/orchestrator/security/approval.py`, exposed at `/api/v2/approvals`), Gmail/Calendar connectors (`app/tools/email_gmail.py`, `calendar_gcal.py`), an SSE realtime event layer (`/api/v2/events/stream`), and an MQTT hardware bridge + firmware contract (`app/hardware/`).
 
 The frontend (`frontend/`) has a 2.5D hologram portrait avatar with expression layers and amplitude-gated 2D viseme lip-sync (`frontend/components/avatar/avatar-portrait.tsx`, commits `5101140`, `d4b881c`, `a19d5b3`), and — contrary to the voice plan — a **working app-wide "Hey Joi" wake-word ambient listening mode** mounted in the app shell (`frontend/components/ambient-listener-provider.tsx`, `frontend/hooks/use-ambient-listener.ts`, `frontend/lib/wake-word.ts`, commits `9f3978e`, `29bb82e`, `139141c`). The backend token is proxied server-side so it never reaches the browser (`frontend/app/api/backend/[...path]`, commit `ab2c6f3`). A native tray shell with a bounded-restart watchdog exists (`desktop/tray_app.py`).
 
-The two biggest genuinely-open areas are: (1) **tool execution is still keyword-matched** — `ExecutorAgent` dispatches on literal phrases like `"check email"` (`app/orchestrator/agents/executor.py`), and `app/tools/types.py` has only a minimal `ToolSpec` (name/description/parameters — no risk level, approval flag, or registry); `app/tools/registry.py` does not exist. (2) **No remote surface exists at all** — zero Telegram code in the repo (`app/integrations/` absent). Voice works but is batch-mode end to end: no streaming STT (no WebSocket endpoints in `app/api/`), TTS is generated as a complete payload before a `tts.ready` event fires (`app/api/v2.py` ~line 1821).
+The biggest genuinely-open architectural area is **tool execution**, which is still keyword-matched — `ExecutorAgent` dispatches on literal phrases like `"check email"` (`app/orchestrator/agents/executor.py`), and `app/tools/types.py` has only a minimal `ToolSpec` (name/description/parameters — no risk level, approval flag, or registry); `app/tools/registry.py` does not exist. Telegram v1 has since shipped as a conservative remote surface. Voice works but is batch-mode end to end: no streaming STT (no WebSocket endpoints in `app/api/`), TTS is generated as a complete payload before a `tts.ready` event fires (`app/api/v2.py` ~line 1821).
 
 ## Capability status matrix
 
@@ -23,21 +29,21 @@ The two biggest genuinely-open areas are: (1) **tool execution is still keyword-
 | Context event service + commentary gate + feedback | Done (core) | `app/context_events/service.py` (sanitize, dedupe, TTL, commentary candidates, useful/wrong/too_much/never feedback); `/api/v2/context/events*`; commit `76bac52`; `tests/test_context_events.py` | Calendar/active-window/hardware sources not normalized in; no context-snapshot endpoint | context_awareness_plan |
 | Camera perception (MediaPipe, local assets) | Done (core) | commits `2b235b1`, `7b5117d`, `43e7876`, `2dff0a4`, `12be79e` (tray camera suspend); `app/api/perception_policy.py` | Runs in browser surface; richer signals (objects/gesture) out of scope for now | context_awareness_plan, always_on_companion_upgrade_plan |
 | Desktop action broker | Partial | `app/desktop_actions.py` — allowlist exactly `{open_url, show_notification}`, local-only check, audit; `/api/v2/desktop/actions`; commit `85bb641` (tests) | No typed action registry, no screen/window/file actions, no risk levels | desktop_control_plan |
-| Tool execution platform | Planned (prototype only) | `app/orchestrator/agents/executor.py` — keyword matching (`"check email" in lower`); `app/tools/types.py` minimal `ToolSpec`; **no `app/tools/registry.py`** | Entire typed registry / proposal contract / risk levels / verification | tool_platform_plan |
+| Tool execution platform | Partial (safe dispatch core done) | Typed registry/contracts; `app/tools/dispatcher.py`; proposal-bound approvals with exact/redacted previews, fingerprints, expiry and replay protection | Add remaining handlers, provider idempotency/verification, then model planning | tool_platform_plan |
 | Gmail / Calendar connectors + approvals | Done (core) | `app/tools/email_gmail.py`, `calendar_gcal.py`; approvals: `app/orchestrator/security/approval.py`, `/api/v2/approvals/{id}/approve|deny`, local-approval check `_require_local_approval_request` in `app/api/v2.py`; `tests/test_tools_email.py`, `test_calendar_tools.py` | Draft-first workflows, scope splitting, post-execution verification | tool_platform_plan |
 | Realtime event layer (SSE) | Done | `/api/v2/events` + `/events/stream` in `app/api/v2.py`; `app/api/realtime.py`; envelope per `realtime_event_layer.md` | WebSocket transport (only if streaming voice needs it) | realtime_event_layer |
 | Runtime reliability (tray, watchdog, single instance) | Partial | `desktop/tray_app.py` (watchdog thread, `_restart_allowed` bounded-restart history); Start scripts; repo already lives at `C:\dev\joi` (plan's Phase 1 done); `tests/test_desktop_shell.py`, `test_runtime_persistence.py` | Packaged-build validation and full-day soak test are manual work not evidenced in repo | runtime_reliability_plan |
 | Hardware bridge (MQTT) | Partial | `app/hardware/{bridge,mqtt_bridge,schemas}.py`; `/api/v2/hardware/contract`; contract doc `hardware_firmware_contract.md` | No firmware/node in repo; presence telemetry → context events not wired | ambient_presence_plan, embodiment_plan |
-| Unified state vocabulary / life state | Partial | `app/avatar/life_state.py` (`LifeStateEngine`, `/api/v2/avatar/life-state`); `joi.state.changed` SSE event | Not the single canonical vocabulary across tray/avatar/hardware/media session yet | embodiment_plan, joi_master_presence_roadmap |
-| Telegram / remote access | Planned (nothing built) | `grep -r telegram app/` → no hits; no `app/integrations/` | Everything; but it only needs to be an API client of `/api/v2/chat` | telegram_bot_plan, remote_access_plan |
+| Unified state vocabulary / life state | Partial (life-state core done) | `app/avatar/life_state.py`; periodic `avatar_life_state_tick`; `/api/v2/avatar/life-state`; deterministic `tests/test_life_state.py` | Ambient life state is not yet consumed by tray/hardware; canonical operational vocabulary still spans media/runtime/hardware mappings | embodiment_plan, joi_master_presence_roadmap |
+| Telegram / remote access | Done (v1) | `app/integrations/{telegram_bot,joi_client}.py`; `tests/test_telegram_bot.py`; `StartJoi.bat` | Shared remote identity/audit layer, proactive delivery, voice/image attachments | telegram_bot_plan, remote_access_plan |
 | Security hardening pass | Done (recent) | commits `c89102c`, `54f0299`, `fc637bb`, `ab2c6f3` (token proxy, prompt guard, vault, SSE) | Ongoing | (not in any plan doc) |
 
 ## Dependency-ordered roadmap
 
-The proposed Foundation→Reach ordering mostly survives contact with the code, with two refinements: (1) memory/context/initiative are further along than "middle tier" implies — what they need is the *quality gate*, which depends on nothing in Foundation; (2) Telegram v1 is genuinely self-contained (it is just a localhost API client) and can be pulled forward as an early win, exactly as remote_access_plan suggests.
+The proposed Foundation→Reach ordering mostly survives contact with the code. Memory/context/initiative are further along than "middle tier" implies — what they need is the *quality gate*, which depends on nothing in Foundation. Telegram v1 was self-contained enough to ship early as a localhost API client; its follow-on remote capabilities should now respect the tool-platform dependency.
 
 ### Tier 0 — Foundation (unblocks everything that acts)
-- **Tool platform** (`tool_platform_plan.md`): the single highest-leverage gap. Replace keyword `ExecutorAgent` with `app/tools/registry.py` + typed `ToolSpec` (risk level, approval requirement), `ToolProposal`/`ToolPreview`/`ToolExecutionResult` models, and LLM-generated proposals validated against schemas. The approvals queue and connectors it needs **already exist** — this is a refactor plus a planner, not a greenfield build.
+- **Tool platform** (`tool_platform_plan.md`): typed registry-driven Gmail/Calendar dispatch and proposal-bound approvals now exist. Next add provider idempotency and verification, fill the remaining registered handlers, then introduce validated LLM planning while retaining keyword fallback.
 - **Runtime reliability** (`runtime_reliability_plan.md`): watchdog and bounded restarts exist in `desktop/tray_app.py`; remaining work is mostly manual validation (packaged build, soak test, launch-on-login). Do the soak test before adding more always-on features.
 - **Unified state vocabulary** (`embodiment_plan.md` Phase 1): `LifeStateEngine` + `joi.state.changed` exist; consolidate media-session, tray, avatar, and hardware states onto the canonical list. Cheap, and both initiative delivery and hardware nodes depend on it.
 
@@ -48,7 +54,7 @@ The proposed Foundation→Reach ordering mostly survives contact with the code, 
 - **Voice hardening** (`voice_mode_plan.md` Phases 2–4): streaming STT (needs a WebSocket endpoint — the first one in the codebase) and chunked TTS. Skip Phase 5 (wake-word evaluation) — it shipped.
 
 ### Tier 2 — Reach
-- **Telegram v1** (`telegram_bot_plan.md` / `remote_access_plan.md` Phase 1): *pull-forward candidate.* Long-polling bridge as a localhost client of `/api/v2/chat`, allowlisted user IDs, read-only approvals reporting. Depends on nothing in Tier 0/1 for a conservative v1; benefits later from the tool platform for remote approvals.
+- **Telegram v1** (`telegram_bot_plan.md` / `remote_access_plan.md` Phase 1): shipped as a localhost long-polling client with allowlisted IDs, memory search, stable sessions, and read-only approval reporting. Later remote approvals remain blocked on the typed tool platform and a stronger remote audit/policy layer.
 - **Desktop control expansion** (`desktop_control_plan.md`): explicitly blocked on the Tier 0 tool/action registry — do not add actions to the current string-allowlist broker.
 - **Hardware presence nodes** (`ambient_presence_plan.md`): bridge and contract exist; needs firmware + the unified state vocabulary.
 
@@ -86,18 +92,18 @@ The proposed Foundation→Reach ordering mostly survives contact with the code, 
 
 ## Recommended next 3–5 concrete steps
 
-1. **Build the typed tool registry** (`app/tools/registry.py` + upgraded `ToolSpec` with risk level/approval requirement, `ToolProposal` models) and route `ExecutorAgent`'s existing email/calendar handlers through it before adding the LLM planner. Highest leverage; everything acting (desktop expansion, remote approvals) is blocked on it. Keep the current keyword paths as deterministic fallbacks, per the plan.
+1. **Finish typed execution and verification** — add dispatcher handlers for the remaining registered capabilities, provider idempotency keys where supported, and post-execution verification for Gmail/Calendar. Then add LLM-generated proposals behind schema validation while retaining keyword fallback.
 2. **Implement the initiative quality gate** from `initiative_quality_gate_spec.md` — the insertion point in `app/initiative/service.py` (before `can_emit`) is ready, and it directly improves the always-on experience with zero new surface area.
-3. **Ship Telegram v1** per `telegram_bot_plan.md` — standalone long-polling process in `app/integrations/`, allowlisted IDs, localhost-only API, read-only approvals reporting. Self-contained, high daily-life value, and it exercises the API contract remotely without any new attack surface.
+3. **Build the remote-surface foundation after Telegram v1** — shared remote identity/audit records first, then opt-in proactive delivery or media attachments. Keep approval decisions local until the typed tool platform exists.
 4. **Run the reliability soak** (runtime_reliability_plan Phases 3–5): kill-and-recover tests against the existing `tray_app.py` watchdog, then a full-day run with notes. This is validation, not construction — cheap and it de-risks everything above.
 5. **Write the missing cost/model-routing policy** (one page): which provider/model per background job (consolidation, synthesis, initiative scoring, commentary), local-model fallbacks via the existing Ollama/GGUF seams, and a daily budget check in diagnostics.
 
 ## Source docs index
 
 Capability plans (`docs/`):
-- `telegram_bot_plan.md` — Telegram bridge implementation detail (nothing built yet).
+- `telegram_bot_plan.md` — Telegram bridge implementation detail (v1 implemented; future media/proactive work remains).
 - `remote_access_plan.md` — remote-surface umbrella; Phase 1 = telegram_bot_plan.
-- `tool_platform_plan.md` — typed tool registry replacing keyword execution (accurate; still the biggest gap).
+- `tool_platform_plan.md` — safe Gmail/Calendar dispatch and approval binding complete; remaining handlers, verification, and planning remain.
 - `desktop_control_plan.md` — desktop action expansion (blocked on tool platform).
 - `runtime_reliability_plan.md` — packaging/watchdog/soak (watchdog exists; validation pending).
 - `initiative_policy_plan.md` — initiative audit/scoring/channels (core done; scoring not).

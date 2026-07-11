@@ -15,18 +15,29 @@ What exists:
 - Approval queue exists and persists.
 - Tool call results are returned through `/api/v2/chat`.
 - Audit records exist for tool and desktop action paths.
+- Central typed registry for email, calendar, memory, files, desktop, and web tools.
+- Canonical read/draft/write/destructive operations, risk levels, schemas, and approval flags.
+- Typed proposal, preview, execution-result, and verification-result contracts.
+- Registry-driven Gmail and Calendar dispatch for existing read/write capabilities.
+- Exact local and redacted remote previews bound to immutable proposal fingerprints.
+- Fifteen-minute, one-use approvals requiring both approval ID and proposal ID.
+- Persisted approval migration with tamper, expiry, mismatch, and replay rejection.
+- Deterministic provider idempotency for Gmail sends and Calendar event creation.
+- Gmail/Calendar provider read-back verification; failed verification is an error.
+- Constrained LLM proposal planning with strict registry/schema validation,
+  `needs_input`, and deterministic keyword fallback on invalid/provider output.
 
 Main gaps:
 
-- Tool selection is keyword-based.
-- Arguments are extracted with simple patterns.
-- No central typed tool registry.
-- Read, draft, write, and destructive operations are not clearly separated.
-- No idempotency or post-execution verification contract.
+- Several registered tools do not yet have dispatcher handlers.
+- Keyword extraction remains as the safe fallback when model planning fails.
 
 ## Coding Tasks
 
 ### Phase 1 - Tool Registry
+
+Status: complete as of 2026-07-10. The keyword executor retains its existing
+behavior and references the registry as the deterministic fallback foundation.
 
 - Add `app/tools/registry.py`.
 - Define a `ToolSpec` model with name, description, category, input schema, output schema, risk level, and approval requirement.
@@ -34,6 +45,9 @@ Main gaps:
 - Add tests that all registered tools have stable schemas.
 
 ### Phase 2 - Tool Proposal Contract
+
+Status: complete for the existing Gmail and Calendar write paths. Exact previews,
+proposal IDs, argument fingerprints, expiry, and one-use consumption are enforced.
 
 - Define Pydantic models for `ToolProposal`, `ToolPreview`, `ToolExecutionResult`, and `ToolVerificationResult`.
 - Separate operations into:
@@ -46,6 +60,10 @@ Main gaps:
 
 ### Phase 3 - Model Tool Planning
 
+Status: complete for the registry proposal layer as of 2026-07-10. Likely tool
+requests use strict JSON planning; unknown tools/fields, invalid types, malformed
+output, and provider failures cannot execute and fall back to keyword rules.
+
 - Replace keyword intent checks with typed tool proposal generation.
 - Use the selected LLM to produce structured tool proposals.
 - Validate proposals against tool schemas before displaying or executing.
@@ -53,6 +71,9 @@ Main gaps:
 - Keep deterministic fallback rules for common read-only commands.
 
 ### Phase 4 - Execution And Verification
+
+Status: complete for Gmail and Calendar. Approved writes use proposal IDs as
+stable provider idempotency keys and are read back after execution.
 
 - Add idempotency keys for write actions.
 - Execute approved tool proposals through one execution path.

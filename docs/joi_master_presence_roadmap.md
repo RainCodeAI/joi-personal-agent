@@ -196,6 +196,16 @@ Rule:
 
 Motion should stay restrained. Constant animation will cheapen the presence.
 
+Implementation status (2026-07-10): core complete.
+
+- Runtime states map immediately: speaking → `engaged`; listening/thinking/return → `observant`; away/sleep/error → `resting`; idle → `calm`.
+- Daytime quiet enters a bounded `curious` window after 5 minutes and leaves it after 30 minutes; one hour idle becomes `resting`.
+- Late-night quiet settles to `resting` instead of becoming visually inquisitive.
+- Ambient changes require 60 seconds of stability, while explicit runtime and presence changes bypass hysteresis.
+- A one-minute scheduler tick advances time-based states even when no new browser presence event arrives.
+- `avatar.life_state_changed` remains the frontend event, and `/api/v2/avatar/life-state` now exposes transition time and any pending ambient state.
+- Deterministic tests cover all five states, time-of-day behavior, hysteresis, immediate overrides, and scheduler publication.
+
 ### Phase 6 - Situational Awareness
 
 Goal: make Joi context-aware without becoming intrusive.

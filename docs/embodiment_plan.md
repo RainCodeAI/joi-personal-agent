@@ -14,14 +14,14 @@ What exists:
 - VRM/avatar planning docs.
 - TTS and lip-sync path.
 - Media session states for listening/thinking/speaking.
-- Life state engine.
+- Life state engine with all five states, time-of-day behavior, ambient hysteresis, and periodic evaluation.
 - Tray/window shell.
 - MQTT hardware bridge foundation.
 - Ambient presence hardware plan.
 
 Main gaps:
 
-- Avatar behavior is not fully tied to all runtime states.
+- Native tray and optional hardware do not yet consume the avatar's ambient life-state layer.
 - Voice and expression timing need real-device validation.
 - Hardware node telemetry is incomplete.
 - Native notification, tray, avatar, and hardware state need one shared state vocabulary.
