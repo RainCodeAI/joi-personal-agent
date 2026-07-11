@@ -16,6 +16,29 @@ class SessionCreateRequest(BaseModel):
     title: Optional[str] = None
 
 
+class OutboxMessageResource(BaseModel):
+    id: str
+    kind: str
+    text: str
+    created_at: str
+
+
+class OutboxClaimRequest(BaseModel):
+    limit: int = Field(default=10, ge=1, le=50)
+
+
+class OutboxClaimResponse(V2ResponseBase):
+    messages: List[OutboxMessageResource] = Field(default_factory=list)
+
+
+class OutboxAckRequest(BaseModel):
+    ids: List[str] = Field(default_factory=list)
+
+
+class OutboxAckResponse(V2ResponseBase):
+    acknowledged: int
+
+
 class SessionResource(BaseModel):
     id: str
     user_id: str = "default"

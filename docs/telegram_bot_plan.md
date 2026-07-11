@@ -9,8 +9,15 @@ approval-required actions without executing them, and exposes `/status`, `/new`,
 the bridge when configured, and mocked coverage does not require Telegram access.
 
 Remaining work in this document is either manual smoke testing or a future
-enhancement such as remote approval decisions, proactive delivery, voice notes,
-or image attachments.
+enhancement such as remote approval decisions, voice notes, or image attachments.
+
+Proactive delivery is now implemented (2026-07-11): when a gated initiative is
+emitted, the backend enqueues eligible types to a durable outbox
+(`app/integrations/outbox.py`), and the bridge polls `/api/v2/telegram/outbox/claim`
+on a JobQueue tick and acks after sending. It is opt-in via
+`TELEGRAM_PROACTIVE_ENABLED` and restricted to `TELEGRAM_PROACTIVE_TYPES`
+(default: daily_greeting, return_after_absence, late_night_checkin). See the
+updated Proactive Telegram Delivery section below.
 
 ## Objective
 
@@ -239,16 +246,24 @@ Requirements:
 - each approval button expires quickly
 - approval decisions are audited with `client_surface="telegram"`
 
-### Proactive Telegram Delivery
+### Proactive Telegram Delivery (implemented 2026-07-11)
 
-Later, the bot could subscribe to Joi initiative or event-bus events and send selected messages to Telegram:
+The backend does not talk to Telegram directly — the bot token stays in the
+bridge. Instead:
 
-- daily greeting while away
-- important reminder
-- calendar heads-up
-- queued context commentary that is safe for remote delivery
+- `InitiativeService.emit` enqueues an emitted initiative to a durable
+  `TelegramOutbox` when it is delivery-eligible.
+- Eligibility (`initiative_is_deliverable`) is conservative: opt-in via
+  `TELEGRAM_PROACTIVE_ENABLED`, and only `TELEGRAM_PROACTIVE_TYPES` leave the
+  laptop. Memory- and context-derived lines stay local by default.
+- The existing initiative gate (quiet hours, DND, daily limit, spacing, expiry)
+  already limits emission, so the outbox only adds an offline-safe dedup key.
+- The bridge runs a JobQueue tick every `TELEGRAM_OUTBOX_POLL_SECONDS`, claims
+  via `/api/v2/telegram/outbox/claim`, delivers to allowlisted user IDs, and
+  acks. Delivery is at-least-once: an unacked message is reissued next poll.
 
-This needs a delivery policy so Telegram does not become noisy.
+Possible follow-ups: per-type quiet windows specific to remote delivery, a
+`calendar_heads_up` initiative type, and surfacing outbox depth in diagnostics.
 
 ### Attachments And Voice
 

@@ -94,3 +94,17 @@ class JoiClient:
             "GET", f"/api/v2/approvals?session_id={quote(session_id, safe='')}"
         )
         return response.json().get("approvals", [])
+
+    async def claim_outbox(self, limit: int = 10) -> List[Dict[str, Any]]:
+        """Claim proactive messages the backend queued for remote delivery."""
+        response = await self._request(
+            "POST", "/api/v2/telegram/outbox/claim", json={"limit": limit}
+        )
+        return response.json().get("messages", [])
+
+    async def ack_outbox(self, ids: List[str]) -> int:
+        """Acknowledge delivered proactive messages so they aren't reissued."""
+        response = await self._request(
+            "POST", "/api/v2/telegram/outbox/ack", json={"ids": ids}
+        )
+        return int(response.json().get("acknowledged", 0))

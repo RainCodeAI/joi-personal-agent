@@ -83,6 +83,14 @@ class Settings(BaseSettings):
     telegram_session_prefix: str = Field(default="telegram")
     telegram_api_base_url: str = Field(default="http://127.0.0.1:8000")
     telegram_joi_api_token: str = Field(default="")  # falls back to joi_api_token
+    # Proactive delivery: push gated initiatives to Telegram while the user is
+    # away. Opt-in and conservative — only the listed initiative types leave the
+    # laptop; the backend enqueues, the bridge polls and delivers.
+    telegram_proactive_enabled: bool = Field(default=False)
+    telegram_proactive_types: str = Field(
+        default="daily_greeting,return_after_absence,late_night_checkin"
+    )
+    telegram_outbox_poll_seconds: int = Field(default=60)
 
     class Config:
         env_file = ".env"
@@ -101,6 +109,15 @@ class Settings(BaseSettings):
     def telegram_api_token(self) -> str:
         """Token the Telegram bridge sends to the Joi API (falls back to the main one)."""
         return self.telegram_joi_api_token or self.joi_api_token
+
+    @property
+    def telegram_proactive_type_set(self) -> set[str]:
+        """Initiative types eligible for proactive Telegram delivery."""
+        return {
+            part.strip()
+            for part in self.telegram_proactive_types.split(",")
+            if part.strip()
+        }
 
     @property
     def telegram_allowed_ids(self) -> set[int]:

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -13,6 +14,8 @@ from app.initiative.policy import (
 )
 from app.initiative.store import InitiativeStore
 
+logger = logging.getLogger("joi.initiative")
+
 
 class InitiativeService:
     """Builds and gates unsolicited Joi initiative candidates."""
@@ -20,8 +23,16 @@ class InitiativeService:
     return_after_absence_threshold_minutes = 45
     late_night_recent_activity_minutes = 120
 
-    def __init__(self, store: InitiativeStore | None = None) -> None:
+    def __init__(
+        self,
+        store: InitiativeStore | None = None,
+        outbox: Any | None = None,
+    ) -> None:
         self.store = store or InitiativeStore()
+        # Optional remote-delivery queue. When set, emitted initiatives that are
+        # eligible are also enqueued for the Telegram bridge to pick up. None in
+        # tests and any headless use — delivery is a strict add-on to emission.
+        self._outbox = outbox
 
     def build_daily_greeting_candidate(
         self,
@@ -298,8 +309,31 @@ class InitiativeService:
             session_id=candidate.session_id,
             source="initiative",
         )
+        self._deliver_remote(candidate, current)
         await self._notify_native(candidate)
         return decision
+
+    def _deliver_remote(self, candidate: InitiativeCandidate, now: datetime) -> None:
+        """Enqueue an emitted initiative for remote delivery when eligible.
+
+        A best-effort add-on: remote delivery must never break local emission,
+        so any queue failure is swallowed and logged.
+        """
+        if self._outbox is None:
+            return
+        try:
+            from app.integrations.outbox import initiative_is_deliverable
+
+            if not initiative_is_deliverable(candidate):
+                return
+            self._outbox.enqueue(
+                text=candidate.message,
+                kind=f"initiative:{candidate.type}",
+                dedup_key=f"{candidate.type}:{candidate.session_id}:{now.date().isoformat()}",
+                expires_at=candidate.expires_at,
+            )
+        except Exception as exc:  # noqa: BLE001 - delivery is non-critical
+            logger.warning("Remote initiative delivery failed: %s", exc)
 
     @staticmethod
     async def _notify_native(candidate: InitiativeCandidate) -> None:

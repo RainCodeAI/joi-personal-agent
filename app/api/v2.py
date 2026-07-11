@@ -34,6 +34,7 @@ from app.api.state import (
     mqtt_bridge,
     perception_policy,
     runtime_settings,
+    telegram_outbox,
     user_model_corrections,
     user_model_synthesis_records,
 )
@@ -98,6 +99,11 @@ from app.api.v2_models import (
     MoodEntryCreateRequest,
     MoodEntryCreateResponse,
     MoodEntryResource,
+    OutboxAckRequest,
+    OutboxAckResponse,
+    OutboxClaimRequest,
+    OutboxClaimResponse,
+    OutboxMessageResource,
     PlannerBlockResource,
     PlannerContextResponse,
     PlannerGenerateRequest,
@@ -2516,6 +2522,26 @@ async def deliver_context_commentary(event_id: str, emit: bool = False):
         "context_event_id": event_id,
         "decision": decision.to_dict(),
     }
+
+
+@router.post("/telegram/outbox/claim", response_model=OutboxClaimResponse)
+async def claim_telegram_outbox(request: OutboxClaimRequest):
+    """Hand undelivered proactive messages to the Telegram bridge for delivery.
+
+    Localhost-only surface behind the API token. Claiming marks each message as
+    attempted; the bridge must ack after a successful send or they are reissued.
+    """
+    messages = telegram_outbox.claim(limit=request.limit)
+    return OutboxClaimResponse(
+        messages=[OutboxMessageResource(**message) for message in messages]
+    )
+
+
+@router.post("/telegram/outbox/ack", response_model=OutboxAckResponse)
+async def ack_telegram_outbox(request: OutboxAckRequest):
+    """Mark proactive messages delivered so they are not reissued."""
+    acknowledged = telegram_outbox.ack(request.ids)
+    return OutboxAckResponse(acknowledged=acknowledged)
 
 
 @router.post("/initiative/daily-greeting")

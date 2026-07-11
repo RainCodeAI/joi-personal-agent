@@ -34,3 +34,27 @@ def test_recent_messages_preserves_backend_failure_for_user_facing_handler():
 
     with pytest.raises(JoiApiError, match="backend unavailable"):
         asyncio.run(client.recent_messages("telegram:111"))
+
+
+def test_claim_outbox_posts_limit_and_returns_messages():
+    client = JoiClient("http://127.0.0.1:8000", "token")
+    client._request = AsyncMock(return_value=FakeResponse({"messages": [{"id": "m1", "text": "hi"}]}))
+
+    messages = asyncio.run(client.claim_outbox(limit=5))
+
+    assert messages == [{"id": "m1", "text": "hi"}]
+    client._request.assert_awaited_once_with(
+        "POST", "/api/v2/telegram/outbox/claim", json={"limit": 5}
+    )
+
+
+def test_ack_outbox_posts_ids_and_returns_count():
+    client = JoiClient("http://127.0.0.1:8000", "token")
+    client._request = AsyncMock(return_value=FakeResponse({"acknowledged": 2}))
+
+    acked = asyncio.run(client.ack_outbox(["m1", "m2"]))
+
+    assert acked == 2
+    client._request.assert_awaited_once_with(
+        "POST", "/api/v2/telegram/outbox/ack", json={"ids": ["m1", "m2"]}
+    )

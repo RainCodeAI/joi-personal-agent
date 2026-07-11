@@ -11,6 +11,7 @@ from app.context_events.store import ContextEventStore
 from app.context_events.feedback import ContextFeedbackStore
 from app.initiative.service import InitiativeService
 from app.initiative.scheduler import InitiativeScheduler
+from app.integrations.outbox import TelegramOutbox
 from app.memory.store import MemoryStore
 from app.orchestrator.agent import Agent
 from app.orchestrator.security.approval import ToolApprovalManager
@@ -29,7 +30,8 @@ event_bus = RealtimeEventBus()
 media_sessions = MediaSessionStore(_runtime_data / "media_sessions.json")
 hardware_bridge = HardwareBridgeStore()
 mqtt_bridge = MqttBridge(hardware_bridge, event_bus)
-initiative_service = InitiativeService()
+telegram_outbox = TelegramOutbox(_runtime_data / "telegram_outbox.json")
+initiative_service = InitiativeService(outbox=telegram_outbox)
 context_events = ContextEventService(
     ContextEventStore(_runtime_data / "context_events.json"),
     ContextFeedbackStore(_runtime_data / "context_feedback.json"),

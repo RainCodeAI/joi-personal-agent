@@ -16,7 +16,7 @@ import json
 import logging
 import time
 from functools import wraps
-from typing import Any, Awaitable, Callable, Dict, List
+from typing import Any, Awaitable, Callable, Dict, Iterable, List
 
 from telegram import BotCommand, Update
 from telegram.ext import (
@@ -267,6 +267,66 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await message.reply_text(reply)
 
 
+# ── proactive delivery ──────────────────────────────────────────────────────
+
+SendFn = Callable[[int, str], Awaitable[None]]
+
+
+async def deliver_outbox_once(
+    client: JoiClient,
+    send: SendFn,
+    allowed_ids: Iterable[int],
+    *,
+    limit: int = 10,
+) -> int:
+    """Claim queued proactive messages, deliver them, and ack the delivered ones.
+
+    Testable core of the poll job: `send(chat_id, text)` does the actual Telegram
+    call. A message is acked only if it reached every recipient without error, so
+    a transient failure leaves it queued for the next poll (at-least-once).
+    """
+    recipients = [int(i) for i in allowed_ids]
+    if not recipients:
+        return 0
+    try:
+        messages = await client.claim_outbox(limit=limit)
+    except JoiApiError as exc:
+        logger.warning("Outbox claim failed: %s", exc)
+        return 0
+
+    delivered_ids: List[str] = []
+    for message in messages:
+        text = str(message.get("text", "")).strip()
+        message_id = str(message.get("id", ""))
+        if not text or not message_id:
+            continue
+        try:
+            for chat_id in recipients:
+                await send(chat_id, text)
+        except Exception as exc:  # noqa: BLE001 - keep the poll alive; retry later
+            logger.warning("Proactive delivery failed for %s: %s", message_id, exc)
+            continue
+        delivered_ids.append(message_id)
+
+    if delivered_ids:
+        try:
+            await client.ack_outbox(delivered_ids)
+        except JoiApiError as exc:
+            # Backend will reissue unacked messages; a duplicate is better than a
+            # silent drop, so we just log and move on.
+            logger.warning("Outbox ack failed for %d message(s): %s", len(delivered_ids), exc)
+    return len(delivered_ids)
+
+
+async def _poll_outbox(context: ContextTypes.DEFAULT_TYPE) -> None:
+    """JobQueue tick: deliver any queued proactive messages to allowlisted users."""
+
+    async def send(chat_id: int, text: str) -> None:
+        await context.bot.send_message(chat_id=chat_id, text=text)
+
+    await deliver_outbox_once(_client(), send, settings.telegram_allowed_ids)
+
+
 # ── entrypoint ─────────────────────────────────────────────────────────────
 
 def _startup_selftest() -> None:
@@ -340,6 +400,19 @@ def build_application() -> Application:
     app.add_handler(CommandHandler("memory", cmd_memory))
     app.add_handler(CommandHandler("approvals", cmd_approvals))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_text))
+
+    if settings.telegram_proactive_enabled:
+        if app.job_queue is None:
+            logger.warning(
+                "Proactive delivery is enabled but the JobQueue is unavailable "
+                "(install python-telegram-bot[job-queue]) — messages will queue "
+                "on the backend but won't be delivered."
+            )
+        else:
+            interval = max(15, int(settings.telegram_outbox_poll_seconds))
+            app.job_queue.run_repeating(_poll_outbox, interval=interval, first=interval, name="joi_outbox_poll")
+            logger.info("Proactive delivery enabled — polling the outbox every %ds", interval)
+
     return app
 
 
