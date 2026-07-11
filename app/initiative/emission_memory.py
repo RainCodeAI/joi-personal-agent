@@ -57,6 +57,7 @@ class InitiativeEmissionMemory:
         topic_key: str,
         message: str,
         quality_score: float,
+        session_id: str | None = None,
         source_ids: Sequence[str] | None = None,
         emitted_at: datetime | None = None,
     ) -> dict[str, Any]:
@@ -64,6 +65,7 @@ class InitiativeEmissionMemory:
             "id": str(uuid.uuid4()),
             "type": initiative_type,
             "topic_key": topic_key,
+            "session_id": session_id,
             "source_ids": list(source_ids or []),
             "message": message,
             "quality_score": round(float(quality_score), 4),
@@ -109,6 +111,49 @@ class InitiativeEmissionMemory:
                     self._persist()
                     return True
         return False
+
+    def register_user_reply(
+        self,
+        session_id: str,
+        *,
+        now: datetime | None = None,
+        engaged_window_minutes: int = 30,
+    ) -> list[dict[str, Any]]:
+        """Resolve pending initiatives for a session on a fresh user message.
+
+        The most recent still-unknown initiative emitted within the engagement
+        window is marked ``engaged`` (the user is plausibly replying to it). Any
+        unknown initiative older than the window is marked ``ignored`` — the
+        spec's "no reply before the next normal interaction or timeout." Returns
+        the records that changed.
+        """
+        current = now or _utc_now()
+        window_start = current - timedelta(minutes=engaged_window_minutes)
+        changed: list[dict[str, Any]] = []
+        with self._lock:
+            pending = [
+                record
+                for record in self._records
+                if record.get("session_id") == session_id
+                and record.get("user_response") == "unknown"
+            ]
+            pending.sort(
+                key=lambda record: _parse_dt(record.get("emitted_at")) or window_start,
+                reverse=True,
+            )
+            engaged_marked = False
+            for record in pending:
+                emitted = _parse_dt(record.get("emitted_at"))
+                if emitted is not None and emitted >= window_start and not engaged_marked:
+                    record["user_response"] = "engaged"
+                    engaged_marked = True
+                    changed.append(record)
+                elif emitted is not None and emitted < window_start:
+                    record["user_response"] = "ignored"
+                    changed.append(record)
+            if changed:
+                self._persist()
+        return [dict(record) for record in changed]
 
     def recent(self, *, limit: int = 20) -> list[dict[str, Any]]:
         with self._lock:

@@ -1411,6 +1411,9 @@ async def chat_v2(request: V2ChatRequest):
         source="chat.message.received",
         clear_absence=True,
     )
+    # A user message is the engagement signal for any recent proactive initiative
+    # in this session — resolve its feedback (engaged / aged-out to ignored).
+    initiative_service.register_user_reply(session_id=request.session_id)
     attachment_resources: List[ChatAttachmentResource] = []
     attachment_contexts: List[str] = []
     for attachment in request.attachments:

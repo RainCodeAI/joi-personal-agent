@@ -13,8 +13,12 @@ Stages 1–2 of the staged rollout are built:
   (missing/generic/unattributable evidence, repeat topic within 7 days). Scoring
   is deterministic — no LLM — per the non-goals.
 - `app/initiative/emission_memory.py` — `InitiativeEmissionMemory` persists one
-  record per emitted evidence-bound initiative, keyed by `topic_key`, for repeat
-  suppression and the (started) feedback loop (`user_response`).
+  record per emitted evidence-bound initiative, keyed by `topic_key` and scoped
+  by `session_id`, for repeat suppression and the feedback loop (`user_response`).
+- Feedback loop is wired: the chat path calls
+  `InitiativeService.register_user_reply(session_id)` on every user message, which
+  marks the most recent in-window initiative `engaged` and ages stale unanswered
+  ones out to `ignored`. (`negative` — hide/delete/disable — is still future.)
 - The gate is wired into `InitiativeService` as a pre-policy step: it runs before
   the existing policy gate and only for candidates that carry `evidence`. Timer-
   driven candidates (daily greeting, absence return, etc.) carry no evidence and

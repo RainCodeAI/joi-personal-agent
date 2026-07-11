@@ -256,6 +256,23 @@ class InitiativeService:
             )
         return None
 
+    def register_user_reply(
+        self, session_id: str, *, now: datetime | None = None
+    ) -> list[dict[str, Any]]:
+        """Resolve pending evidence-bound initiative feedback on a user message.
+
+        Called from the chat path: a reply shortly after an evidence-bound
+        initiative marks it engaged; stale unanswered ones age out to ignored.
+        No-op when the quality gate isn't configured.
+        """
+        if self._quality_gate is None:
+            return []
+        try:
+            return self._quality_gate.register_feedback(session_id, now=now)
+        except Exception as exc:  # noqa: BLE001 - feedback must never break chat
+            logger.warning("Initiative feedback registration failed: %s", exc)
+            return []
+
     def _quality_evaluate(self, candidate: InitiativeCandidate, now: datetime) -> Any | None:
         """Score an evidence-bound candidate, or None if the gate doesn't apply.
 
@@ -378,7 +395,7 @@ class InitiativeService:
             memory_store.add_chat_message(candidate.session_id, "assistant", candidate.message)
         if quality is not None and self._quality_gate is not None:
             # Persist for repeat suppression only after the candidate truly emits.
-            self._quality_gate.record_emission(candidate, quality)
+            self._quality_gate.record_emission(candidate, quality, now=current)
 
         await event_bus.publish(
             "initiative.emitted",
@@ -518,6 +535,7 @@ class InitiativeService:
                     "safety_floor": SAFETY_FLOOR,
                     "weights": WEIGHTS,
                     "recent_decisions": self._quality_gate.recent_decisions(limit=10),
+                    "recent_emissions": self._quality_gate.recent_emissions(limit=10),
                 }
             )
         return block

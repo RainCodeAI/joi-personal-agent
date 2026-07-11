@@ -190,7 +190,13 @@ class InitiativeQualityGate:
         self._remember(candidate, score)
         return score
 
-    def record_emission(self, candidate: InitiativeCandidate, score: QualityScore) -> None:
+    def record_emission(
+        self,
+        candidate: InitiativeCandidate,
+        score: QualityScore,
+        *,
+        now: datetime | None = None,
+    ) -> None:
         """Persist an emitted evidence-bound initiative for repeat suppression."""
         if self._memory is None or not score.topic_key:
             return
@@ -202,11 +208,26 @@ class InitiativeQualityGate:
             topic_key=score.topic_key,
             message=candidate.message,
             quality_score=score.total,
+            session_id=candidate.session_id,
             source_ids=source_ids,
+            emitted_at=now,
         )
+
+    def register_feedback(
+        self, session_id: str, *, now: datetime | None = None
+    ) -> list[dict[str, Any]]:
+        """Resolve pending initiative feedback for a session on a user reply."""
+        if self._memory is None:
+            return []
+        return self._memory.register_user_reply(session_id, now=now)
 
     def recent_decisions(self, *, limit: int = 20) -> list[dict[str, Any]]:
         return self._recent[-max(1, limit):][::-1]
+
+    def recent_emissions(self, *, limit: int = 20) -> list[dict[str, Any]]:
+        if self._memory is None:
+            return []
+        return self._memory.recent(limit=limit)
 
     # ── scoring dimensions ────────────────────────────────────────────────
 

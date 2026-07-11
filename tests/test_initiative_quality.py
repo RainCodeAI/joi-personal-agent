@@ -69,6 +69,68 @@ def test_emission_memory_records_and_detects_repeat(tmp_path):
     assert memory.seen_topic_within("memory_followup:other", now=_now()) is False
 
 
+def test_register_user_reply_marks_recent_engaged(tmp_path):
+    memory = InitiativeEmissionMemory(tmp_path / "emissions.json")
+    memory.record(
+        initiative_type="memory_followup",
+        topic_key="k1",
+        message="Earlier...",
+        quality_score=0.9,
+        session_id="s",
+        emitted_at=_now() - timedelta(minutes=5),
+    )
+    changed = memory.register_user_reply("s", now=_now())
+    assert len(changed) == 1
+    assert changed[0]["user_response"] == "engaged"
+
+
+def test_register_user_reply_ages_out_stale_to_ignored(tmp_path):
+    memory = InitiativeEmissionMemory(tmp_path / "emissions.json")
+    memory.record(
+        initiative_type="memory_followup",
+        topic_key="k1",
+        message="Old one",
+        quality_score=0.9,
+        session_id="s",
+        emitted_at=_now() - timedelta(hours=2),  # well outside the 30-min window
+    )
+    changed = memory.register_user_reply("s", now=_now())
+    assert len(changed) == 1
+    assert changed[0]["user_response"] == "ignored"
+
+
+def test_register_user_reply_is_session_scoped(tmp_path):
+    memory = InitiativeEmissionMemory(tmp_path / "emissions.json")
+    memory.record(
+        initiative_type="memory_followup",
+        topic_key="k1",
+        message="theirs",
+        quality_score=0.9,
+        session_id="other",
+        emitted_at=_now() - timedelta(minutes=5),
+    )
+    changed = memory.register_user_reply("s", now=_now())
+    assert changed == []
+    assert memory.recent()[0]["user_response"] == "unknown"
+
+
+def test_register_user_reply_engages_only_newest_within_window(tmp_path):
+    memory = InitiativeEmissionMemory(tmp_path / "emissions.json")
+    for minutes in (20, 3):  # older-but-in-window, then newest
+        memory.record(
+            initiative_type="memory_followup",
+            topic_key=f"k{minutes}",
+            message="m",
+            quality_score=0.9,
+            session_id="s",
+            emitted_at=_now() - timedelta(minutes=minutes),
+        )
+    memory.register_user_reply("s", now=_now())
+    by_topic = {r["topic_key"]: r["user_response"] for r in memory.recent()}
+    assert by_topic["k3"] == "engaged"      # newest in-window → the reply target
+    assert by_topic["k20"] == "unknown"     # second in-window stays unresolved
+
+
 def test_emission_memory_set_response_and_persist(tmp_path):
     path = tmp_path / "emissions.json"
     record = InitiativeEmissionMemory(path).record(
@@ -225,6 +287,35 @@ def test_service_second_emit_suppressed_by_novelty(tmp_path, monkeypatch):
     )
     assert second.allowed is False
     assert "quality gate" in (second.suppressed_reason or "")
+
+
+def test_service_reply_marks_emitted_initiative_engaged(tmp_path, monkeypatch):
+    monkeypatch.setattr(settings, "initiative_quality_gate_enabled", True)
+    service, memory = _gated_service(tmp_path)
+    bus = AsyncMock()
+
+    asyncio.run(
+        service.emit(
+            _evidence_candidate(),
+            event_bus=bus,
+            policy=_policy(),
+            media_session={"mic_state": "idle", "speaking_state": "idle"},
+            now=_now(),
+        )
+    )
+    assert memory.recent()[0]["user_response"] == "unknown"
+
+    changed = service.register_user_reply("s", now=_now() + timedelta(minutes=2))
+    assert len(changed) == 1
+    assert memory.recent()[0]["user_response"] == "engaged"
+
+
+def test_service_register_user_reply_without_gate_is_noop(tmp_path):
+    from app.initiative.service import InitiativeService
+    from app.initiative.store import InitiativeStore
+
+    service = InitiativeService(store=InitiativeStore(tmp_path / "init.json"))
+    assert service.register_user_reply("s") == []
 
 
 def test_service_timer_candidate_bypasses_gate(tmp_path, monkeypatch):
