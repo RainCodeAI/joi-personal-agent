@@ -1,9 +1,12 @@
 """Background scheduler that periodically evaluates initiative candidates.
 
-Runs two jobs:
+Runs periodic jobs for:
   - General tick every 15 minutes: daily_greeting, return_after_absence,
     late_night_checkin, prolonged_silence.
   - Memory tick every 4 hours: memory_followup.
+  - Context commentary queue every 5 minutes.
+  - Avatar ambient life state every minute.
+  - Nightly memory consolidation.
 
 Each tick builds candidates through InitiativeService and passes them through
 the central gate (can_emit / emit). The gate handles all suppression logic -
@@ -27,6 +30,7 @@ from typing import TYPE_CHECKING, Any
 from app.config import settings
 
 if TYPE_CHECKING:
+    from app.avatar.life_state import LifeStateEngine
     from app.api.media_session import MediaSessionStore
     from app.api.realtime import RealtimeEventBus
     from app.initiative.service import InitiativeService
@@ -37,6 +41,7 @@ logger = logging.getLogger(__name__)
 _TICK_INTERVAL_MINUTES = 15
 _MEMORY_TICK_INTERVAL_HOURS = 4
 _CONTEXT_TICK_INTERVAL_MINUTES = 5
+_LIFE_STATE_TICK_INTERVAL_MINUTES = 1
 _BOOT_DELAY_SECONDS = 30
 _DEFAULT_SESSION = "default"
 
@@ -57,12 +62,14 @@ class InitiativeScheduler:
         memory_store: "MemoryStore",
         media_sessions: "MediaSessionStore",
         context_events: Any | None = None,
+        life_state_engine: "LifeStateEngine | None" = None,
     ) -> None:
         self._service = service
         self._event_bus = event_bus
         self._memory_store = memory_store
         self._media_sessions = media_sessions
         self._context_events = context_events
+        self._life_state_engine = life_state_engine
         self._scheduler: Any = None  # APScheduler AsyncIOScheduler, imported lazily
 
     # ------------------------------------------------------------------
@@ -92,6 +99,16 @@ class InitiativeScheduler:
             next_run_time=first_run,
             id="context_commentary_tick",
             name="Context commentary queue tick",
+            coalesce=True,
+            max_instances=1,
+        )
+        self._scheduler.add_job(
+            self._life_state_tick,
+            trigger="interval",
+            minutes=_LIFE_STATE_TICK_INTERVAL_MINUTES,
+            next_run_time=first_run,
+            id="avatar_life_state_tick",
+            name="Avatar ambient life-state tick",
             coalesce=True,
             max_instances=1,
         )
@@ -239,6 +256,26 @@ class InitiativeScheduler:
                 reason=reason,
                 retryable=self._context_events.is_retryable_suppression(reason),
             )
+
+    async def _life_state_tick(self) -> None:
+        """Advance ambient avatar state even when no presence event arrives."""
+        if self._life_state_engine is None:
+            return
+        session_id = _DEFAULT_SESSION
+        try:
+            new_state = self._life_state_engine.evaluate(
+                last_activity_at=self._service.store.last_user_activity_at(),
+                absence_started_at=self._service.store.absence_started_at(session_id),
+            )
+            if new_state is not None:
+                await self._event_bus.publish(
+                    "avatar.life_state_changed",
+                    {"life_state": new_state},
+                    session_id=session_id,
+                    source="life_state",
+                )
+        except Exception as exc:
+            logger.warning("Life-state tick failed: %s", exc)
 
     # ------------------------------------------------------------------
     # Internal helpers

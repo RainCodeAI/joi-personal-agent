@@ -41,6 +41,7 @@ def _fake_client(**overrides):
     }))
     client.recent_messages = AsyncMock(return_value=overrides.get("recent", []))
     client.search_memory = AsyncMock(return_value=overrides.get("memory", []))
+    client.pending_approvals = AsyncMock(return_value=overrides.get("approvals", []))
     return client
 
 
@@ -68,10 +69,16 @@ def test_summarize_approvals_dedups_and_counts():
 
 
 def test_redact_sensitive_args():
-    red = tb._redact_args({"to": "a@b.com", "subject": "hi", "body": "secret text"})
+    red = tb._redact_args({
+        "to": "a@b.com",
+        "subject": "hi",
+        "body": "secret text",
+        "metadata": {"Token": "private", "safe": "visible"},
+    })
     assert red["to"] == "[redacted]"
     assert red["body"] == "[redacted]"
     assert red["subject"] == "hi"
+    assert red["metadata"] == {"Token": "[redacted]", "safe": "visible"}
 
 
 def test_session_mapping_is_deterministic_per_user():
@@ -192,3 +199,58 @@ def test_memory_command_no_results(monkeypatch):
 
     reply = update.effective_message.reply_text.await_args.args[0]
     assert "don't have anything" in reply.lower()
+
+
+def test_approvals_command_lists_current_session_read_only_and_redacted(monkeypatch):
+    client = _fake_client(approvals=[{
+        "id": "approval-1",
+        "tool_name": "send_email",
+        "args": {"to": "x@y.com", "subject": "Hello", "body": "private body"},
+    }])
+    monkeypatch.setattr(tb, "_client", lambda: client)
+    update = FakeUpdate(user_id=111, text="/approvals")
+
+    asyncio.run(tb.cmd_approvals(update, None))
+
+    client.pending_approvals.assert_awaited_once_with("telegram:111")
+    reply = update.effective_message.reply_text.await_args.args[0]
+    assert "send_email" in reply
+    assert "Hello" in reply
+    assert "x@y.com" not in reply
+    assert "private body" not in reply
+    assert "approve or deny these on the laptop" in reply
+
+
+def test_approvals_command_reports_empty_queue(monkeypatch):
+    client = _fake_client(approvals=[])
+    monkeypatch.setattr(tb, "_client", lambda: client)
+    update = FakeUpdate(user_id=111, text="/approvals")
+
+    asyncio.run(tb.cmd_approvals(update, None))
+
+    assert "no pending approvals" in update.effective_message.reply_text.await_args.args[0].lower()
+
+
+def test_approvals_command_handles_backend_failure(monkeypatch):
+    client = _fake_client()
+    client.pending_approvals = AsyncMock(side_effect=JoiApiError("down"))
+    monkeypatch.setattr(tb, "_client", lambda: client)
+    update = FakeUpdate(user_id=111, text="/approvals")
+
+    asyncio.run(tb.cmd_approvals(update, None))
+
+    reply = update.effective_message.reply_text.await_args.args[0]
+    assert "approval queue" in reply.lower()
+
+
+def test_recent_command_distinguishes_backend_failure_from_empty_history(monkeypatch):
+    client = _fake_client()
+    client.recent_messages = AsyncMock(side_effect=JoiApiError("down"))
+    monkeypatch.setattr(tb, "_client", lambda: client)
+    update = FakeUpdate(user_id=111, text="/recent")
+
+    asyncio.run(tb.cmd_recent(update, None))
+
+    reply = update.effective_message.reply_text.await_args.args[0]
+    assert "couldn't reach" in reply.lower()
+    assert "no messages" not in reply.lower()

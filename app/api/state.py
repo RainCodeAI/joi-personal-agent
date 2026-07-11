@@ -34,13 +34,14 @@ context_events = ContextEventService(
     ContextEventStore(_runtime_data / "context_events.json"),
     ContextFeedbackStore(_runtime_data / "context_feedback.json"),
 )
+life_state_engine = LifeStateEngine()
 initiative_scheduler = InitiativeScheduler(
     initiative_service,
     event_bus,
     memory_store,
     media_sessions,
     context_events=context_events,
+    life_state_engine=life_state_engine,
 )
-life_state_engine = LifeStateEngine()
 user_model_corrections = UserModelCorrectionStore()
 user_model_synthesis_records = UserModelSynthesisRecordStore()

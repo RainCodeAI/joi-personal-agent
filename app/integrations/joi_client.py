@@ -80,11 +80,17 @@ class JoiClient:
         return response.json().get("items", [])
 
     async def recent_messages(self, session_id: str, limit: int = 6) -> List[Dict[str, Any]]:
-        """Return the last `limit` messages for a session (empty if none/unknown)."""
-        try:
-            response = await self._request(
-                "GET", f"/api/v2/sessions/{session_id}/messages?limit={limit}"
-            )
-        except JoiApiError:
-            return []
+        """Return recent messages, preserving backend failures for the caller."""
+        response = await self._request(
+            "GET", f"/api/v2/sessions/{session_id}/messages?limit={limit}"
+        )
         return response.json().get("messages", [])
+
+    async def pending_approvals(self, session_id: str) -> List[Dict[str, Any]]:
+        """List approvals for one session without exposing any decision endpoint."""
+        from urllib.parse import quote
+
+        response = await self._request(
+            "GET", f"/api/v2/approvals?session_id={quote(session_id, safe='')}"
+        )
+        return response.json().get("approvals", [])

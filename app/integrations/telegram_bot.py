@@ -12,6 +12,7 @@ ever *reported* here — approval and execution stay local by design.
 
 from __future__ import annotations
 
+import json
 import logging
 import time
 from functools import wraps
@@ -32,7 +33,19 @@ from app.integrations.joi_client import JoiApiError, JoiClient
 logger = logging.getLogger("joi.telegram")
 
 # Redacted from approval previews sent to a remote surface.
-_SENSITIVE_ARG_KEYS = {"body", "content", "html", "message", "to", "cc", "bcc"}
+_SENSITIVE_ARG_KEYS = {
+    "authorization",
+    "bcc",
+    "body",
+    "cc",
+    "content",
+    "html",
+    "message",
+    "password",
+    "secret",
+    "token",
+    "to",
+}
 
 # Per-user active session id (in-memory; deterministic default per user).
 _active_session: Dict[int, str] = {}
@@ -83,8 +96,45 @@ def summarize_approvals(approvals: List[Dict[str, Any]]) -> str:
     )
 
 
+def _redact_value(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {
+            key: "[redacted]" if str(key).lower() in _SENSITIVE_ARG_KEYS else _redact_value(item)
+            for key, item in value.items()
+        }
+    if isinstance(value, list):
+        return [_redact_value(item) for item in value]
+    return value
+
+
 def _redact_args(args: Dict[str, Any]) -> Dict[str, Any]:
-    return {k: ("[redacted]" if k in _SENSITIVE_ARG_KEYS else v) for k, v in args.items()}
+    return _redact_value(args)
+
+
+def format_pending_approvals(approvals: List[Dict[str, Any]]) -> str:
+    """Format a bounded, redacted, explicitly read-only approval list."""
+    if not approvals:
+        return "No pending approvals in this thread."
+
+    lines = [f"Pending approvals in this thread ({len(approvals)}):"]
+    for approval in approvals[:5]:
+        tool_name = str(approval.get("tool_name", "action"))
+        redacted_preview = approval.get("redacted_preview")
+        preview_args = (
+            redacted_preview.get("arguments")
+            if isinstance(redacted_preview, dict)
+            else None
+        )
+        args = preview_args if isinstance(preview_args, dict) else approval.get("args")
+        safe_args = _redact_args(args) if isinstance(args, dict) else {}
+        preview = json.dumps(safe_args, ensure_ascii=False, sort_keys=True)
+        if len(preview) > 220:
+            preview = preview[:217] + "..."
+        lines.append(f"• {tool_name}: {preview}")
+    if len(approvals) > 5:
+        lines.append(f"• …and {len(approvals) - 5} more")
+    lines.append("Read-only here — approve or deny these on the laptop.")
+    return "\n".join(lines)
 
 
 async def _ensure_session(client: JoiClient, session_id: str) -> None:
@@ -101,7 +151,7 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.effective_message.reply_text(
         "Hey. I'm here.\n\n"
         "Just talk to me and I'll answer with the same memory and context as on the laptop. "
-        "Commands: /status, /new, /recent, /help."
+        "Commands: /status, /new, /recent, /memory, /approvals, /help."
     )
 
 
@@ -112,6 +162,7 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "/new — start a fresh conversation thread\n"
         "/recent — show the last few messages\n"
         "/memory <query> — search what Joi remembers\n"
+        "/approvals — list this thread's pending approvals (read-only)\n"
         "Anything else routes to Joi. Actions like sending email are staged for "
         "approval on the laptop, never run from here."
     )
@@ -160,7 +211,14 @@ async def cmd_memory(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
 @allowlisted
 async def cmd_recent(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     session_id = _session_for(update.effective_user.id)
-    messages = await _client().recent_messages(session_id, limit=6)
+    try:
+        messages = await _client().recent_messages(session_id, limit=6)
+    except JoiApiError as exc:
+        logger.warning("Recent-message lookup failed for session %s: %s", session_id, exc)
+        await update.effective_message.reply_text(
+            "I couldn't reach this thread's history right now — try again in a moment."
+        )
+        return
     if not messages:
         await update.effective_message.reply_text("No messages in this thread yet.")
         return
@@ -172,6 +230,20 @@ async def cmd_recent(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
             text = text[:157] + "..."
         lines.append(f"{who}: {text}")
     await update.effective_message.reply_text("\n".join(lines))
+
+
+@allowlisted
+async def cmd_approvals(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    session_id = _session_for(update.effective_user.id)
+    try:
+        approvals = await _client().pending_approvals(session_id)
+    except JoiApiError as exc:
+        logger.warning("Approval lookup failed for session %s: %s", session_id, exc)
+        await update.effective_message.reply_text(
+            "I couldn't reach the approval queue right now — try again in a moment."
+        )
+        return
+    await update.effective_message.reply_text(format_pending_approvals(approvals))
 
 
 @allowlisted
@@ -249,6 +321,7 @@ BOT_COMMANDS = [
     BotCommand("new", "Start a fresh conversation thread"),
     BotCommand("recent", "Show the last few messages"),
     BotCommand("memory", "Search what Joi remembers"),
+    BotCommand("approvals", "List pending approvals (read-only)"),
 ]
 
 
@@ -265,6 +338,7 @@ def build_application() -> Application:
     app.add_handler(CommandHandler("new", cmd_new))
     app.add_handler(CommandHandler("recent", cmd_recent))
     app.add_handler(CommandHandler("memory", cmd_memory))
+    app.add_handler(CommandHandler("approvals", cmd_approvals))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_text))
     return app
 
