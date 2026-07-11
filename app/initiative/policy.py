@@ -14,6 +14,7 @@ InitiativeType = Literal[
     "prolonged_silence",
     "memory_followup",
     "context_commentary",
+    "calendar_heads_up",
 ]
 
 InitiativePriority = Literal["low", "normal", "high"]
@@ -25,6 +26,7 @@ ALLOWED_INITIATIVE_TYPES: tuple[InitiativeType, ...] = (
     "prolonged_silence",
     "memory_followup",
     "context_commentary",
+    "calendar_heads_up",
 )
 
 # Types that are gated by the late-night window rather than quiet hours.

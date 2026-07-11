@@ -36,11 +36,27 @@ Stages 1–2 of the staged rollout are built:
 - Diagnostics: `InitiativeService.diagnostics()` includes a `quality_gate` block
   (threshold, safety floor, weights, recent decisions).
 
-Not yet implemented (later stages): the new context-triggered candidate families
+Stage 3 started with `calendar_heads_up` (2026-07-11) — the first *new* evidence-
+bound candidate type, added diagnostics-only:
+
+- `InitiativeService.build_calendar_heads_up_candidate` builds an evidence-bound
+  candidate for the soonest calendar event in a lead window (default 15–90 min),
+  with `source_type="calendar"`, the event title as excerpt, and a per-event
+  `topic_key`. Events are supplied by callers/tests or read from the read-only
+  calendar tool when authenticated.
+- It is deliberately **not** in the default `INITIATIVE_ALLOWED_TYPES`, so the
+  policy gate suppresses live emission (`initiative type disabled`) while the
+  quality gate still scores it. Inspect via
+  `POST /api/v2/initiative/calendar-heads-up` (emit=false), which returns the
+  decision and the quality breakdown. Enabling live emission is a later flip:
+  add `calendar_heads_up` to `INITIATIVE_ALLOWED_TYPES` and wire a scheduler tick.
+
+Not yet implemented (later stages): the other context-triggered families
 (`open_loop_followup`, `project_checkin`, `mood_pattern_notice`,
-`win_acknowledgement`) and the user-model-confidence / hidden-deleted-correction
-hard rules — those depend on Phase 9 synthesis being trustworthy (Rollout Gates
-below). The scorer and emission memory are ready to receive them.
+`win_acknowledgement`), a live scheduler tick for `calendar_heads_up`, and the
+user-model-confidence / hidden-deleted-correction hard rules — those depend on
+Phase 9 synthesis being trustworthy (Rollout Gates below). The scorer and
+emission memory are ready to receive them.
 
 ## Original Design
 

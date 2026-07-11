@@ -55,6 +55,7 @@ _GROUNDED_SOURCE_TYPES = {
     "project",
     "mood_log",
     "context_event",
+    "calendar",
 }
 
 # Language that implies a diagnosis, personality judgment, relationship read, or

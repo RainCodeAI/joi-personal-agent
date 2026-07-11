@@ -256,6 +256,90 @@ class InitiativeService:
             )
         return None
 
+    def build_calendar_heads_up_candidate(
+        self,
+        *,
+        session_id: str = "default",
+        events: list[dict[str, Any]] | None = None,
+        now: datetime | None = None,
+        lead_minutes_min: int = 15,
+        lead_minutes_max: int = 90,
+    ) -> InitiativeCandidate | None:
+        """Evidence-bound heads-up for the soonest calendar event in the lead window.
+
+        Diagnostics-only for now: `calendar_heads_up` is not in the default
+        allowed types, so the policy gate suppresses live emission until enabled.
+        `events` may be supplied (tests, callers) or fetched from the read-only
+        calendar tool when authenticated.
+        """
+        current = self._policy_now(InitiativePolicy.from_settings(), now)
+        if events is None:
+            events = self._fetch_calendar_events()
+        if not events:
+            return None
+
+        soonest: tuple[float, dict[str, Any], datetime] | None = None
+        for event in events:
+            start = self._parse_event_start(event, current)
+            if start is None:
+                continue
+            minutes_until = (start - current).total_seconds() / 60
+            if not (lead_minutes_min <= minutes_until <= lead_minutes_max):
+                continue
+            if soonest is None or minutes_until < soonest[0]:
+                soonest = (minutes_until, event, start)
+        if soonest is None:
+            return None
+
+        minutes_until, event, start = soonest
+        summary = str(event.get("summary") or "").strip() or "an untitled event"
+        event_id = str(event.get("id") or "") or None
+        rounded = max(5, int(round(minutes_until / 5.0)) * 5)
+        evidence = CandidateEvidence(
+            source_type="calendar",
+            excerpt=f"{summary} at {start.isoformat()}",
+            source_id=event_id,
+            observed_at=None,  # a future event isn't "stale" evidence; timing governs
+            topic_key=f"calendar_heads_up:{event_id}" if event_id else None,
+        )
+        return InitiativeCandidate(
+            type="calendar_heads_up",
+            priority="normal",
+            reason=f"calendar event in {int(minutes_until)} minutes",
+            session_id=session_id,
+            message=f"Heads up — \"{summary}\" is coming up in about {rounded} minutes.",
+            expires_at=start.isoformat(),
+            evidence=evidence,
+        )
+
+    def _fetch_calendar_events(self) -> list[dict[str, Any]]:
+        """Read upcoming events from the calendar tool, or [] if unavailable."""
+        try:
+            from app.tools import calendar_gcal
+
+            if not calendar_gcal.is_authenticated():
+                return []
+            return calendar_gcal.upcoming_events(days=1)
+        except Exception as exc:  # noqa: BLE001 - never let a calendar hiccup raise
+            logger.warning("Calendar heads-up fetch failed: %s", exc)
+            return []
+
+    def _parse_event_start(
+        self, event: dict[str, Any], current: datetime
+    ) -> datetime | None:
+        """Parse a Google Calendar event's timed start; skip all-day entries."""
+        start = event.get("start")
+        if not isinstance(start, dict):
+            return None
+        raw = start.get("dateTime")  # all-day events use "date" (no time) — skip
+        if not raw:
+            return None
+        try:
+            parsed = datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
+        except ValueError:
+            return None
+        return self._coerce_to_current_zone(parsed, current)
+
     def register_user_reply(
         self, session_id: str, *, now: datetime | None = None
     ) -> list[dict[str, Any]]:

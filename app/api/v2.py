@@ -31,6 +31,7 @@ from app.api.state import (
     life_state_engine,
     media_sessions,
     memory_store,
+    initiative_quality_gate,
     mqtt_bridge,
     perception_policy,
     runtime_settings,
@@ -2826,6 +2827,42 @@ async def memory_followup_initiative(session_id: str = "default", emit: bool = F
             source="initiative",
         )
     return {"api_version": "v2", "decision": decision.to_dict()}
+
+
+@router.post("/initiative/calendar-heads-up")
+async def calendar_heads_up_initiative(session_id: str = "default", emit: bool = False):
+    """Diagnostics-only calendar heads-up: builds an evidence-bound candidate and
+    runs it through the quality gate. Live emission stays suppressed until
+    ``calendar_heads_up`` is added to INITIATIVE_ALLOWED_TYPES."""
+    candidate = initiative_service.build_calendar_heads_up_candidate(session_id=session_id)
+    if candidate is None:
+        payload = {
+            "allowed": False,
+            "candidate": None,
+            "suppressed_reason": "no upcoming event in the heads-up window",
+        }
+        await event_bus.publish(
+            "initiative.suppressed", payload, session_id=session_id, source="initiative"
+        )
+        return {"api_version": "v2", "decision": payload, "quality": None}
+
+    media_state = media_sessions.get(session_id)
+    if emit:
+        decision = await initiative_service.emit(
+            candidate,
+            event_bus=event_bus,
+            memory_store=memory_store,
+            media_session=media_state,
+        )
+    else:
+        decision = initiative_service.can_emit(candidate, media_session=media_state)
+        event_name = "initiative.candidate" if decision.allowed else "initiative.suppressed"
+        await event_bus.publish(
+            event_name, decision.to_dict(), session_id=session_id, source="initiative"
+        )
+    recent = initiative_quality_gate.recent_decisions(limit=1)
+    quality = recent[0]["quality_score"] if recent else None
+    return {"api_version": "v2", "decision": decision.to_dict(), "quality": quality}
 
 
 @router.get("/hardware/contract", response_model=HardwareBridgeContractResponse)
