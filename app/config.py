@@ -49,6 +49,10 @@ class Settings(BaseSettings):
     initiative_allowed_types: str = Field(
         default="daily_greeting,return_after_absence,late_night_checkin,context_commentary"
     )
+    # Phase 10 quality gate: score evidence-bound (context-triggered) initiatives
+    # for relevance/timing/recency/novelty/safety before the policy gate. Timer-
+    # driven initiatives bypass it, so this is safe to leave on.
+    initiative_quality_gate_enabled: bool = Field(default=True)
     context_commentary_enabled: bool = Field(default=False)
     context_min_confidence: float = Field(default=0.75)
     context_dedup_minutes: int = Field(default=10)

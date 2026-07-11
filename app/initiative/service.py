@@ -7,6 +7,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from app.initiative.policy import (
     LATE_NIGHT_TYPES,
+    CandidateEvidence,
     InitiativeCandidate,
     InitiativeDecision,
     InitiativePolicy,
@@ -27,12 +28,16 @@ class InitiativeService:
         self,
         store: InitiativeStore | None = None,
         outbox: Any | None = None,
+        quality_gate: Any | None = None,
     ) -> None:
         self.store = store or InitiativeStore()
         # Optional remote-delivery queue. When set, emitted initiatives that are
         # eligible are also enqueued for the Telegram bridge to pick up. None in
         # tests and any headless use — delivery is a strict add-on to emission.
         self._outbox = outbox
+        # Optional Phase 10 quality gate. Only evidence-bound (context-triggered)
+        # candidates are scored; timer-driven candidates bypass it entirely.
+        self._quality_gate = quality_gate
 
     def build_daily_greeting_candidate(
         self,
@@ -227,6 +232,19 @@ class InitiativeService:
                 continue
             summary = text[:120] + "..." if len(text) > 120 else text
             expires_at = (current + timedelta(hours=2)).isoformat()
+            memory_id = str(
+                getattr(memory, "id", None)
+                or getattr(memory, "memory_id", None)
+                or ""
+            ) or None
+            observed_at = created_at.isoformat() if isinstance(created_at, datetime) else None
+            evidence = CandidateEvidence(
+                source_type="memory",
+                excerpt=text,
+                source_id=memory_id,
+                observed_at=observed_at,
+                topic_key=f"memory_followup:{memory_id}" if memory_id else None,
+            )
             return InitiativeCandidate(
                 type="memory_followup",
                 priority="low",
@@ -234,19 +252,32 @@ class InitiativeService:
                 session_id=session_id,
                 message=f'Earlier you mentioned: "{summary}" - did that go anywhere?',
                 expires_at=expires_at,
+                evidence=evidence,
             )
         return None
 
-    def can_emit(
+    def _quality_evaluate(self, candidate: InitiativeCandidate, now: datetime) -> Any | None:
+        """Score an evidence-bound candidate, or None if the gate doesn't apply.
+
+        Timer-driven candidates (no evidence) and a disabled/absent gate return
+        None so the policy gate alone governs — preserving legacy behavior.
+        """
+        if self._quality_gate is None or candidate.evidence is None:
+            return None
+        from app.config import settings
+
+        if not getattr(settings, "initiative_quality_gate_enabled", True):
+            return None
+        return self._quality_gate.evaluate(candidate, now=now)
+
+    def _policy_decision(
         self,
         candidate: InitiativeCandidate,
         *,
-        policy: InitiativePolicy | None = None,
-        media_session: dict[str, Any] | None = None,
-        now: datetime | None = None,
+        active_policy: InitiativePolicy,
+        media_session: dict[str, Any] | None,
+        current: datetime,
     ) -> InitiativeDecision:
-        active_policy = policy or InitiativePolicy.from_settings()
-        current = self._policy_now(active_policy, now)
         reason = self._suppression_reason(
             candidate,
             policy=active_policy,
@@ -263,6 +294,33 @@ class InitiativeService:
             return InitiativeDecision(False, candidate, reason)
         return InitiativeDecision(True, candidate)
 
+    def can_emit(
+        self,
+        candidate: InitiativeCandidate,
+        *,
+        policy: InitiativePolicy | None = None,
+        media_session: dict[str, Any] | None = None,
+        now: datetime | None = None,
+    ) -> InitiativeDecision:
+        active_policy = policy or InitiativePolicy.from_settings()
+        current = self._policy_now(active_policy, now)
+        quality = self._quality_evaluate(candidate, current)
+        if quality is not None and not quality.passed:
+            reason = f"quality gate: {quality.hard_reason or 'suppressed'}"
+            self.store.record_suppressed(
+                initiative_type=candidate.type,
+                session_id=candidate.session_id,
+                reason=reason,
+                checked_at=current,
+            )
+            return InitiativeDecision(False, candidate, reason)
+        return self._policy_decision(
+            candidate,
+            active_policy=active_policy,
+            media_session=media_session,
+            current=current,
+        )
+
     async def emit(
         self,
         candidate: InitiativeCandidate,
@@ -275,11 +333,30 @@ class InitiativeService:
     ) -> InitiativeDecision:
         active_policy = policy or InitiativePolicy.from_settings()
         current = self._policy_now(active_policy, now)
-        decision = self.can_emit(
+
+        quality = self._quality_evaluate(candidate, current)
+        if quality is not None and not quality.passed:
+            reason = f"quality gate: {quality.hard_reason or 'suppressed'}"
+            self.store.record_suppressed(
+                initiative_type=candidate.type,
+                session_id=candidate.session_id,
+                reason=reason,
+                checked_at=current,
+            )
+            decision = InitiativeDecision(False, candidate, reason)
+            await event_bus.publish(
+                "initiative.suppressed",
+                decision.to_dict(),
+                session_id=candidate.session_id,
+                source="initiative",
+            )
+            return decision
+
+        decision = self._policy_decision(
             candidate,
-            policy=active_policy,
+            active_policy=active_policy,
             media_session=media_session,
-            now=current,
+            current=current,
         )
         if not decision.allowed:
             await event_bus.publish(
@@ -299,6 +376,9 @@ class InitiativeService:
         )
         if memory_store is not None:
             memory_store.add_chat_message(candidate.session_id, "assistant", candidate.message)
+        if quality is not None and self._quality_gate is not None:
+            # Persist for repeat suppression only after the candidate truly emits.
+            self._quality_gate.record_emission(candidate, quality)
 
         await event_bus.publish(
             "initiative.emitted",
@@ -400,7 +480,29 @@ class InitiativeService:
                 ),
             },
             "silence_threshold_minutes": active_policy.silence_threshold_minutes,
+            "quality_gate": self._quality_diagnostics(),
         }
+
+    def _quality_diagnostics(self) -> dict[str, Any]:
+        """Read-only view of the Phase 10 quality gate for the diagnostics surface."""
+        from app.config import settings
+
+        enabled = self._quality_gate is not None and bool(
+            getattr(settings, "initiative_quality_gate_enabled", True)
+        )
+        block: dict[str, Any] = {"enabled": enabled}
+        if self._quality_gate is not None:
+            from app.initiative.quality import DEFAULT_THRESHOLD, SAFETY_FLOOR, WEIGHTS
+
+            block.update(
+                {
+                    "threshold": DEFAULT_THRESHOLD,
+                    "safety_floor": SAFETY_FLOOR,
+                    "weights": WEIGHTS,
+                    "recent_decisions": self._quality_gate.recent_decisions(limit=10),
+                }
+            )
+        return block
 
     def _policy_now(self, policy: InitiativePolicy, now: datetime | None = None) -> datetime:
         timezone = self._timezone(policy.timezone)

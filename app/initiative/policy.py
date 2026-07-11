@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, time
-from typing import Literal
+from typing import Any, Literal
 
 from app.config import settings
 
@@ -82,6 +82,32 @@ class InitiativePolicy:
 
 
 @dataclass(frozen=True)
+class CandidateEvidence:
+    """Attributable source backing a context-triggered initiative (Phase 10).
+
+    Timer-driven candidates (daily greeting, absence return, etc.) carry no
+    evidence and bypass the quality gate. Context-triggered candidates must
+    reference a concrete, attributable source so the gate can judge relevance,
+    recency, and novelty.
+    """
+
+    source_type: str
+    excerpt: str
+    source_id: str | None = None
+    observed_at: str | None = None
+    topic_key: str | None = None
+
+    def to_dict(self) -> dict[str, str | None]:
+        return {
+            "source_type": self.source_type,
+            "excerpt": self.excerpt,
+            "source_id": self.source_id,
+            "observed_at": self.observed_at,
+            "topic_key": self.topic_key,
+        }
+
+
+@dataclass(frozen=True)
 class InitiativeCandidate:
     type: InitiativeType
     priority: InitiativePriority
@@ -90,8 +116,9 @@ class InitiativeCandidate:
     message: str
     expires_at: str | None = None
     context_event_id: str | None = None
+    evidence: CandidateEvidence | None = None
 
-    def to_dict(self) -> dict[str, str | None]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "type": self.type,
             "priority": self.priority,
@@ -100,6 +127,7 @@ class InitiativeCandidate:
             "message": self.message,
             "expires_at": self.expires_at,
             "context_event_id": self.context_event_id,
+            "evidence": self.evidence.to_dict() if self.evidence else None,
         }
 
 

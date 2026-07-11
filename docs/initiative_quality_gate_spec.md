@@ -1,7 +1,39 @@
 # Phase 10 Initiative Quality Gate Spec
 
-Status: design only
-Last updated: 2026-04-30
+Status: rollout stages 1–2 implemented (2026-07-11)
+Last updated: 2026-07-11
+
+## Implementation Status (2026-07-11)
+
+Stages 1–2 of the staged rollout are built:
+
+- `app/initiative/quality.py` — `InitiativeQualityGate` scores an *evidence-bound*
+  candidate on relevance/timing/recency/novelty/safety (weights and 0.75 threshold
+  from this spec), with a hard safety floor (0.70) and hard-suppression rules
+  (missing/generic/unattributable evidence, repeat topic within 7 days). Scoring
+  is deterministic — no LLM — per the non-goals.
+- `app/initiative/emission_memory.py` — `InitiativeEmissionMemory` persists one
+  record per emitted evidence-bound initiative, keyed by `topic_key`, for repeat
+  suppression and the (started) feedback loop (`user_response`).
+- The gate is wired into `InitiativeService` as a pre-policy step: it runs before
+  the existing policy gate and only for candidates that carry `evidence`. Timer-
+  driven candidates (daily greeting, absence return, etc.) carry no evidence and
+  bypass it entirely, so legacy behavior is unchanged. Controlled by
+  `INITIATIVE_QUALITY_GATE_ENABLED` (default on).
+- `memory_followup` is the first evidence-bound consumer: its builder now attaches
+  a `memory` source excerpt + `observed_at` + `topic_key`, so it is scored and
+  repeat-suppressed by the gate.
+- Diagnostics: `InitiativeService.diagnostics()` includes a `quality_gate` block
+  (threshold, safety floor, weights, recent decisions).
+
+Not yet implemented (later stages): the new context-triggered candidate families
+(`open_loop_followup`, `project_checkin`, `mood_pattern_notice`,
+`win_acknowledgement`) and the user-model-confidence / hidden-deleted-correction
+hard rules — those depend on Phase 9 synthesis being trustworthy (Rollout Gates
+below). The scorer and emission memory are ready to receive them.
+
+## Original Design
+
 
 ## Purpose
 
