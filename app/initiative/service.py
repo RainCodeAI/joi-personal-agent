@@ -481,7 +481,25 @@ class InitiativeService:
             },
             "silence_threshold_minutes": active_policy.silence_threshold_minutes,
             "quality_gate": self._quality_diagnostics(),
+            "remote_delivery": self._remote_delivery_diagnostics(),
         }
+
+    def _remote_delivery_diagnostics(self) -> dict[str, Any]:
+        """Read-only view of proactive Telegram delivery for the diagnostics surface."""
+        from app.config import settings
+
+        enabled = bool(getattr(settings, "telegram_proactive_enabled", False))
+        block: dict[str, Any] = {
+            "enabled": enabled,
+            "types": sorted(settings.telegram_proactive_type_set),
+        }
+        if self._outbox is not None:
+            try:
+                block["pending"] = self._outbox.pending_count()
+            except Exception as exc:  # noqa: BLE001 - diagnostics must never raise
+                block["pending"] = None
+                block["error"] = str(exc)
+        return block
 
     def _quality_diagnostics(self) -> dict[str, Any]:
         """Read-only view of the Phase 10 quality gate for the diagnostics surface."""

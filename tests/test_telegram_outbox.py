@@ -192,6 +192,34 @@ def test_deliver_remote_without_outbox_is_noop(tmp_path):
     service._deliver_remote(_candidate(), datetime.now(timezone.utc))
 
 
+# ── diagnostics ──────────────────────────────────────────────────────────────
+
+
+def test_diagnostics_reports_outbox_depth(tmp_path, monkeypatch):
+    from app.initiative.service import InitiativeService
+    from app.initiative.store import InitiativeStore
+
+    monkeypatch.setattr(settings, "telegram_proactive_enabled", True)
+    monkeypatch.setattr(settings, "telegram_proactive_types", "daily_greeting")
+    outbox = TelegramOutbox(tmp_path / "outbox.json")
+    outbox.enqueue(text="queued line", kind="initiative:daily_greeting")
+    service = InitiativeService(store=InitiativeStore(tmp_path / "init.json"), outbox=outbox)
+
+    remote = service.diagnostics()["remote_delivery"]
+    assert remote["enabled"] is True
+    assert remote["types"] == ["daily_greeting"]
+    assert remote["pending"] == 1
+
+
+def test_diagnostics_remote_delivery_without_outbox(tmp_path):
+    from app.initiative.service import InitiativeService
+    from app.initiative.store import InitiativeStore
+
+    service = InitiativeService(store=InitiativeStore(tmp_path / "init.json"))
+    remote = service.diagnostics()["remote_delivery"]
+    assert "pending" not in remote  # no outbox configured
+
+
 # ── HTTP endpoints ───────────────────────────────────────────────────────────
 
 
