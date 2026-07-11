@@ -36,6 +36,14 @@ DEFAULT_THRESHOLD = 0.75
 SAFETY_FLOOR = 0.70
 NOVELTY_WINDOW_DAYS = 7
 
+# Feedback consumption (learning loop). Over this window, a run of ignored
+# emissions of a type — with nothing engaged — dampens its score so a borderline
+# candidate drops under threshold; a single engagement clears the dampening. Any
+# negative feedback hard-suppresses the type until the user re-engages it.
+FEEDBACK_LOOKBACK_DAYS = 30
+IGNORED_STREAK_THRESHOLD = 2
+IGNORED_DAMPEN_FACTOR = 0.6
+
 # Minimum characters for an excerpt to count as concrete rather than generic.
 _MIN_EXCERPT_CHARS = 20
 
@@ -90,6 +98,7 @@ class QualityScore:
     decision: str  # "pass" | "suppress"
     topic_key: str | None = None
     hard_reason: str | None = None
+    feedback_factor: float = 1.0
 
     @property
     def passed(self) -> bool:
@@ -108,6 +117,7 @@ class QualityScore:
             "decision": self.decision,
             "topic_key": self.topic_key,
             "hard_reason": self.hard_reason,
+            "feedback_factor": self.feedback_factor,
         }
 
 
@@ -154,14 +164,17 @@ class InitiativeQualityGate:
         novelty = 0.0 if (topic_key and self._seen_recently(topic_key, current)) else 1.0
         safety = self._score_safety(candidate, evidence)
 
-        total = round(
+        base_total = (
             WEIGHTS["relevance"] * relevance
             + WEIGHTS["timing"] * timing
             + WEIGHTS["recency"] * recency
             + WEIGHTS["novelty"] * novelty
-            + WEIGHTS["safety"] * safety,
-            4,
+            + WEIGHTS["safety"] * safety
         )
+        feedback_factor, feedback_reason = self._feedback(candidate, current)
+        if feedback_reason is not None and hard_reason is None:
+            hard_reason = feedback_reason
+        total = round(base_total * feedback_factor, 4)
 
         if hard_reason is not None:
             decision = "suppress"
@@ -186,9 +199,32 @@ class InitiativeQualityGate:
             decision=decision,
             topic_key=topic_key,
             hard_reason=hard_reason,
+            feedback_factor=round(feedback_factor, 4),
         )
         self._remember(candidate, score)
         return score
+
+    def _feedback(
+        self, candidate: InitiativeCandidate, now: datetime
+    ) -> tuple[float, str | None]:
+        """Fold prior user reactions to this initiative type into the score.
+
+        Returns a multiplier on the base total and an optional hard-suppression
+        reason. Negative feedback suppresses the type outright; a run of ignored
+        emissions with no engagement dampens it; any engagement clears both.
+        """
+        if self._memory is None:
+            return 1.0, None
+        counts = self._memory.feedback_counts(
+            initiative_type=candidate.type,
+            since_days=FEEDBACK_LOOKBACK_DAYS,
+            now=now,
+        )
+        if counts["negative"] > 0:
+            return 1.0, "negative feedback on this initiative type"
+        if counts["engaged"] == 0 and counts["ignored"] >= IGNORED_STREAK_THRESHOLD:
+            return IGNORED_DAMPEN_FACTOR, None
+        return 1.0, None
 
     def record_emission(
         self,

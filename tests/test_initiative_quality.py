@@ -11,6 +11,7 @@ from app.initiative.emission_memory import InitiativeEmissionMemory
 from app.initiative.policy import CandidateEvidence, InitiativeCandidate, InitiativePolicy
 from app.initiative.quality import (
     DEFAULT_THRESHOLD,
+    IGNORED_DAMPEN_FACTOR,
     InitiativeQualityGate,
     SAFETY_FLOOR,
 )
@@ -215,6 +216,69 @@ def test_record_emission_persists_topic(tmp_path):
     score = gate.evaluate(candidate, now=_now())
     gate.record_emission(candidate, score)
     assert memory.seen_topic_within("memory_followup:mem-1", now=_now()) is True
+
+
+# ── feedback consumption (learning loop) ─────────────────────────────────────
+
+
+def _seed_feedback(memory, responses, *, initiative_type="memory_followup"):
+    for index, response in enumerate(responses):
+        record = memory.record(
+            initiative_type=initiative_type,
+            topic_key=f"{initiative_type}:seed{index}",
+            message="m",
+            quality_score=0.9,
+            session_id="s",
+            emitted_at=_now() - timedelta(days=1),
+        )
+        memory.set_response(record["id"], response)
+
+
+def test_feedback_counts_windowed(tmp_path):
+    memory = InitiativeEmissionMemory(tmp_path / "emissions.json")
+    _seed_feedback(memory, ["ignored", "ignored", "engaged"])
+    counts = memory.feedback_counts(initiative_type="memory_followup", now=_now())
+    assert counts == {"engaged": 1, "ignored": 2, "negative": 0}
+
+
+def test_ignored_streak_dampens_and_suppresses(tmp_path):
+    memory = InitiativeEmissionMemory(tmp_path / "emissions.json")
+    _seed_feedback(memory, ["ignored", "ignored"])
+    gate = InitiativeQualityGate(memory)
+
+    score = gate.evaluate(_evidence_candidate(source_id="fresh"), now=_now())
+    assert score.feedback_factor == IGNORED_DAMPEN_FACTOR
+    assert score.passed is False  # a would-be-passing candidate drops under threshold
+
+
+def test_engagement_clears_dampening(tmp_path):
+    memory = InitiativeEmissionMemory(tmp_path / "emissions.json")
+    _seed_feedback(memory, ["ignored", "ignored", "engaged"])
+    gate = InitiativeQualityGate(memory)
+
+    score = gate.evaluate(_evidence_candidate(source_id="fresh"), now=_now())
+    assert score.feedback_factor == 1.0
+    assert score.passed is True
+
+
+def test_negative_feedback_hard_suppresses(tmp_path):
+    memory = InitiativeEmissionMemory(tmp_path / "emissions.json")
+    _seed_feedback(memory, ["negative"])
+    gate = InitiativeQualityGate(memory)
+
+    score = gate.evaluate(_evidence_candidate(source_id="fresh"), now=_now())
+    assert score.passed is False
+    assert score.hard_reason == "negative feedback on this initiative type"
+
+
+def test_single_ignore_does_not_dampen(tmp_path):
+    memory = InitiativeEmissionMemory(tmp_path / "emissions.json")
+    _seed_feedback(memory, ["ignored"])  # below the streak threshold
+    gate = InitiativeQualityGate(memory)
+
+    score = gate.evaluate(_evidence_candidate(source_id="fresh"), now=_now())
+    assert score.feedback_factor == 1.0
+    assert score.passed is True
 
 
 # ── service integration ──────────────────────────────────────────────────────

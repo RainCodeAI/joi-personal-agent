@@ -15,10 +15,16 @@ Stages 1–2 of the staged rollout are built:
 - `app/initiative/emission_memory.py` — `InitiativeEmissionMemory` persists one
   record per emitted evidence-bound initiative, keyed by `topic_key` and scoped
   by `session_id`, for repeat suppression and the feedback loop (`user_response`).
-- Feedback loop is wired: the chat path calls
+- Feedback loop is wired end to end: the chat path calls
   `InitiativeService.register_user_reply(session_id)` on every user message, which
   marks the most recent in-window initiative `engaged` and ages stale unanswered
-  ones out to `ignored`. (`negative` — hide/delete/disable — is still future.)
+  ones out to `ignored`. (`negative` — hide/delete/disable — is still future, but
+  its scoring effect is already implemented.)
+- Feedback is consumed back into scoring: over a 30-day window, a run of `ignored`
+  emissions of a type with no engagement multiplies the score by a dampening
+  factor (pushing borderline candidates under threshold); a single `engaged`
+  clears it; any `negative` hard-suppresses the type. Surfaced as
+  `feedback_factor` on each `QualityScore`.
 - The gate is wired into `InitiativeService` as a pre-policy step: it runs before
   the existing policy gate and only for candidates that carry `evidence`. Timer-
   driven candidates (daily greeting, absence return, etc.) carry no evidence and

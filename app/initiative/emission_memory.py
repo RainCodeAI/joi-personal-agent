@@ -155,6 +155,32 @@ class InitiativeEmissionMemory:
                 self._persist()
         return [dict(record) for record in changed]
 
+    def feedback_counts(
+        self,
+        *,
+        initiative_type: str | None = None,
+        topic_key: str | None = None,
+        since_days: int = 30,
+        now: datetime | None = None,
+    ) -> dict[str, int]:
+        """Tally resolved responses over a window, filtered by type and/or topic."""
+        current = now or _utc_now()
+        cutoff = current - timedelta(days=since_days)
+        counts = {"engaged": 0, "ignored": 0, "negative": 0}
+        with self._lock:
+            for record in self._records:
+                if initiative_type is not None and record.get("type") != initiative_type:
+                    continue
+                if topic_key is not None and record.get("topic_key") != topic_key:
+                    continue
+                emitted = _parse_dt(record.get("emitted_at"))
+                if emitted is None or emitted < cutoff:
+                    continue
+                response = record.get("user_response")
+                if response in counts:
+                    counts[response] += 1
+        return counts
+
     def recent(self, *, limit: int = 20) -> list[dict[str, Any]]:
         with self._lock:
             return [dict(record) for record in self._records[-max(1, limit):][::-1]]
