@@ -50,6 +50,9 @@ class ToolCallResource(BaseModel):
     args: Dict[str, Any] = Field(default_factory=dict)
     result: Optional[Dict[str, Any]] = None
     status: str = "success"
+    proposal_id: Optional[str] = None
+    operation: Optional[str] = None
+    idempotency_key: Optional[str] = None
 
 
 class DesktopActionRequest(BaseModel):
@@ -75,17 +78,25 @@ class DesktopActionResponse(V2ResponseBase):
 
 class ApprovalResource(BaseModel):
     id: str
+    proposal_id: str
     session_id: Optional[str] = None
     tool_name: str
+    operation: str
     args: Dict[str, Any] = Field(default_factory=dict)
+    preview: Dict[str, Any] = Field(default_factory=dict)
+    redacted_preview: Dict[str, Any] = Field(default_factory=dict)
+    args_fingerprint: str
     local_only: bool = True
     status: str
     created_at: str
+    expires_at: str
     resolved_at: Optional[str] = None
+    consumed_at: Optional[str] = None
 
 
 class ApprovalDecisionRequest(BaseModel):
     confirmed: bool
+    proposal_id: str
     client_surface: Literal["web"] = "web"
 
 

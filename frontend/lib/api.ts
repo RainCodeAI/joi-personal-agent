@@ -247,22 +247,22 @@ export async function startGoogleOauth() {
   return apiFetch<{ auth_url: string; state: string }>("/oauth/start");
 }
 
-export async function approveAction(approvalId: string) {
+export async function approveAction(approvalId: string, proposalId: string) {
   return apiFetch<{ api_version: "v2"; approval: Approval; tool_result?: unknown }>(
     `/api/v2/approvals/${approvalId}/approve`,
     {
       method: "POST",
-      body: JSON.stringify({ confirmed: true, client_surface: "web" }),
+      body: JSON.stringify({ confirmed: true, proposal_id: proposalId, client_surface: "web" }),
     },
   );
 }
 
-export async function denyAction(approvalId: string) {
+export async function denyAction(approvalId: string, proposalId: string) {
   return apiFetch<{ api_version: "v2"; approval: Approval }>(
     `/api/v2/approvals/${approvalId}/deny`,
     {
       method: "POST",
-      body: JSON.stringify({ confirmed: true, client_surface: "web" }),
+      body: JSON.stringify({ confirmed: true, proposal_id: proposalId, client_surface: "web" }),
     },
   );
 }

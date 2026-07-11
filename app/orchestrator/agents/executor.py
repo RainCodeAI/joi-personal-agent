@@ -13,10 +13,19 @@ if TYPE_CHECKING:
     from app.api.models import ToolCall
 
 from app.api.models import ToolCall as ToolCallModel
+from app.tools.dispatcher import ToolDispatcher
+from app.tools.registry import ToolRegistry, tool_registry
+from app.tools.types import ApprovedToolExecution, ToolExecutionResult, ToolProposal
 
 
 class ExecutorAgent:
     """Dispatches tool calls based on user message keywords and policy rules."""
+
+    def __init__(self, registry: ToolRegistry | None = None) -> None:
+        # Keyword detection remains the deterministic fallback. The canonical
+        # registry is now available for the later typed-planner migration.
+        self.registry = registry or tool_registry
+        self.dispatcher = ToolDispatcher(self.registry)
 
     # ── public API ────────────────────────────────────────────────────────
 
@@ -119,135 +128,115 @@ class ExecutorAgent:
         return args
 
     def run_tool(self, tool_name: str, args: dict) -> ToolCallModel:
-        """Directly execute a tool (bypassing detection/policy checks, assuming prior approval)."""
-        
-        if tool_name == "send_email":
-            from app.tools import email_gmail
-            missing = [
-                field
-                for field in ("to", "subject", "body")
-                if not str(args.get(field) or "").strip()
-            ]
-            if missing:
-                return ToolCallModel(
-                    tool_name=tool_name,
-                    args=args,
-                    result={"error": "Missing required email fields", "missing_fields": missing},
-                    status="error",
-                )
-            if not email_gmail.is_authenticated():
-                return ToolCallModel(
-                    tool_name=tool_name,
-                    args=args,
-                    result={"error": "Gmail is not authenticated", "code": "not_authenticated"},
-                    status="error",
-                )
-            try:
-                res = email_gmail.send_message(
-                    to=str(args["to"]).strip(),
-                    subject=str(args["subject"]).strip(),
-                    body=str(args["body"]),
-                )
-                return ToolCallModel(
-                    tool_name=tool_name,
-                    args=args,
-                    result={"status": "Email sent", "details": res},
-                )
-            except Exception as e:
-                return ToolCallModel(tool_name=tool_name, args=args, result={"error": str(e)}, status="error")
+        """Execute read tools; mutating tools are blocked without a consumed approval."""
+        spec = self.registry.get(tool_name)
+        if spec is None:
+            return ToolCallModel(
+                tool_name=tool_name,
+                args=args,
+                result={"error": f"Unknown tool: {tool_name}"},
+                status="error",
+            )
+        try:
+            proposal = self.registry.create_proposal(tool_name, args)
+        except ValueError as exc:
+            return ToolCallModel(
+                tool_name=tool_name,
+                args=args,
+                result={
+                    "error": "Tool arguments failed registry validation",
+                    "details": str(exc),
+                },
+                status="blocked",
+            )
+        return self._legacy_tool_call(
+            proposal.arguments,
+            self.dispatcher.execute(proposal),
+        )
 
-        elif tool_name == "create_event":
-            from app.tools import calendar_gcal
-            missing = [
-                field
-                for field in ("summary", "start_time")
-                if not str(args.get(field) or "").strip()
-            ]
-            if missing:
-                return ToolCallModel(
-                    tool_name=tool_name,
-                    args=args,
-                    result={"error": "Missing required calendar fields", "missing_fields": missing},
-                    status="error",
-                )
-            if not calendar_gcal.is_authenticated():
-                return ToolCallModel(
-                    tool_name=tool_name,
-                    args=args,
-                    result={"error": "Google Calendar is not authenticated", "code": "not_authenticated"},
-                    status="error",
-                )
-            try:
-                res = calendar_gcal.create_event(
-                    summary=str(args["summary"]).strip(),
-                    start_time=str(args["start_time"]).strip(),
-                    duration_minutes=int(args.get("duration_minutes", 60)),
-                )
-                return ToolCallModel(
-                    tool_name=tool_name,
-                    args=args,
-                    result={"status": "Event created", "link": res.get("htmlLink")},
-                )
-            except Exception as e:
-                return ToolCallModel(tool_name=tool_name, args=args, result={"error": str(e)}, status="error")
-        
-        return ToolCallModel(tool_name=tool_name, args=args, result={"error": f"Unknown tool: {tool_name}"}, status="error")
+    def execute_proposals(self, proposals: list[ToolProposal]) -> List[ToolCallModel]:
+        """Execute validated reads and surface writes as exact approval proposals."""
+        calls: List[ToolCallModel] = []
+        for proposal in proposals:
+            common = {
+                "tool_name": proposal.tool_name,
+                "args": proposal.arguments,
+                "proposal_id": proposal.proposal_id,
+                "operation": proposal.operation.value,
+                "idempotency_key": proposal.idempotency_key,
+            }
+            if proposal.status == "needs_input":
+                calls.append(ToolCallModel(
+                    **common,
+                    status="needs_input",
+                    result={
+                        "error": "Tool details are incomplete.",
+                        "missing_fields": proposal.missing_fields,
+                    },
+                ))
+                continue
+            spec = self.registry.require(proposal.tool_name)
+            if spec.requires_approval:
+                calls.append(ToolCallModel(
+                    **common,
+                    status="pending",
+                    result={"status": "Awaiting user approval."},
+                ))
+                continue
+            execution = self.dispatcher.execute(proposal)
+            call = self._legacy_tool_call(proposal.arguments, execution)
+            calls.append(call.model_copy(update={
+                "proposal_id": proposal.proposal_id,
+                "operation": proposal.operation.value,
+                "idempotency_key": proposal.idempotency_key,
+            }))
+        return calls
+
+    def run_approved_tool(self, approval: ApprovedToolExecution) -> ToolCallModel:
+        try:
+            proposal = self.registry.create_proposal(
+                approval.tool_name,
+                approval.arguments,
+            ).model_copy(
+                update={
+                    "proposal_id": approval.proposal_id,
+                    "idempotency_key": approval.idempotency_key,
+                }
+            )
+        except (KeyError, ValueError) as exc:
+            return ToolCallModel(
+                tool_name=approval.tool_name,
+                args=approval.arguments,
+                result={
+                    "error": "Approved arguments failed registry validation",
+                    "details": str(exc),
+                },
+                status="blocked",
+            )
+        result = self.dispatcher.execute(proposal, approval=approval)
+        return self._legacy_tool_call(proposal.arguments, result)
+
+    @staticmethod
+    def _legacy_tool_call(
+        args: dict,
+        execution: ToolExecutionResult,
+    ) -> ToolCallModel:
+        payload = dict(execution.data) if isinstance(execution.data, dict) else {}
+        if execution.error:
+            payload["error"] = execution.error
+        if execution.verification is not None:
+            payload["verification"] = execution.verification.model_dump(mode="json")
+        return ToolCallModel(
+            tool_name=execution.tool_name,
+            args=args,
+            result=payload,
+            status=execution.status,
+        )
 
     # ── private helpers ───────────────────────────────────────────────────
 
-    @staticmethod
-    def _handle_email_read() -> List[ToolCallModel]:
-        try:
-            from app.tools import email_gmail
+    def _handle_email_read(self) -> List[ToolCallModel]:
+        return [self.run_tool("email_summarize_threads", {})]
 
-            threads = email_gmail.list_threads()
-            summary = email_gmail.summarize_threads(threads)
-            return [
-                ToolCallModel(
-                    tool_name="email_summarize_threads",
-                    args={},
-                    result={"summary": summary},
-                )
-            ]
-        except Exception as e:
-            return [
-                ToolCallModel(
-                    tool_name="email_summarize_threads",
-                    args={},
-                    result={"error": str(e)},
-                    status="error"
-                )
-            ]
-
-    @staticmethod
-    def _handle_calendar_read() -> List[ToolCallModel]:
-        try:
-            from app.tools import calendar_gcal
-
-            if calendar_gcal.is_authenticated():
-                events = calendar_gcal.upcoming_events(days=1)
-                return [
-                    ToolCallModel(
-                        tool_name="calendar_upcoming",
-                        args={},
-                        result={"events": events},
-                    )
-                ]
-        except Exception as e:
-            return [
-                ToolCallModel(
-                    tool_name="calendar_upcoming",
-                    args={},
-                    result={"error": str(e)},
-                    status="error",
-                )
-            ]
-
-        return [
-            ToolCallModel(
-                tool_name="calendar_upcoming",
-                args={},
-                result={"error": "Google Calendar is not authenticated", "code": "not_authenticated"},
-                status="error",
-            )
-        ]
+    def _handle_calendar_read(self) -> List[ToolCallModel]:
+        return [self.run_tool("calendar_upcoming", {"days": 1})]

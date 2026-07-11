@@ -35,7 +35,7 @@ class TestNegotiateFlow:
         mock_gmail.list_threads.assert_called()
 
     @patch("app.tools.email_gmail", create=True)
-    def test_run_tool_executes_directly(self, mock_gmail):
+    def test_run_tool_blocks_write_without_consumed_approval(self, mock_gmail):
         mock_gmail.is_authenticated.return_value = True
         mock_gmail.send_message.return_value = "message_id_123"
 
@@ -44,13 +44,9 @@ class TestNegotiateFlow:
             {"to": "bob@example.com", "subject": "Hello", "body": "hi"},
         )
 
-        assert res.status == "success"
-        assert res.result["details"] == "message_id_123"
-        mock_gmail.send_message.assert_called_with(
-            to="bob@example.com",
-            subject="Hello",
-            body="hi",
-        )
+        assert res.status == "blocked"
+        assert "consumed approval" in res.result["error"]
+        mock_gmail.send_message.assert_not_called()
 
     @patch("app.tools.email_gmail", create=True)
     def test_run_tool_never_reports_mock_email_success(self, mock_gmail):
@@ -61,8 +57,7 @@ class TestNegotiateFlow:
             {"to": "bob@example.com", "subject": "Hello", "body": "hi"},
         )
 
-        assert res.status == "error"
-        assert res.result["code"] == "not_authenticated"
+        assert res.status == "blocked"
         mock_gmail.send_message.assert_not_called()
 
     @patch("app.tools.calendar_gcal", create=True)

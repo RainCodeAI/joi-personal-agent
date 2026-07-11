@@ -1,4 +1,5 @@
 import json
+import hashlib
 from google.oauth2.credentials import Credentials
 from google.auth.transport.requests import Request
 from googleapiclient.discovery import build
@@ -65,7 +66,32 @@ def summarize_threads(threads: List[Dict[str, Any]]) -> str:
     
     return "\n".join(summaries)
 
-def send_message(to: str, subject: str, body: str) -> Dict[str, Any]:
+def _idempotency_message_id(idempotency_key: str) -> str:
+    digest = hashlib.sha256(idempotency_key.encode("utf-8")).hexdigest()[:32]
+    return f"<joi-{digest}@idempotency.local>"
+
+
+def find_message_by_idempotency_key(
+    service: Any,
+    idempotency_key: str,
+) -> Dict[str, Any] | None:
+    message_id = _idempotency_message_id(idempotency_key)
+    results = service.users().messages().list(
+        userId="me",
+        q=f"rfc822msgid:{message_id}",
+        maxResults=1,
+    ).execute()
+    matches = results.get("messages", [])
+    return dict(matches[0]) if matches else None
+
+
+def send_message(
+    to: str,
+    subject: str,
+    body: str,
+    *,
+    idempotency_key: str | None = None,
+) -> Dict[str, Any]:
     """Send an email using Gmail API."""
     from email.mime.text import MIMEText
     import base64
@@ -82,15 +108,49 @@ def send_message(to: str, subject: str, body: str) -> Dict[str, Any]:
     creds = get_credentials()
     service = build('gmail', 'v1', credentials=creds)
 
+    if idempotency_key:
+        existing = find_message_by_idempotency_key(service, idempotency_key)
+        if existing:
+            return {**existing, "idempotent_replay": True}
+
     message = MIMEText(body)
     message['to'] = to
     message['subject'] = subject
+    if idempotency_key:
+        message['Message-ID'] = _idempotency_message_id(idempotency_key)
     
     raw = base64.urlsafe_b64encode(message.as_bytes()).decode()
     body = {'raw': raw}
     
     sent_msg = service.users().messages().send(userId='me', body=body).execute()
     return sent_msg
+
+
+def verify_sent_message(message_id: str, idempotency_key: str) -> Dict[str, Any]:
+    creds = get_credentials()
+    service = build("gmail", "v1", credentials=creds)
+    message = service.users().messages().get(
+        userId="me",
+        id=message_id,
+        format="metadata",
+        metadataHeaders=["Message-ID"],
+    ).execute()
+    headers = message.get("payload", {}).get("headers", [])
+    actual_message_id = next(
+        (
+            str(header.get("value", ""))
+            for header in headers
+            if str(header.get("name", "")).lower() == "message-id"
+        ),
+        "",
+    )
+    expected_message_id = _idempotency_message_id(idempotency_key)
+    return {
+        "verified": bool(message.get("id")) and actual_message_id == expected_message_id,
+        "provider_id": message.get("id"),
+        "expected_message_id": expected_message_id,
+        "actual_message_id": actual_message_id,
+    }
 
 def initiate_oauth() -> str:
     flow = Flow.from_client_config(

@@ -125,7 +125,9 @@ class TestToolApprovalManager:
         assert mgr.check_approval(pid) is None  # still pending
         assert len(mgr.get_pending()) == 1
 
-        mgr.approve(pid)
+        approval = mgr.get(pid)
+        assert approval is not None
+        mgr.approve(pid, proposal_id=approval.proposal_id)
         assert mgr.check_approval(pid) is True
         assert len(mgr.get_pending()) == 0
 
@@ -133,15 +135,20 @@ class TestToolApprovalManager:
         mgr = ToolApprovalManager()
         pid = mgr.request_approval("file_write", {"path": "/tmp/x"})
 
-        mgr.deny(pid)
+        approval = mgr.get(pid)
+        assert approval is not None
+        mgr.deny(pid, proposal_id=approval.proposal_id)
         assert mgr.check_approval(pid) is False
 
     def test_clear_resolved(self):
         mgr = ToolApprovalManager()
         pid1 = mgr.request_approval("send_email", {})
         pid2 = mgr.request_approval("file_write", {})
-        mgr.approve(pid1)
-        mgr.deny(pid2)
+        approval1 = mgr.get(pid1)
+        approval2 = mgr.get(pid2)
+        assert approval1 is not None and approval2 is not None
+        mgr.approve(pid1, proposal_id=approval1.proposal_id)
+        mgr.deny(pid2, proposal_id=approval2.proposal_id)
 
         removed = mgr.clear_resolved()
         assert removed == 2

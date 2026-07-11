@@ -142,10 +142,15 @@ from app.api.v2_models import (
 )
 from app.orchestrator.day_planner import build_planner_snapshot, generate_day_plan
 from app.orchestrator.craving_engine import CravingEngine
-from app.orchestrator.security.approval import ApprovalStatus, PendingApproval
+from app.orchestrator.security.approval import (
+    ApprovalResolutionError,
+    ApprovalStatus,
+    PendingApproval,
+)
 from app.tools import vision_clip
 from app.tools import screen_context
 from app.tools import calendar_gcal, email_gmail
+from app.tools.registry import tool_registry
 from app.tools.voice import voice_tools
 from app.vault import delete_secret
 
@@ -213,13 +218,20 @@ def _message_resource(message) -> MessageResource:
 def _approval_resource(approval: PendingApproval) -> ApprovalResource:
     return ApprovalResource(
         id=approval.id,
+        proposal_id=approval.proposal_id,
         session_id=approval.session_id,
         tool_name=approval.tool_name,
+        operation=approval.operation,
         args=approval.args,
+        preview=approval.preview,
+        redacted_preview=approval.redacted_preview,
+        args_fingerprint=approval.args_fingerprint,
         local_only=approval.local_only,
         status=approval.status.value if isinstance(approval.status, ApprovalStatus) else str(approval.status),
         created_at=approval.created_at,
+        expires_at=approval.expires_at,
         resolved_at=approval.resolved_at,
+        consumed_at=approval.consumed_at,
     )
 
 
@@ -230,6 +242,9 @@ def _tool_call_resources(tool_calls: Iterable[Dict[str, Any]]) -> List[ToolCallR
             args=tool_call.get("args", {}),
             result=tool_call.get("result"),
             status=tool_call.get("status", "success"),
+            proposal_id=tool_call.get("proposal_id"),
+            operation=tool_call.get("operation"),
+            idempotency_key=tool_call.get("idempotency_key"),
         )
         for tool_call in tool_calls
     ]
@@ -432,6 +447,15 @@ def _attachment_context(attachment: ChatAttachmentRequest) -> tuple[ChatAttachme
                 status_code=403,
                 detail="Screen capture is disabled. Enable manual screen capture in perception settings.",
             )
+    elif attachment.source == "camera_snapshot":
+        policy = perception_policy.get()
+        if not policy.get("camera_enabled", False):
+            raise HTTPException(
+                status_code=403,
+                detail="Camera access is disabled. Enable camera perception before taking a glance.",
+            )
+        if attachment.kind != "image":
+            raise HTTPException(status_code=422, detail="Camera snapshots must be images.")
 
     try:
         decoded_mime, raw_bytes = _decode_data_url(
@@ -455,6 +479,8 @@ def _attachment_context(attachment: ChatAttachmentRequest) -> tuple[ChatAttachme
         return resource, f"User attached '{attachment.name}', but the file could not be decoded."
 
     media_type = attachment.media_type or decoded_mime
+    if attachment.source == "camera_snapshot" and not _normalize_media_type(decoded_mime).startswith("image/"):
+        raise HTTPException(status_code=422, detail="Camera snapshots must contain image data.")
     preview_text: str | None = None
     context_text: str
 
@@ -464,11 +490,11 @@ def _attachment_context(attachment: ChatAttachmentRequest) -> tuple[ChatAttachme
 
             Image.MAX_IMAGE_PIXELS = MAX_IMAGE_PIXELS
             image = Image.open(io.BytesIO(raw_bytes)).convert("RGB")
-            preview_text = vision_clip.describe_image(image)
             capture_metadata = screen_context.sanitize_capture_metadata(
                 attachment.capture_metadata
             )
             if attachment.source == "screen_capture":
+                preview_text = vision_clip.describe_image(image)
                 ocr_text, ocr_status = screen_context.extract_local_ocr(image)
                 screen_summary = screen_context.build_screen_context(
                     visual_description=preview_text,
@@ -478,21 +504,40 @@ def _attachment_context(attachment: ChatAttachmentRequest) -> tuple[ChatAttachme
                 context_text = f"Screen capture '{attachment.name}':\n{screen_summary}"
             elif attachment.source == "camera_snapshot":
                 ocr_status = "not_requested"
-                context_text = (
-                    f"[Camera glance] You just took a live look through the camera. You can see: "
-                    f"{preview_text}. Describe this as your own seeing — warmly and honestly, in your "
-                    f"own voice — not as a file or 'attachment'. The captioning is rough, so treat "
-                    f"specifics as an impression and don't over-claim detail."
-                )
+                vision_result = vision_clip.describe_image_result(image)
+                if vision_result.ok:
+                    preview_text = vision_result.description
+                    context_text = (
+                        f"[Camera glance] You just took a live look through the camera. You can see: "
+                        f"{preview_text}. Describe this as your own seeing — warmly and honestly, in your "
+                        f"own voice — not as a file or 'attachment'. The captioning is rough, so treat "
+                        f"specifics as an impression and don't over-claim detail."
+                    )
+                else:
+                    preview_text = "Camera glance could not be analyzed."
+                    context_text = (
+                        "[Camera glance unavailable] A consented live frame was captured, but visual "
+                        "analysis failed. Do not claim to see any details from it. Briefly say you "
+                        "couldn't make out the image and invite the user to try again."
+                    )
             else:
+                preview_text = vision_clip.describe_image(image)
                 ocr_status = "not_requested"
                 context_text = (
                     f"Image attachment '{attachment.name}' described as: {preview_text}"
                 )
             kind = "image"
         except Exception as exc:
-            preview_text = f"Image processing failed: {exc}"
-            context_text = f"Image attachment '{attachment.name}' could not be processed."
+            if attachment.source == "camera_snapshot":
+                preview_text = "Camera glance could not be processed."
+                context_text = (
+                    "[Camera glance unavailable] A consented live frame was captured, but it was "
+                    "not a usable image. Do not claim to see any details from it. Briefly invite "
+                    "the user to try again."
+                )
+            else:
+                preview_text = f"Image processing failed: {exc}"
+                context_text = f"Image attachment '{attachment.name}' could not be processed."
             kind = "image"
             capture_metadata = screen_context.sanitize_capture_metadata(
                 attachment.capture_metadata
@@ -1495,11 +1540,36 @@ async def chat_v2(request: V2ChatRequest):
             )
 
     pending_approvals = []
-    for tool_call in response.tool_calls if turn_is_active else []:
+    for index, tool_call in enumerate(response.tool_calls if turn_is_active else []):
         if tool_call.get("status") == "pending":
-            approval_id = approval_manager.request_approval(
-                tool_call.get("tool_name", ""),
-                tool_call.get("args", {}),
+            try:
+                proposal = tool_registry.create_proposal(
+                    str(tool_call.get("tool_name", "")),
+                    dict(tool_call.get("args") or {}),
+                    rationale="Keyword planner proposed an approval-required action.",
+                    proposal_id=tool_call.get("proposal_id"),
+                    idempotency_key=tool_call.get("idempotency_key"),
+                )
+            except (KeyError, ValueError) as exc:
+                tool_call_resources[index] = tool_call_resources[index].model_copy(
+                    update={
+                        "status": "error",
+                        "result": {
+                            "error": "Tool proposal failed registry validation",
+                            "details": str(exc),
+                        },
+                    }
+                )
+                continue
+            preview = tool_registry.build_preview(proposal, redact_sensitive=False)
+            redacted_preview = tool_registry.build_preview(
+                proposal,
+                redact_sensitive=True,
+            )
+            approval_id = approval_manager.request_proposal(
+                proposal,
+                preview=preview,
+                redacted_preview=redacted_preview,
                 session_id=request.session_id,
             )
             approval = approval_manager.get(approval_id)
@@ -1609,11 +1679,22 @@ async def approve_action(
     if not decision.confirmed:
         raise HTTPException(status_code=400, detail="Approval decision must be explicitly confirmed")
 
-    approval = approval_manager.approve(approval_id)
-    if approval is None:
-        raise HTTPException(status_code=404, detail="Approval not found")
+    try:
+        approved_execution = approval_manager.approve_for_execution(
+            approval_id,
+            proposal_id=decision.proposal_id,
+        )
+    except ApprovalResolutionError as exc:
+        status_code = 404 if exc.code == "not_found" else 409
+        raise HTTPException(
+            status_code=status_code,
+            detail={"code": exc.code, "message": str(exc)},
+        ) from exc
 
-    tool_result = agent.run_tool(approval.tool_name, approval.args)
+    approval = approval_manager.get(approval_id)
+    if approval is None:
+        raise HTTPException(status_code=404, detail="Approval not found after resolution")
+    tool_result = agent.run_approved_tool(approved_execution)
     approval_resource = _approval_resource(approval)
     tool_result_resource = ToolCallResource(**tool_result)
     await event_bus.publish(
@@ -1649,9 +1730,17 @@ async def deny_action(
     if not decision.confirmed:
         raise HTTPException(status_code=400, detail="Approval decision must be explicitly confirmed")
 
-    approval = approval_manager.deny(approval_id)
-    if approval is None:
-        raise HTTPException(status_code=404, detail="Approval not found")
+    try:
+        approval = approval_manager.deny(
+            approval_id,
+            proposal_id=decision.proposal_id,
+        )
+    except ApprovalResolutionError as exc:
+        status_code = 404 if exc.code == "not_found" else 409
+        raise HTTPException(
+            status_code=status_code,
+            detail={"code": exc.code, "message": str(exc)},
+        ) from exc
     approval_resource = _approval_resource(approval)
     await event_bus.publish(
         "approval.resolved",
@@ -1937,15 +2026,25 @@ async def patch_perception_policy(request: PerceptionPolicyPatchRequest):
 
 @router.post("/vision/analyze", response_model=VisionAnalyzeResponse)
 async def analyze_vision_snapshot(request: VisionAnalyzeRequest):
+    if not perception_policy.get().get("camera_enabled", False):
+        raise HTTPException(status_code=403, detail="Camera access is disabled")
     try:
         from PIL import Image
 
         Image.MAX_IMAGE_PIXELS = MAX_IMAGE_PIXELS
         _, raw_bytes = _decode_data_url(request.data_url, max_bytes=MAX_IMAGE_BYTES)
         image = Image.open(io.BytesIO(raw_bytes)).convert("RGB")
-        description = vision_clip.describe_image(image)
+        vision_result = vision_clip.describe_image_result(image)
     except Exception as exc:
         raise HTTPException(status_code=422, detail=f"Image processing failed: {exc}") from exc
+
+    if not vision_result.ok:
+        unavailable = vision_result.error_code in {"model_unavailable", "pipeline_unavailable"}
+        raise HTTPException(
+            status_code=503 if unavailable else 422,
+            detail="Vision analysis is unavailable" if unavailable else "Image could not be analyzed",
+        )
+    description = vision_result.description or ""
 
     # Extract simple word-level tags from the description
     stop_words = {"a", "an", "the", "is", "of", "in", "on", "at", "to", "and", "with", "are"}
@@ -2522,6 +2621,7 @@ async def record_initiative_activity(
         new_life_state = life_state_engine.evaluate(
             last_activity_at=initiative_store.last_user_activity_at(),
             absence_started_at=initiative_store.absence_started_at(session_id),
+            immediate=True,
         )
         if new_life_state is not None:
             await event_bus.publish(

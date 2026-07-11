@@ -71,13 +71,20 @@ export type ChatAttachmentInput = {
 
 export type Approval = {
   id: string;
+  proposal_id: string;
   session_id?: string | null;
   tool_name: string;
+  operation: string;
   args: Record<string, unknown>;
+  preview: Record<string, unknown>;
+  redacted_preview: Record<string, unknown>;
+  args_fingerprint: string;
   local_only: boolean;
   status: string;
   created_at: string;
+  expires_at: string;
   resolved_at?: string | null;
+  consumed_at?: string | null;
 };
 
 export type Connector = {

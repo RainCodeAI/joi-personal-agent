@@ -8,6 +8,7 @@ from datetime import datetime, date
 from typing import Optional, List, Dict, Any
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.declarative import declarative_base  # Kept for compatibility if needed
+from app.tools.types import ToolResult, ToolSpec
 
 # Legacy Base for any old-style models (if any)
 legacy_base = declarative_base()
@@ -58,19 +59,14 @@ class MemorySearchRequest(BaseModel):
 class MemorySearchResponse(BaseModel):
     items: List[MemoryItem]
 
-class ToolSpec(BaseModel):
-    name: str
-    description: str
-    parameters: Dict[str, Any]
-
-class ToolResult(BaseModel):
-    ok: bool
-
 class ToolCall(BaseModel):
     tool_name: str
     args: Dict[str, Any]
     result: Optional[Dict[str, Any]] = None
     status: str = "success"  # success, pending, error
+    proposal_id: Optional[str] = None
+    operation: Optional[str] = None
+    idempotency_key: Optional[str] = None
 
 class UserProfile(Base):
     __tablename__ = "userprofile"

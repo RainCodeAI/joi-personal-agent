@@ -35,11 +35,13 @@ def _redact(text: str) -> Dict[str, Any]:
     }
 
 from app.api.models import ChatMessage, ChatResponse, ToolCall
+from app.tools.types import ApprovedToolExecution
 from app.config import settings
 from app.memory.store import MemoryStore
 from app.orchestrator.agents.planner import PlannerAgent
 from app.orchestrator.agents.memory_retriever import MemoryRetrieverAgent
 from app.orchestrator.agents.executor import ExecutorAgent
+from app.orchestrator.agents.tool_planner import LLMToolPlanner
 from app.orchestrator.agents.conversation import ConversationAgent
 from app.orchestrator.security.prompt_guard import PromptGuard
 from app.orchestrator.audit import AuditLogger
@@ -60,6 +62,7 @@ class Agent:
         self._memory_retriever = MemoryRetrieverAgent()
         self._planner = PlannerAgent()
         self._executor = ExecutorAgent()
+        self._tool_planner = LLMToolPlanner(self._executor.registry)
         self._conversation = ConversationAgent()
 
         # Security & audit
@@ -126,7 +129,13 @@ class Agent:
                 context.profile_info += " " + value
 
         # 3. Executor — dispatch tools
-        tool_calls = self._executor.execute_tools(user_msg, session_id)
+        tool_calls = None
+        if settings.tool_planning_enabled and self._tool_planner.is_candidate(user_msg):
+            tool_plan = self._tool_planner.plan(user_msg)
+            if tool_plan.valid:
+                tool_calls = self._executor.execute_proposals(tool_plan.proposals)
+        if tool_calls is None:
+            tool_calls = self._executor.execute_tools(user_msg, session_id)
 
         # 4. Conversation — generate LLM reply
         memory_context = context.memory_context
@@ -191,9 +200,18 @@ class Agent:
     # ── persona filter (delegated) ────────────────────────────────────────
 
     def run_tool(self, tool_name: str, args: Dict[str, Any]) -> Dict[str, Any]:
-        """Execute a tool directly (e.g. after approval)."""
+        """Execute a read tool; writes are blocked without an approval capability."""
         tc = self._executor.run_tool(tool_name, args)
         self.log_action("tool_execution", tc.dict())
+        return tc.dict()
+
+    def run_approved_tool(self, approval: ApprovedToolExecution) -> Dict[str, Any]:
+        """Execute the exact one-use proposal consumed by the approval manager."""
+        tc = self._executor.run_approved_tool(approval)
+        self.log_action(
+            "approved_tool_execution",
+            {**tc.dict(), "approval_id": approval.approval_id},
+        )
         return tc.dict()
 
     # ── persona filter (delegated) ────────────────────────────────────────

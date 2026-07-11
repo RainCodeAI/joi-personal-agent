@@ -1101,15 +1101,19 @@ export function ChatClient({ initialSessionId }: ChatClientProps) {
 
     setStatus(`${decision === "approve" ? "Approving" : "Denying"} action`);
     try {
+      const approval = approvals.find((item) => item.id === approvalId);
+      if (!approval) {
+        throw new Error("Approval is no longer pending");
+      }
       if (decision === "approve") {
-        const response = await approveAction(approvalId);
+        const response = await approveAction(approvalId, approval.proposal_id);
         const toolResult = response.tool_result as { status?: string; result?: { status?: string } } | undefined;
         const resultStatus = toolResult?.result?.status ?? toolResult?.status;
         if (resultStatus) {
           setStatus(`Approval approved: ${resultStatus}`);
         }
       } else {
-        await denyAction(approvalId);
+        await denyAction(approvalId, approval.proposal_id);
       }
       const approvalResponse = await listApprovals(sessionId);
       setApprovals(approvalResponse.approvals);

@@ -21,9 +21,17 @@ def test_approval_queue_survives_restart(tmp_path: Path) -> None:
 
     assert approval is not None
     assert approval.status == ApprovalStatus.PENDING
+    assert approval.proposal_id
+    assert approval.args_fingerprint
+    assert approval.expires_at
+    assert approval.preview["arguments"] == {
+        "to": "person@example.com",
+        "subject": "Hello",
+        "body": "Body",
+    }
     assert restored.get_pending("session-1")[0].id == approval_id
 
-    restored.deny(approval_id)
+    restored.deny(approval_id, proposal_id=approval.proposal_id)
     denied = ToolApprovalManager(path).get(approval_id)
     assert denied is not None
     assert denied.status == ApprovalStatus.DENIED

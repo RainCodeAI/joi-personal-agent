@@ -47,7 +47,13 @@ def upcoming_events(days: int = 7) -> List[Dict[str, Any]]:
     events = events_result.get('items', [])
     return events
 
-def create_event(summary: str, start_time: str, duration_minutes: int = 60) -> Dict[str, Any]:
+def create_event(
+    summary: str,
+    start_time: str,
+    duration_minutes: int = 60,
+    *,
+    idempotency_key: str | None = None,
+) -> Dict[str, Any]:
     """Create a calendar event. start_time must be ISO format."""
     try:
         dt_start = datetime.fromisoformat(start_time.replace("Z", "+00:00"))
@@ -58,6 +64,17 @@ def create_event(summary: str, start_time: str, duration_minutes: int = 60) -> D
 
     creds = get_credentials()
     service = build('calendar', 'v3', credentials=creds)
+
+    if idempotency_key:
+        existing_result = service.events().list(
+            calendarId="primary",
+            privateExtendedProperty=f"joi_idempotency_key={idempotency_key}",
+            maxResults=1,
+            singleEvents=True,
+        ).execute()
+        existing = existing_result.get("items", [])
+        if existing:
+            return {**existing[0], "idempotent_replay": True}
     
     dt_end = dt_start + timedelta(minutes=duration_minutes)
     
@@ -72,6 +89,26 @@ def create_event(summary: str, start_time: str, duration_minutes: int = 60) -> D
             'timeZone': 'UTC',
         },
     }
+    if idempotency_key:
+        event["extendedProperties"] = {
+            "private": {"joi_idempotency_key": idempotency_key}
+        }
 
     event = service.events().insert(calendarId='primary', body=event).execute()
     return event
+
+
+def verify_created_event(event_id: str, idempotency_key: str) -> Dict[str, Any]:
+    creds = get_credentials()
+    service = build("calendar", "v3", credentials=creds)
+    event = service.events().get(calendarId="primary", eventId=event_id).execute()
+    actual_key = (
+        event.get("extendedProperties", {})
+        .get("private", {})
+        .get("joi_idempotency_key")
+    )
+    return {
+        "verified": bool(event.get("id")) and actual_key == idempotency_key,
+        "provider_id": event.get("id"),
+        "actual_idempotency_key": actual_key,
+    }

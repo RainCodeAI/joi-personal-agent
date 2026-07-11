@@ -19,6 +19,7 @@ from app.api import diagnostics as diagnostics_api
 from app.hardware.bridge import HardwareBridgeStore
 from app.hardware import mqtt_bridge as mqtt_bridge_module
 from app.orchestrator.security.approval import ApprovalStatus, PendingApproval
+from app.tools.types import ApprovedToolExecution, ToolOperation
 from app.user_model.store import UserModelCorrectionStore
 from app.desktop_actions import DesktopActionBroker
 
@@ -262,7 +263,11 @@ def test_v2_chat_contract(monkeypatch):
             tool_calls=[
                 {
                     "tool_name": "send_email",
-                    "args": {"to": "bob@example.com"},
+                    "args": {
+                        "to": "bob@example.com",
+                        "subject": "Hello",
+                        "body": "Hi Bob",
+                    },
                     "result": {"msg": "Approval required before sending."},
                     "status": "pending",
                 }
@@ -282,11 +287,11 @@ def test_v2_chat_contract(monkeypatch):
         id="approval-1",
         session_id="session-chat",
         tool_name="send_email",
-        args={"to": "bob@example.com"},
+        args={"to": "bob@example.com", "subject": "Hello", "body": "Hi Bob"},
         status=ApprovalStatus.PENDING,
         created_at="2026-01-03T12:00:01",
     )
-    monkeypatch.setattr(api_v2.approval_manager, "request_approval", lambda *args, **kwargs: "approval-1")
+    monkeypatch.setattr(api_v2.approval_manager, "request_proposal", lambda *args, **kwargs: "approval-1")
     monkeypatch.setattr(api_v2.approval_manager, "get", lambda approval_id: pending)
     published_events = []
 
@@ -630,7 +635,7 @@ def test_v2_interrupted_chat_discards_assistant_message(monkeypatch):
     monkeypatch.setattr(api_v2.agent, "reply", fake_reply)
     monkeypatch.setattr(
         api_v2.approval_manager,
-        "request_approval",
+        "request_proposal",
         lambda *args, **kwargs: pytest.fail("interrupted tools must not request approval"),
     )
     published = []
@@ -752,13 +757,27 @@ def test_v2_approve_action(monkeypatch):
         created_at="2026-01-03T12:00:01",
         resolved_at="2026-01-03T12:00:05",
     )
-    monkeypatch.setattr(api_v2.approval_manager, "approve", lambda approval_id: approved)
+    execution = ApprovedToolExecution(
+        approval_id=approved.id,
+        proposal_id=approved.proposal_id,
+        tool_name=approved.tool_name,
+        operation=ToolOperation.WRITE,
+        arguments=approved.args,
+        arguments_sha256=approved.args_fingerprint,
+        idempotency_key=approved.proposal_id,
+    )
+    monkeypatch.setattr(
+        api_v2.approval_manager,
+        "approve_for_execution",
+        lambda approval_id, proposal_id: execution,
+    )
+    monkeypatch.setattr(api_v2.approval_manager, "get", lambda approval_id: approved)
     monkeypatch.setattr(
         api_v2.agent,
-        "run_tool",
-        lambda tool_name, args: {
-            "tool_name": tool_name,
-            "args": args,
+        "run_approved_tool",
+        lambda approved_execution: {
+            "tool_name": approved_execution.tool_name,
+            "args": approved_execution.arguments,
             "result": {"status": "Email sent"},
             "status": "success",
         },
@@ -766,7 +785,11 @@ def test_v2_approve_action(monkeypatch):
 
     response = client.post(
         "/api/v2/approvals/approval-2/approve",
-        json={"confirmed": True, "client_surface": "web"},
+        json={
+            "confirmed": True,
+            "proposal_id": approved.proposal_id,
+            "client_surface": "web",
+        },
     )
 
     assert response.status_code == 200

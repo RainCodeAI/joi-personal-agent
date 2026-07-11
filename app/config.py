@@ -30,6 +30,7 @@ class Settings(BaseSettings):
     vault_passphrase: str = Field(default="")
     router_timeout: int = Field(default=30)
     autonomy_level: str = Field(default="medium")  # low, medium, high
+    tool_planning_enabled: bool = Field(default=True)
     enable_proactive_messaging: bool = Field(default=True)
     initiative_enabled: bool = Field(default=True)
     initiative_daily_limit: int = Field(default=2)
