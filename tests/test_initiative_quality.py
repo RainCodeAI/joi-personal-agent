@@ -413,3 +413,98 @@ def test_service_gate_disabled_skips_scoring(tmp_path, monkeypatch):
         now=_now(),
     )
     assert decision.allowed is True
+
+
+# ── negative-feedback producer (endpoints) ───────────────────────────────────
+
+
+def _seed_emission(memory):
+    return memory.record(
+        initiative_type="memory_followup",
+        topic_key="memory_followup:mem-1",
+        message="Earlier you mentioned Dana...",
+        quality_score=0.9,
+        session_id="s",
+        emitted_at=_now(),
+    )
+
+
+def test_feedback_endpoint_marks_negative(tmp_path, monkeypatch):
+    from fastapi.testclient import TestClient
+
+    from app.api import v2 as api_v2
+    from app.api.main import app
+
+    memory = InitiativeEmissionMemory(tmp_path / "emissions.json")
+    record = _seed_emission(memory)
+    monkeypatch.setattr(api_v2, "initiative_emission_memory", memory)
+
+    client = TestClient(app)
+    resp = client.post(f"/api/v2/initiative/emissions/{record['id']}/feedback?response=negative")
+    assert resp.status_code == 200
+    assert resp.json()["response"] == "negative"
+    assert memory.recent()[0]["user_response"] == "negative"
+
+
+def test_feedback_endpoint_unknown_id_is_404(tmp_path, monkeypatch):
+    from fastapi.testclient import TestClient
+
+    from app.api import v2 as api_v2
+    from app.api.main import app
+
+    memory = InitiativeEmissionMemory(tmp_path / "emissions.json")
+    monkeypatch.setattr(api_v2, "initiative_emission_memory", memory)
+
+    client = TestClient(app)
+    resp = client.post("/api/v2/initiative/emissions/does-not-exist/feedback?response=negative")
+    assert resp.status_code == 404
+
+
+def test_feedback_endpoint_rejects_invalid_response(tmp_path, monkeypatch):
+    from fastapi.testclient import TestClient
+
+    from app.api import v2 as api_v2
+    from app.api.main import app
+
+    memory = InitiativeEmissionMemory(tmp_path / "emissions.json")
+    record = _seed_emission(memory)
+    monkeypatch.setattr(api_v2, "initiative_emission_memory", memory)
+
+    client = TestClient(app)
+    resp = client.post(f"/api/v2/initiative/emissions/{record['id']}/feedback?response=unknown")
+    assert resp.status_code == 422  # not an allowed response value
+
+
+def test_list_emissions_endpoint(tmp_path, monkeypatch):
+    from fastapi.testclient import TestClient
+
+    from app.api import v2 as api_v2
+    from app.api.main import app
+
+    memory = InitiativeEmissionMemory(tmp_path / "emissions.json")
+    _seed_emission(memory)
+    monkeypatch.setattr(api_v2, "initiative_emission_memory", memory)
+
+    client = TestClient(app)
+    resp = client.get("/api/v2/initiative/emissions?limit=5")
+    assert resp.status_code == 200
+    emissions = resp.json()["emissions"]
+    assert len(emissions) == 1
+    assert emissions[0]["type"] == "memory_followup"
+
+
+def test_negative_from_endpoint_suppresses_type_end_to_end(tmp_path, monkeypatch):
+    """Producer -> consumer: marking an emission negative quiets its type."""
+    monkeypatch.setattr(settings, "initiative_quality_gate_enabled", True)
+    memory = InitiativeEmissionMemory(tmp_path / "emissions.json")
+    record = _seed_emission(memory)
+    gate = InitiativeQualityGate(memory)
+
+    # Before feedback, a fresh candidate of this type would pass.
+    assert gate.evaluate(_evidence_candidate(source_id="other"), now=_now()).passed is True
+
+    memory.set_response(record["id"], "negative")
+
+    after = gate.evaluate(_evidence_candidate(source_id="other"), now=_now())
+    assert after.passed is False
+    assert after.hard_reason == "negative feedback on this initiative type"

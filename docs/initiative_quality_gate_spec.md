@@ -25,6 +25,12 @@ Stages 1–2 of the staged rollout are built:
   factor (pushing borderline candidates under threshold); a single `engaged`
   clears it; any `negative` hard-suppresses the type. Surfaced as
   `feedback_factor` on each `QualityScore`.
+- `negative` now has a producer: `POST /api/v2/initiative/emissions/{id}/feedback`
+  (`response=negative|engaged|ignored`) records the user's explicit reaction to a
+  specific emission — the "that was unwelcome" signal that quiets the type for its
+  feedback window. `GET /api/v2/initiative/emissions` lists recent emissions and
+  their feedback state so ids are discoverable. (Auto-`negative` on hide/delete of
+  a referenced item, or on disabling a type, is still future.)
 - The gate is wired into `InitiativeService` as a pre-policy step: it runs before
   the existing policy gate and only for candidates that carry `evidence`. Timer-
   driven candidates (daily greeting, absence return, etc.) carry no evidence and

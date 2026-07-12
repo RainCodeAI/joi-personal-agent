@@ -31,6 +31,7 @@ from app.api.state import (
     life_state_engine,
     media_sessions,
     memory_store,
+    initiative_emission_memory,
     initiative_quality_gate,
     mqtt_bridge,
     perception_policy,
@@ -2438,6 +2439,37 @@ async def get_initiative_diagnostics():
         "api_version": "v2",
         "initiative": initiative_service.diagnostics(),
     }
+
+
+@router.get("/initiative/emissions")
+async def list_initiative_emissions(limit: int = Query(default=20, ge=1, le=100)):
+    """Recent evidence-bound initiative emissions and their feedback state."""
+    return {
+        "api_version": "v2",
+        "emissions": initiative_emission_memory.recent(limit=limit),
+    }
+
+
+@router.post("/initiative/emissions/{emission_id}/feedback")
+async def record_initiative_feedback(
+    emission_id: str,
+    response: str = Query(pattern="^(engaged|ignored|negative)$"),
+):
+    """Attach the user's reaction to an emitted initiative.
+
+    ``negative`` is the "that was unwelcome" signal: the quality gate suppresses
+    that initiative type for its feedback window, so Joi backs off. ``engaged`` /
+    ``ignored`` allow a manual override of the automatic resolution.
+    """
+    updated = initiative_emission_memory.set_response(emission_id, response)
+    if not updated:
+        raise HTTPException(status_code=404, detail="Initiative emission not found")
+    await event_bus.publish(
+        "initiative.feedback",
+        {"emission_id": emission_id, "response": response},
+        source="initiative",
+    )
+    return {"api_version": "v2", "emission_id": emission_id, "response": response}
 
 
 @router.get("/context/events")
