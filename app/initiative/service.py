@@ -6,6 +6,7 @@ from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from app.initiative.policy import (
+    EVENT_DRIVEN_TYPES,
     LATE_NIGHT_TYPES,
     CandidateEvidence,
     InitiativeCandidate,
@@ -357,17 +358,21 @@ class InitiativeService:
             logger.warning("Initiative feedback registration failed: %s", exc)
             return []
 
+    def _quality_gate_active(self) -> bool:
+        """Whether the quality gate is configured and enabled by settings."""
+        if self._quality_gate is None:
+            return False
+        from app.config import settings
+
+        return bool(getattr(settings, "initiative_quality_gate_enabled", True))
+
     def _quality_evaluate(self, candidate: InitiativeCandidate, now: datetime) -> Any | None:
         """Score an evidence-bound candidate, or None if the gate doesn't apply.
 
         Timer-driven candidates (no evidence) and a disabled/absent gate return
         None so the policy gate alone governs — preserving legacy behavior.
         """
-        if self._quality_gate is None or candidate.evidence is None:
-            return None
-        from app.config import settings
-
-        if not getattr(settings, "initiative_quality_gate_enabled", True):
+        if candidate.evidence is None or not self._quality_gate_active():
             return None
         return self._quality_gate.evaluate(candidate, now=now)
 
@@ -671,15 +676,26 @@ class InitiativeService:
                 return "quiet hours active"
         if self.store.daily_count(now.date().isoformat()) >= policy.daily_limit:
             return "daily limit reached"
-        if self.store.emitted_type_today(candidate.type, now.date().isoformat()):
+
+        # Event-driven types (calendar heads-ups) are deduped per-event by the
+        # quality gate, so they skip the coarse per-type-per-day and spacing
+        # throttles. The per-day skip is guarded on the gate actually being
+        # active — without that per-event dedup we fall back to one-per-day so a
+        # 10-minute tick can't repeat the same event.
+        event_driven = candidate.type in EVENT_DRIVEN_TYPES
+        per_event_deduped = event_driven and self._quality_gate_active()
+        if not per_event_deduped and self.store.emitted_type_today(
+            candidate.type, now.date().isoformat()
+        ):
             return f"{candidate.type} already emitted today"
 
-        last_emitted = self.store.last_emitted_at()
-        if last_emitted is not None:
-            last_emitted = self._coerce_to_current_zone(last_emitted, now)
-            elapsed = now - last_emitted
-            if elapsed < timedelta(minutes=policy.min_spacing_minutes):
-                return "minimum initiative spacing active"
+        if not event_driven:
+            last_emitted = self.store.last_emitted_at()
+            if last_emitted is not None:
+                last_emitted = self._coerce_to_current_zone(last_emitted, now)
+                elapsed = now - last_emitted
+                if elapsed < timedelta(minutes=policy.min_spacing_minutes):
+                    return "minimum initiative spacing active"
 
         mic_state = str(media_session.get("mic_state") or "idle")
         speaking_state = str(media_session.get("speaking_state") or "idle")

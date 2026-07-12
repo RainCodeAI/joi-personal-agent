@@ -222,3 +222,96 @@ def test_calendar_heads_up_in_default_allowed_types():
     """Taken live: the default policy now permits calendar_heads_up."""
     policy = InitiativePolicy.from_settings()
     assert "calendar_heads_up" in policy.allowed_types
+
+
+# ── throttle exemptions ──────────────────────────────────────────────────────
+
+
+def _cal_candidate(service, event_id="e2", minutes=30):
+    return service.build_calendar_heads_up_candidate(
+        events=[_event(event_id, "Sync with Dana", minutes)], now=_now()
+    )
+
+
+def _idle():
+    return {"mic_state": "idle", "speaking_state": "idle"}
+
+
+def test_heads_up_bypasses_min_spacing(tmp_path, monkeypatch):
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "initiative_quality_gate_enabled", True)
+    service = _service(tmp_path)
+    # A greeting fired one minute ago would normally trip the 4-hour spacing rule.
+    service.store.record_emitted(
+        initiative_type="daily_greeting",
+        session_id="default",
+        message="Morning.",
+        reason="test",
+        emitted_at=_now() - timedelta(minutes=1),
+    )
+    decision = service.can_emit(
+        _cal_candidate(service), policy=_policy(), media_session=_idle(), now=_now()
+    )
+    assert decision.allowed is True
+
+
+def test_second_event_same_day_allowed_with_gate(tmp_path, monkeypatch):
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "initiative_quality_gate_enabled", True)
+    service = _service(tmp_path)
+    # A heads-up for a different event already fired today.
+    service.store.record_emitted(
+        initiative_type="calendar_heads_up",
+        session_id="default",
+        message="Earlier event.",
+        reason="test",
+        emitted_at=_now() - timedelta(hours=1),
+    )
+    decision = service.can_emit(
+        _cal_candidate(service, event_id="later"),
+        policy=_policy(),
+        media_session=_idle(),
+        now=_now(),
+    )
+    assert decision.allowed is True  # per-event dedup, not per-day
+
+
+def test_second_event_blocked_without_gate(tmp_path):
+    service = _service(tmp_path, gate=False)  # no per-event dedup available
+    service.store.record_emitted(
+        initiative_type="calendar_heads_up",
+        session_id="default",
+        message="Earlier event.",
+        reason="test",
+        emitted_at=_now() - timedelta(hours=1),
+    )
+    decision = service.can_emit(
+        _cal_candidate(service, event_id="later"),
+        policy=_policy(),
+        media_session=_idle(),
+        now=_now(),
+    )
+    assert decision.allowed is False
+    assert "already emitted today" in (decision.suppressed_reason or "")
+
+
+def test_heads_up_still_bounded_by_daily_limit(tmp_path, monkeypatch):
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "initiative_quality_gate_enabled", True)
+    service = _service(tmp_path)
+    for i in range(2):
+        service.store.record_emitted(
+            initiative_type="daily_greeting",
+            session_id="default",
+            message="m",
+            reason="test",
+            emitted_at=_now() - timedelta(minutes=10 * (i + 1)),
+        )
+    decision = service.can_emit(
+        _cal_candidate(service), policy=_policy(daily_limit=2), media_session=_idle(), now=_now()
+    )
+    assert decision.allowed is False
+    assert decision.suppressed_reason == "daily limit reached"

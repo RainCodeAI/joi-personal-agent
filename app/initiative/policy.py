@@ -33,6 +33,13 @@ ALLOWED_INITIATIVE_TYPES: tuple[InitiativeType, ...] = (
 # They bypass quiet-hours suppression because the late-night window IS their purpose.
 LATE_NIGHT_TYPES: frozenset[InitiativeType] = frozenset({"late_night_checkin"})
 
+# Types tied to a specific external event (e.g. a calendar entry). The quality
+# gate deduplicates them per-event via topic_key, so they bypass the coarse
+# spacing and per-type-per-day throttles meant for ambient chatter — a heads-up
+# shouldn't be blocked just because Joi spoke earlier, and two meetings each
+# deserve their own nudge. The daily limit still bounds them.
+EVENT_DRIVEN_TYPES: frozenset[InitiativeType] = frozenset({"calendar_heads_up"})
+
 
 @dataclass(frozen=True)
 class InitiativePolicy:
