@@ -1,5 +1,6 @@
-import { fetchDiagnostics } from "@/lib/api";
-import { DiagnosticsResponse, InitiativeDiagnostics, ReadinessState } from "@/lib/types";
+import { fetchDiagnostics, listInitiativeEmissions } from "@/lib/api";
+import { DiagnosticsResponse, InitiativeDiagnostics, InitiativeEmission, ReadinessState } from "@/lib/types";
+import { InitiativeEmissionsPanel } from "@/components/initiative-emissions-panel";
 
 export const dynamic = "force-dynamic";
 
@@ -179,6 +180,9 @@ function InitiativePanel({ initiative }: { initiative: InitiativeDiagnostics | u
 
 export default async function DiagnosticsPage() {
   const diagnostics = await fetchDiagnostics().catch(() => FALLBACK_DIAGNOSTICS);
+  const emissions: InitiativeEmission[] = await listInitiativeEmissions()
+    .then((r) => r.emissions)
+    .catch(() => []);
 
   const readinessEntries = Object.entries(diagnostics.readiness);
   const providerEntries = Object.entries(diagnostics.providers);
@@ -315,6 +319,8 @@ export default async function DiagnosticsPage() {
         </section>
 
         <InitiativePanel initiative={diagnostics.initiative} />
+
+        <InitiativeEmissionsPanel initialEmissions={emissions} />
 
         <section className="panel">
           <p className="eyebrow">Context gate</p>

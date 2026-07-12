@@ -303,6 +303,20 @@ export type InitiativeDiagnostics = {
   scheduler: { running: boolean; jobs: Array<{ id: string; name: string; next_run_time: string | null }> };
 };
 
+export type InitiativeResponse = "engaged" | "ignored" | "negative" | "unknown";
+
+export type InitiativeEmission = {
+  id: string;
+  type: string;
+  topic_key: string;
+  session_id: string | null;
+  source_ids: string[];
+  message: string;
+  quality_score: number;
+  emitted_at: string;
+  user_response: InitiativeResponse;
+};
+
 export type DiagnosticsResponse = {
   status: string;
   readiness: ReadinessMap;

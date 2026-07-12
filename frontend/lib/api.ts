@@ -8,6 +8,8 @@ import {
   DesktopActionRequest,
   DesktopActionResponse,
   DiagnosticsResponse,
+  InitiativeEmission,
+  InitiativeResponse,
   MediaSession,
   MediaTranscriptionResponse,
   MemoryItem,
@@ -446,6 +448,22 @@ export async function analyzeSnapshot(
 
 export async function fetchDiagnostics() {
   return apiFetch<DiagnosticsResponse>("/diagnostics/runtime");
+}
+
+export async function listInitiativeEmissions(limit = 20) {
+  return apiFetch<{ api_version: "v2"; emissions: InitiativeEmission[] }>(
+    `/api/v2/initiative/emissions?limit=${limit}`,
+  );
+}
+
+export async function recordInitiativeFeedback(
+  emissionId: string,
+  response: Exclude<InitiativeResponse, "unknown">,
+) {
+  return apiFetch<{ api_version: "v2"; emission_id: string; response: string }>(
+    `/api/v2/initiative/emissions/${encodeURIComponent(emissionId)}/feedback?response=${response}`,
+    { method: "POST" },
+  );
 }
 
 export async function fetchUserModel(userId = "default") {
