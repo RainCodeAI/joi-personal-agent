@@ -181,6 +181,13 @@ class InitiativeEmissionMemory:
                     counts[response] += 1
         return counts
 
+    def get(self, record_id: str) -> dict[str, Any] | None:
+        with self._lock:
+            for record in self._records:
+                if record.get("id") == record_id:
+                    return dict(record)
+        return None
+
     def recent(self, *, limit: int = 20) -> list[dict[str, Any]]:
         with self._lock:
             return [dict(record) for record in self._records[-max(1, limit):][::-1]]

@@ -2464,9 +2464,13 @@ async def record_initiative_feedback(
     updated = initiative_emission_memory.set_response(emission_id, response)
     if not updated:
         raise HTTPException(status_code=404, detail="Initiative emission not found")
+    record = initiative_emission_memory.get(emission_id)
+    # Publish on the emission's own session so session-scoped subscribers (the
+    # diagnostics panel subscribes on "default") receive the update.
     await event_bus.publish(
         "initiative.feedback",
         {"emission_id": emission_id, "response": response},
+        session_id=(record or {}).get("session_id"),
         source="initiative",
     )
     return {"api_version": "v2", "emission_id": emission_id, "response": response}

@@ -132,6 +132,19 @@ def test_register_user_reply_engages_only_newest_within_window(tmp_path):
     assert by_topic["k20"] == "unknown"     # second in-window stays unresolved
 
 
+def test_emission_memory_get_by_id(tmp_path):
+    memory = InitiativeEmissionMemory(tmp_path / "emissions.json")
+    record = memory.record(
+        initiative_type="memory_followup",
+        topic_key="k",
+        message="m",
+        quality_score=0.8,
+        session_id="default",
+    )
+    assert memory.get(record["id"])["session_id"] == "default"
+    assert memory.get("nope") is None
+
+
 def test_emission_memory_set_response_and_persist(tmp_path):
     path = tmp_path / "emissions.json"
     record = InitiativeEmissionMemory(path).record(

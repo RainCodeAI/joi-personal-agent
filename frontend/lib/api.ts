@@ -589,6 +589,7 @@ const SSE_EVENT_NAMES = [
   "perception.snapshot",
   "initiative.emitted",
   "initiative.suppressed",
+  "initiative.feedback",
   "initiative.activity",
   "avatar.life_state_changed",
   "desktop.action.completed",
