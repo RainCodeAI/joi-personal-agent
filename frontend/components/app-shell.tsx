@@ -41,6 +41,10 @@ export function AppShell({ children }: { children: ReactNode }) {
   return (
     <PerceptionServiceProvider>
       <AmbientListenerProvider>
+      {/* BR2049 atmosphere — fixed, non-interactive; sits behind the shell. */}
+      <div className="joi-haze" aria-hidden="true" />
+      <div className="joi-rain" aria-hidden="true" />
+      <div className="joi-grain" aria-hidden="true" />
       <div className={`app-shell${collapsed ? " nav-collapsed" : ""}`}>
         <aside className="app-nav">
           <div className="brand-chip">

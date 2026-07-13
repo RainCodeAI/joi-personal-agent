@@ -1,31 +1,34 @@
 :root {
-  --bg: #05070b;
-  --bg-elevated: rgba(10, 14, 23, 0.72);
-  --bg-panel: rgba(15, 19, 30, 0.78);
-  --bg-panel-strong: rgba(19, 24, 37, 0.92);
-  --line: rgba(129, 153, 188, 0.2);
-  --line-strong: rgba(120, 201, 255, 0.34);
-  --text: #f4f7fb;
-  --muted: #98a7bf;
-  --cyan: #7ef2ff;
-  --cyan-soft: rgba(126, 242, 255, 0.14);
-  --amber: #ffb36b;
-  --amber-soft: rgba(255, 179, 107, 0.14);
+  --bg: #060c10;
+  --bg-elevated: rgba(11, 18, 22, 0.72);
+  --bg-panel: rgba(13, 20, 24, 0.72);
+  --bg-panel-strong: rgba(16, 24, 28, 0.9);
+  --line: rgba(127, 199, 192, 0.18);
+  --line-strong: rgba(127, 199, 192, 0.34);
+  --text: #eef0ec;
+  --muted: #8ba09b;
+  --cyan: #7fc7c0;
+  --cyan-soft: rgba(127, 199, 192, 0.14);
+  --amber: #e6a75c;
+  --amber-soft: rgba(230, 167, 92, 0.14);
   --rose: #ff7b88;
   --rose-soft: rgba(255, 123, 136, 0.16);
-  /* Joi's own colour — warm violet/magenta. Semantic rule: warm = her,
-     cool (cyan) = the machine/world, amber/rose = warnings. Reserve --joi
-     for the assistant herself (her replies, glow, presence), not chrome. */
-  --joi: #c98bff;
-  --joi-strong: #d9a5ff;
-  --joi-soft: rgba(201, 139, 255, 0.16);
+  /* Joi's own colour — neon rose-magenta (Blade Runner 2049: the giant ad,
+     the rooftop/street neon). Semantic rule: warm/neon = her, cool teal
+     (--cyan) = the world/rain/machine, amber = the apartment, rose = errors.
+     Reserve --joi for the assistant herself (replies, glow, presence). */
+  --joi: #ff74c2;
+  --joi-strong: #ff9dd8;
+  --joi-soft: rgba(255, 116, 194, 0.16);
   --success: #74f7b1;
   --shadow: 0 24px 80px rgba(0, 0, 0, 0.45);
   --radius-xl: 28px;
   --radius-lg: 22px;
   --radius-md: 16px;
   --font-body: "Space Grotesk", "Segoe UI Variable", "Avenir Next", sans-serif;
-  --font-display: "Orbitron", "Aldrich", "Eurostile", sans-serif;
+  /* Retired Orbitron (reads gamer-HUD). A wide, quiet geometric sans — the
+     personality is the treatment: light weight, wide tracking, uppercase. */
+  --font-display: "Space Grotesk", "Aldrich", ui-sans-serif, system-ui, sans-serif;
 }
 
 * {
@@ -40,11 +43,13 @@ body {
   margin: 0;
   min-height: 100vh;
   color: var(--text);
+  /* Cold night-city: rain-blue haze up top, a small warm apartment pocket
+     low-right, a faint neon-pink wash mid-scene. */
   background:
-    radial-gradient(circle at top left, rgba(126, 242, 255, 0.14), transparent 28%),
-    radial-gradient(circle at top right, rgba(255, 179, 107, 0.18), transparent 24%),
-    radial-gradient(circle at bottom center, rgba(255, 123, 136, 0.1), transparent 22%),
-    linear-gradient(180deg, #081019 0%, #05070b 54%, #040406 100%);
+    radial-gradient(circle at 86% 88%, rgba(230, 167, 92, 0.14), transparent 28%),
+    radial-gradient(circle at 16% 12%, rgba(66, 104, 168, 0.13), transparent 34%),
+    radial-gradient(circle at 58% 52%, rgba(255, 116, 194, 0.06), transparent 60%),
+    linear-gradient(178deg, #0a141a 0%, #060c10 60%, #03050a 100%);
   font-family: var(--font-body);
 }
 
@@ -61,6 +66,8 @@ textarea {
 }
 
 .app-shell {
+  position: relative;
+  z-index: 1;              /* above the fixed haze/rain, below the grain */
   display: grid;
   grid-template-columns: 280px minmax(0, 1fr);
   min-height: 100vh;
@@ -78,7 +85,7 @@ textarea {
   border-right: 1px solid var(--line);
   background:
     linear-gradient(180deg, rgba(6, 10, 18, 0.92), rgba(5, 7, 11, 0.85)),
-    radial-gradient(circle at top, rgba(126, 242, 255, 0.09), transparent 35%);
+    radial-gradient(circle at top, rgba(127, 199, 192, 0.09), transparent 35%);
   backdrop-filter: blur(24px);
   display: flex;
   flex-direction: column;
@@ -116,7 +123,7 @@ textarea {
 
 .nav-collapse-btn:hover {
   background: var(--cyan-soft);
-  border-color: rgba(126, 242, 255, 0.4);
+  border-color: rgba(127, 199, 192, 0.4);
   color: var(--cyan);
 }
 
@@ -133,7 +140,7 @@ textarea {
   text-transform: uppercase;
   font: 600 0.72rem var(--font-display);
   background: rgba(12, 20, 32, 0.65);
-  box-shadow: inset 0 0 0 1px rgba(126, 242, 255, 0.1);
+  box-shadow: inset 0 0 0 1px rgba(127, 199, 192, 0.1);
   white-space: nowrap;
   overflow: hidden;
   flex-shrink: 0;
@@ -141,9 +148,9 @@ textarea {
 
 .brand-title {
   margin: 18px 0 8px;
-  font: 600 clamp(2rem, 4vw, 3rem) / 0.95 var(--font-display);
+  font: 300 clamp(2rem, 4vw, 3rem) / 0.95 var(--font-display);
   text-transform: uppercase;
-  letter-spacing: 0.1em;
+  letter-spacing: 0.22em;
 }
 
 .brand-copy,
@@ -172,13 +179,13 @@ textarea {
 }
 
 .nav-link--icon:hover {
-  background: rgba(126, 242, 255, 0.06);
+  background: rgba(127, 199, 192, 0.06);
   border-color: var(--line);
   color: var(--text);
 }
 
 .nav-link--icon.active {
-  background: linear-gradient(135deg, rgba(126, 242, 255, 0.14), rgba(255, 179, 107, 0.08));
+  background: linear-gradient(135deg, rgba(127, 199, 192, 0.14), rgba(230, 167, 92, 0.08));
   border-color: var(--line-strong);
   color: var(--cyan);
 }
@@ -206,16 +213,16 @@ textarea {
 .nav-link:hover {
   transform: translateX(4px);
   border-color: var(--line);
-  border-left-color: rgba(126, 242, 255, 0.4);
-  background: rgba(126, 242, 255, 0.05);
+  border-left-color: rgba(127, 199, 192, 0.4);
+  background: rgba(127, 199, 192, 0.05);
 }
 
 .nav-link.active {
   transform: translateX(4px);
   border-color: var(--line-strong);
   border-left-color: var(--cyan);
-  background: linear-gradient(135deg, rgba(126, 242, 255, 0.12), rgba(255, 179, 107, 0.08));
-  box-shadow: inset 0 0 0 1px rgba(126, 242, 255, 0.08);
+  background: linear-gradient(135deg, rgba(127, 199, 192, 0.12), rgba(230, 167, 92, 0.08));
+  box-shadow: inset 0 0 0 1px rgba(127, 199, 192, 0.08);
 }
 
 .nav-link-label {
@@ -260,9 +267,10 @@ textarea {
   min-height: calc(100vh - 56px);
   border: 1px solid var(--line);
   border-radius: 32px;
+  /* Slightly translucent so the drifting fog and rain read through the glass. */
   background:
-    linear-gradient(180deg, rgba(9, 13, 21, 0.74), rgba(7, 9, 14, 0.88)),
-    radial-gradient(circle at top, rgba(126, 242, 255, 0.08), transparent 35%);
+    linear-gradient(180deg, rgba(9, 15, 20, 0.58), rgba(6, 10, 14, 0.72)),
+    radial-gradient(circle at top, rgba(127, 199, 192, 0.06), transparent 35%);
   box-shadow: var(--shadow);
   overflow: hidden;
 }
@@ -386,7 +394,7 @@ textarea {
   padding: 20px;
   background:
     linear-gradient(180deg, rgba(16, 22, 35, 0.9), rgba(13, 17, 27, 0.92)),
-    radial-gradient(circle at top left, rgba(255, 179, 107, 0.15), transparent 32%);
+    radial-gradient(circle at top left, rgba(230, 167, 92, 0.15), transparent 32%);
 }
 
 .list {
@@ -434,7 +442,7 @@ textarea {
 }
 
 .badge.warn {
-  border-color: rgba(255, 179, 107, 0.35);
+  border-color: rgba(230, 167, 92, 0.35);
   color: var(--amber);
 }
 
@@ -486,7 +494,7 @@ textarea {
 .textarea:focus,
 .select:focus {
   border-color: var(--line-strong);
-  box-shadow: 0 0 0 3px rgba(126, 242, 255, 0.12);
+  box-shadow: 0 0 0 3px rgba(127, 199, 192, 0.12);
 }
 
 .button-row {
@@ -521,12 +529,12 @@ textarea {
 .button.primary {
   color: #031017;
   background: linear-gradient(135deg, var(--cyan), #b8fff0);
-  box-shadow: 0 10px 30px rgba(126, 242, 255, 0.26);
+  box-shadow: 0 10px 30px rgba(127, 199, 192, 0.26);
 }
 
 .button.secondary {
   color: var(--text);
-  background: linear-gradient(135deg, rgba(255, 179, 107, 0.18), rgba(126, 242, 255, 0.12));
+  background: linear-gradient(135deg, rgba(230, 167, 92, 0.18), rgba(127, 199, 192, 0.12));
   border: 1px solid var(--line);
 }
 
@@ -612,7 +620,7 @@ textarea {
   gap: 18px;
   margin-top: 18px;
   padding-top: 18px;
-  border-top: 1px solid rgba(126, 242, 255, 0.1);
+  border-top: 1px solid rgba(127, 199, 192, 0.1);
 }
 
 .chat-textarea {
@@ -641,10 +649,10 @@ textarea {
 .joi-status-panel {
   padding: 28px 28px 24px;
   background:
-    radial-gradient(circle at top, rgba(126, 242, 255, 0.1), transparent 36%),
+    radial-gradient(circle at top, rgba(127, 199, 192, 0.1), transparent 36%),
     linear-gradient(180deg, rgba(11, 16, 27, 0.9), rgba(9, 13, 22, 0.94));
   box-shadow:
-    inset 0 0 0 1px rgba(126, 242, 255, 0.05),
+    inset 0 0 0 1px rgba(127, 199, 192, 0.05),
     0 22px 60px rgba(0, 0, 0, 0.22);
 }
 
@@ -669,7 +677,7 @@ textarea {
 .feed-section {
   padding: 14px 16px;
   border-radius: var(--radius-md);
-  border: 1px solid rgba(126, 242, 255, 0.14);
+  border: 1px solid rgba(127, 199, 192, 0.14);
   background: rgba(9, 14, 28, 0.62);
 }
 
@@ -690,7 +698,7 @@ textarea {
 }
 
 .message-card[data-role="assistant"] {
-  border-color: rgba(201, 139, 255, 0.26);
+  border-color: rgba(255, 116, 194, 0.26);
   border-left: 2px solid var(--joi);
   background:
     linear-gradient(135deg, var(--joi-soft), rgba(255, 255, 255, 0.03)),
@@ -740,7 +748,7 @@ textarea {
 .viseme-chip {
   padding: 14px 16px;
   border-radius: var(--radius-md);
-  border: 1px solid rgba(126, 242, 255, 0.12);
+  border: 1px solid rgba(127, 199, 192, 0.12);
   background: rgba(8, 13, 21, 0.72);
 }
 
@@ -825,7 +833,7 @@ textarea {
 .approval-preview {
   padding: 14px 16px;
   border-radius: 14px;
-  border: 1px solid rgba(126, 242, 255, 0.14);
+  border: 1px solid rgba(127, 199, 192, 0.14);
   background: rgba(9, 14, 28, 0.7);
 }
 
@@ -874,12 +882,12 @@ textarea {
   border-radius: 20px;
   overflow: hidden;
   background:
-    radial-gradient(circle at 50% 22%, rgba(126, 242, 255, 0.24), transparent 30%),
+    radial-gradient(circle at 50% 22%, rgba(127, 199, 192, 0.24), transparent 30%),
     radial-gradient(circle at 50% 74%, rgba(255, 123, 136, 0.16), transparent 25%),
-    radial-gradient(circle at 50% 100%, rgba(126, 242, 255, 0.14), transparent 34%),
+    radial-gradient(circle at 50% 100%, rgba(127, 199, 192, 0.14), transparent 34%),
     linear-gradient(180deg, rgba(11, 18, 32, 0.98), rgba(5, 9, 18, 0.96));
   box-shadow:
-    inset 0 0 0 1px rgba(126, 242, 255, 0.08),
+    inset 0 0 0 1px rgba(127, 199, 192, 0.08),
     0 0 40px rgba(180, 120, 255, 0.2),
     0 0 80px rgba(100, 160, 255, 0.1);
   animation: hologramGlow 6s ease-in-out infinite;
@@ -898,7 +906,7 @@ textarea {
   z-index: 10;
   pointer-events: none;
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.015), transparent 18%, rgba(126, 242, 255, 0.045) 100%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.015), transparent 18%, rgba(127, 199, 192, 0.045) 100%),
     repeating-linear-gradient(
       to bottom,
       transparent 0px,
@@ -915,7 +923,7 @@ textarea {
   inset: 12px;
   z-index: 11;
   border-radius: 16px;
-  border: 1px solid rgba(201, 139, 255, 0.34);
+  border: 1px solid rgba(255, 116, 194, 0.34);
   animation: pulse-ring 1.2s ease-in-out infinite;
   pointer-events: none;
 }
@@ -968,7 +976,7 @@ textarea {
   /* She's a transparent cutout, so she floats on the dark frame. Give the
      silhouette a soft cyan projection glow. */
   filter: saturate(0.92) contrast(1.04) brightness(1.03)
-    drop-shadow(0 0 24px rgba(126, 242, 255, 0.18));
+    drop-shadow(0 0 24px rgba(127, 199, 192, 0.18));
   /* Dissolve her lower torso into the projection base — the classic hologram
      "beamed from below" look. */
   -webkit-mask-image: linear-gradient(
@@ -1005,14 +1013,14 @@ textarea {
   mix-blend-mode: screen;
   opacity: 0.85;
   background:
-    radial-gradient(ellipse 66% 56% at 50% 30%, rgba(126, 242, 255, 0.1), transparent 62%),
-    radial-gradient(ellipse 82% 66% at 50% 98%, rgba(201, 139, 255, 0.14), transparent 55%),
-    linear-gradient(180deg, rgba(126, 242, 255, 0.05), transparent 34%, rgba(201, 139, 255, 0.07));
+    radial-gradient(ellipse 66% 56% at 50% 30%, rgba(127, 199, 192, 0.1), transparent 62%),
+    radial-gradient(ellipse 82% 66% at 50% 98%, rgba(255, 116, 194, 0.14), transparent 55%),
+    linear-gradient(180deg, rgba(127, 199, 192, 0.05), transparent 34%, rgba(255, 116, 194, 0.07));
 }
 
 .avatar-portrait.attentive .avatar-portrait-face[data-active="true"] {
   filter: saturate(0.95) contrast(1.05) brightness(1.06)
-    drop-shadow(0 0 26px rgba(126, 242, 255, 0.22));
+    drop-shadow(0 0 26px rgba(127, 199, 192, 0.22));
 }
 
 .avatar-portrait.speaking .avatar-portrait-stage {
@@ -1021,7 +1029,7 @@ textarea {
 
 .avatar-portrait.speaking .avatar-portrait-face[data-active="true"] {
   filter: saturate(1) contrast(1.06) brightness(1.08)
-    drop-shadow(0 0 30px rgba(201, 139, 255, 0.24));
+    drop-shadow(0 0 30px rgba(255, 116, 194, 0.24));
 }
 
 @keyframes portrait-breathe {
@@ -1076,13 +1084,13 @@ textarea {
   width: 180px;
   height: 180px;
   border-radius: 999px;
-  background: radial-gradient(circle, rgba(126, 242, 255, 0.22), transparent 65%);
+  background: radial-gradient(circle, rgba(127, 199, 192, 0.22), transparent 65%);
   filter: blur(12px);
 }
 
 .empty-state {
   padding: 28px;
-  border: 1px dashed rgba(126, 242, 255, 0.24);
+  border: 1px dashed rgba(127, 199, 192, 0.24);
   border-radius: var(--radius-lg);
   color: var(--muted);
   background: rgba(9, 15, 25, 0.45);
@@ -1090,7 +1098,7 @@ textarea {
 
 .prompt-suggestions {
   padding: 24px;
-  border: 1px dashed rgba(126, 242, 255, 0.2);
+  border: 1px dashed rgba(127, 199, 192, 0.2);
   border-radius: var(--radius-lg);
   background: rgba(9, 15, 25, 0.45);
 }
@@ -1113,7 +1121,7 @@ textarea {
   padding: 12px 16px;
   border-radius: 14px;
   border: 1px solid var(--line);
-  background: rgba(126, 242, 255, 0.03);
+  background: rgba(127, 199, 192, 0.03);
   color: var(--text);
   font-size: 0.88rem;
   text-align: left;
@@ -1126,14 +1134,14 @@ textarea {
 
 .prompt-chip:hover {
   background: var(--cyan-soft);
-  border-color: rgba(126, 242, 255, 0.4);
+  border-color: rgba(127, 199, 192, 0.4);
   transform: translateY(-1px);
 }
 
 .streaming-indicator {
   padding: 14px 16px;
   border-radius: var(--radius-md);
-  border: 1px solid rgba(201, 139, 255, 0.22);
+  border: 1px solid rgba(255, 116, 194, 0.22);
   background:
     linear-gradient(135deg, var(--joi-soft), rgba(255, 255, 255, 0.03)),
     rgba(15, 19, 30, 0.82);
@@ -1228,7 +1236,7 @@ textarea {
 
 .voice-transcript-preview {
   background: rgba(10, 16, 28, 0.46);
-  border: 1px solid rgba(126, 242, 255, 0.12);
+  border: 1px solid rgba(127, 199, 192, 0.12);
 }
 
 .voice-transcript-label {
@@ -1261,7 +1269,7 @@ textarea {
   padding: 12px 14px;
   border-radius: 14px;
   background: rgba(10, 16, 28, 0.46);
-  border: 1px solid rgba(126, 242, 255, 0.16);
+  border: 1px solid rgba(127, 199, 192, 0.16);
   display: grid;
   gap: 10px;
 }
@@ -1287,7 +1295,7 @@ textarea {
 .voice-ambient-phrase input {
   padding: 8px 10px;
   border-radius: 10px;
-  border: 1px solid rgba(126, 242, 255, 0.18);
+  border: 1px solid rgba(127, 199, 192, 0.18);
   background: rgba(4, 8, 16, 0.5);
   color: rgba(218, 231, 248, 0.92);
   font-size: 0.9rem;
@@ -1314,7 +1322,7 @@ textarea {
   padding: 9px 12px;
   border-radius: 999px;
   background: rgba(6, 12, 22, 0.86);
-  border: 1px solid rgba(126, 242, 255, 0.28);
+  border: 1px solid rgba(127, 199, 192, 0.28);
   box-shadow: 0 8px 26px rgba(0, 0, 0, 0.4);
   backdrop-filter: blur(6px);
   color: rgba(218, 231, 248, 0.92);
@@ -1326,7 +1334,7 @@ textarea {
   height: 9px;
   border-radius: 50%;
   background: #7ef2ff;
-  box-shadow: 0 0 8px rgba(126, 242, 255, 0.85);
+  box-shadow: 0 0 8px rgba(127, 199, 192, 0.85);
   animation: ambient-dot-pulse 2s ease-in-out infinite;
 }
 
@@ -1366,13 +1374,13 @@ textarea {
 
 @keyframes ambient-wake-flash {
   0% {
-    border-color: rgba(201, 139, 255, 1);
-    box-shadow: 0 0 0 0 rgba(201, 139, 255, 0.55), 0 8px 26px rgba(0, 0, 0, 0.4);
+    border-color: rgba(255, 116, 194, 1);
+    box-shadow: 0 0 0 0 rgba(255, 116, 194, 0.55), 0 8px 26px rgba(0, 0, 0, 0.4);
     transform: scale(1.06);
   }
   100% {
-    border-color: rgba(126, 242, 255, 0.28);
-    box-shadow: 0 0 0 14px rgba(201, 139, 255, 0), 0 8px 26px rgba(0, 0, 0, 0.4);
+    border-color: rgba(127, 199, 192, 0.28);
+    box-shadow: 0 0 0 14px rgba(255, 116, 194, 0), 0 8px 26px rgba(0, 0, 0, 0.4);
     transform: scale(1);
   }
 }
@@ -1510,9 +1518,9 @@ textarea {
   gap: 18px;
   padding: 18px 18px 20px;
   border-radius: 28px;
-  border: 1px solid rgba(126, 242, 255, 0.16);
+  border: 1px solid rgba(127, 199, 192, 0.16);
   background:
-    radial-gradient(circle at 50% 18%, rgba(126, 242, 255, 0.16), transparent 28%),
+    radial-gradient(circle at 50% 18%, rgba(127, 199, 192, 0.16), transparent 28%),
     radial-gradient(circle at 50% 78%, rgba(255, 123, 136, 0.08), transparent 26%),
     linear-gradient(180deg, rgba(8, 13, 24, 0.98), rgba(6, 9, 17, 0.96));
   overflow: hidden;
@@ -1531,8 +1539,8 @@ textarea {
 
 .avatar-stage::before {
   background:
-    linear-gradient(180deg, rgba(126, 242, 255, 0.05), transparent 18%, rgba(255, 123, 136, 0.04) 100%),
-    radial-gradient(circle at 50% 24%, rgba(126, 242, 255, 0.08), transparent 54%),
+    linear-gradient(180deg, rgba(127, 199, 192, 0.05), transparent 18%, rgba(255, 123, 136, 0.04) 100%),
+    radial-gradient(circle at 50% 24%, rgba(127, 199, 192, 0.08), transparent 54%),
     repeating-linear-gradient(
       to bottom,
       rgba(255, 255, 255, 0.012) 0,
@@ -1545,7 +1553,7 @@ textarea {
 .avatar-stage::after {
   inset: 12px;
   border-radius: 24px;
-  border: 1px solid rgba(126, 242, 255, 0.12);
+  border: 1px solid rgba(127, 199, 192, 0.12);
 }
 
 .avatar-stage-head,
@@ -1580,7 +1588,7 @@ textarea {
   align-items: center;
   padding: 6px 10px;
   border-radius: 999px;
-  border: 1px solid rgba(126, 242, 255, 0.16);
+  border: 1px solid rgba(127, 199, 192, 0.16);
   background: rgba(7, 11, 18, 0.72);
 }
 
@@ -1591,7 +1599,7 @@ textarea {
 
 .avatar-stage-status.warn {
   color: var(--amber);
-  border-color: rgba(255, 179, 107, 0.24);
+  border-color: rgba(230, 167, 92, 0.24);
 }
 
 .avatar-mode-toggle {
@@ -1609,7 +1617,7 @@ textarea {
   overflow: hidden;
   z-index: 1;
   box-shadow:
-    inset 0 0 0 1px rgba(126, 242, 255, 0.08),
+    inset 0 0 0 1px rgba(127, 199, 192, 0.08),
     0 24px 70px rgba(0, 0, 0, 0.34);
 }
 
@@ -1619,7 +1627,7 @@ textarea {
   inset: 10% 15% 22%;
   border-radius: 999px;
   background:
-    radial-gradient(circle at 50% 30%, rgba(126, 242, 255, 0.18), transparent 52%),
+    radial-gradient(circle at 50% 30%, rgba(127, 199, 192, 0.18), transparent 52%),
     radial-gradient(circle at 50% 86%, rgba(255, 123, 136, 0.08), transparent 34%);
   filter: blur(18px);
   pointer-events: none;
@@ -1632,7 +1640,7 @@ textarea {
   inset: 0;
   background:
     linear-gradient(180deg, rgba(4, 8, 14, 0.12), rgba(4, 8, 14, 0) 18%, rgba(4, 8, 14, 0) 76%, rgba(4, 8, 14, 0.22)),
-    radial-gradient(circle at 50% 82%, rgba(126, 242, 255, 0.06), transparent 26%),
+    radial-gradient(circle at 50% 82%, rgba(127, 199, 192, 0.06), transparent 26%),
     radial-gradient(circle at 50% 100%, rgba(5, 7, 11, 0.3), transparent 34%);
   pointer-events: none;
   z-index: 2;
@@ -1643,8 +1651,8 @@ textarea {
   aspect-ratio: 4 / 5;
   border-radius: 26px;
   background:
-    radial-gradient(circle at 50% 18%, rgba(126, 242, 255, 0.18), transparent 20%),
-    radial-gradient(circle at 50% 60%, rgba(126, 242, 255, 0.09), transparent 30%),
+    radial-gradient(circle at 50% 18%, rgba(127, 199, 192, 0.18), transparent 20%),
+    radial-gradient(circle at 50% 60%, rgba(127, 199, 192, 0.09), transparent 30%),
     radial-gradient(circle at 50% 82%, rgba(255, 123, 136, 0.08), transparent 24%),
     linear-gradient(180deg, rgba(7, 13, 24, 0.99), rgba(3, 6, 13, 0.99));
 }
@@ -1666,7 +1674,7 @@ textarea {
   gap: 6px;
   max-width: 260px;
   padding: 12px 14px;
-  border: 1px solid rgba(255, 179, 107, 0.24);
+  border: 1px solid rgba(230, 167, 92, 0.24);
   border-radius: var(--radius-sm);
   background: rgba(5, 7, 11, 0.78);
   color: var(--muted);
@@ -1714,7 +1722,7 @@ textarea {
 .avatar-stage-base {
   align-items: end;
   padding-top: 2px;
-  border-top: 1px solid rgba(126, 242, 255, 0.08);
+  border-top: 1px solid rgba(127, 199, 192, 0.08);
 }
 
 .avatar-stage-name {
@@ -1804,7 +1812,7 @@ textarea {
 
 .viseme-details {
   padding-top: 2px;
-  border-top: 1px solid rgba(126, 242, 255, 0.08);
+  border-top: 1px solid rgba(127, 199, 192, 0.08);
 }
 
 .viseme-details summary,
@@ -1819,7 +1827,7 @@ textarea {
 
 .avatar-audit-details {
   padding-top: 2px;
-  border-top: 1px solid rgba(126, 242, 255, 0.08);
+  border-top: 1px solid rgba(127, 199, 192, 0.08);
 }
 
 .avatar-audit-grid {
@@ -1834,7 +1842,7 @@ textarea {
   gap: 4px;
   min-width: 0;
   padding: 9px 10px;
-  border: 1px solid rgba(126, 242, 255, 0.1);
+  border: 1px solid rgba(127, 199, 192, 0.1);
   border-radius: var(--radius-sm);
   background: rgba(7, 11, 18, 0.55);
 }
@@ -1867,7 +1875,7 @@ textarea {
 /* ── Aside accordions (Event Stream, Perception) ──────────────────────────── */
 
 .aside-accordion {
-  border: 1px solid rgba(126, 242, 255, 0.12);
+  border: 1px solid rgba(127, 199, 192, 0.12);
   border-radius: var(--radius-md);
   background: rgba(7, 11, 20, 0.6);
 }
@@ -2046,5 +2054,83 @@ textarea {
   40% {
     opacity: 1;
     transform: translateY(-2px);
+  }
+}
+
+/* ── BR2049 atmosphere: fog, rain, and film grain ─────────────────────────────
+   Fixed full-viewport layers. Haze + rain sit behind the shell (which is
+   z-index:1); grain sits above content but is non-interactive. Together with
+   the cool palette they turn the chrome from "dashboard" into "night city". */
+
+.joi-haze,
+.joi-rain,
+.joi-grain {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+}
+
+.joi-haze {
+  z-index: 0;
+  background:
+    radial-gradient(ellipse 34% 30% at 84% 80%, rgba(230, 167, 92, 0.10), transparent 60%),
+    radial-gradient(ellipse 42% 36% at 28% 32%, rgba(84, 148, 152, 0.16), transparent 60%),
+    radial-gradient(ellipse 38% 34% at 74% 62%, rgba(66, 104, 168, 0.11), transparent 62%),
+    radial-gradient(ellipse 30% 30% at 54% 46%, rgba(255, 116, 194, 0.08), transparent 66%);
+  filter: blur(42px);
+  animation: joi-drift 54s ease-in-out infinite alternate;
+}
+
+/* Rooftop rain — diagonal, slow, subtle. */
+.joi-rain {
+  z-index: 0;
+  opacity: 0.13;
+  background-image: repeating-linear-gradient(
+    100deg,
+    transparent 0 7px,
+    rgba(190, 225, 230, 0.5) 7px 8px,
+    transparent 8px 15px
+  );
+  background-size: 120px 120px;
+  animation: joi-rain-fall 0.9s linear infinite;
+}
+
+.joi-grain {
+  z-index: 55;
+  opacity: 0.1;
+  mix-blend-mode: soft-light;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+@keyframes joi-drift {
+  0%   { transform: translate3d(0, 0, 0) scale(1); }
+  100% { transform: translate3d(3%, -2.6%, 0) scale(1.09); }
+}
+
+@keyframes joi-rain-fall {
+  0%   { background-position: 0 0; }
+  100% { background-position: -22px 120px; }
+}
+
+/* Holograms in the film destabilise — a rare, brief flicker on her portrait. */
+@keyframes joi-portrait-flicker {
+  0%, 92%, 100% { opacity: 1; }
+  93% { opacity: 0.62; }
+  94% { opacity: 1; }
+  95% { opacity: 0.74; }
+  96% { opacity: 1; }
+}
+
+.avatar-portrait-stage {
+  animation:
+    portrait-breathe 7.5s ease-in-out infinite,
+    joi-portrait-flicker 17s steps(1, end) infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .joi-haze,
+  .joi-rain,
+  .avatar-portrait-stage {
+    animation: none !important;
   }
 }
