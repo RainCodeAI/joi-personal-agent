@@ -23,6 +23,67 @@ function fmt(ts: string | null | undefined): string {
   return Number.isNaN(date.getTime()) ? String(ts) : date.toLocaleString();
 }
 
+// Order the gate's dimensions read naturally: what/when/how-fresh/how-novel/safe.
+const DIMENSION_ORDER = ["relevance", "timing", "recency", "novelty", "safety"] as const;
+
+function DimensionBar({ label, value, tone }: { label: string; value: number; tone?: "warn" }) {
+  const pct = Math.round(Math.max(0, Math.min(1, value)) * 100);
+  const fill = tone === "warn" ? "var(--amber, #d08a2c)" : "var(--joi, #4bb3a7)";
+  return (
+    <span
+      title={`${label} ${value.toFixed(2)}`}
+      style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 11, color: "var(--muted)" }}
+    >
+      <span style={{ minWidth: 58, textTransform: "capitalize" }}>{label}</span>
+      <span
+        style={{
+          position: "relative",
+          width: 44,
+          height: 4,
+          borderRadius: 2,
+          background: "var(--line, rgba(128,128,128,0.25))",
+        }}
+      >
+        <span
+          style={{
+            position: "absolute",
+            insetBlock: 0,
+            left: 0,
+            width: `${pct}%`,
+            borderRadius: 2,
+            background: fill,
+          }}
+        />
+      </span>
+      <span style={{ fontVariantNumeric: "tabular-nums" }}>{value.toFixed(2)}</span>
+    </span>
+  );
+}
+
+function QualityBreakdown({ dimensions }: { dimensions?: Record<string, number> }) {
+  if (!dimensions || Object.keys(dimensions).length === 0) return null;
+  const factor = dimensions.feedback_factor;
+  return (
+    <div
+      style={{
+        display: "flex",
+        flexWrap: "wrap",
+        gap: "4px 14px",
+        marginTop: 6,
+        paddingTop: 6,
+        borderTop: "1px solid var(--line, rgba(128,128,128,0.2))",
+      }}
+    >
+      {DIMENSION_ORDER.filter((key) => key in dimensions).map((key) => (
+        <DimensionBar key={key} label={key} value={dimensions[key]} />
+      ))}
+      {typeof factor === "number" && factor !== 1 && (
+        <DimensionBar label="feedback" value={factor} tone="warn" />
+      )}
+    </div>
+  );
+}
+
 function EmissionRow({
   emission,
   busy,
@@ -41,6 +102,7 @@ function EmissionRow({
         <p style={{ opacity: 0.55, fontSize: 12 }}>
           {fmt(emission.emitted_at)} * score {emission.quality_score.toFixed(2)}
         </p>
+        <QualityBreakdown dimensions={emission.dimensions} />
         <div style={{ display: "flex", gap: 8, marginTop: 6 }}>
           <button
             type="button"

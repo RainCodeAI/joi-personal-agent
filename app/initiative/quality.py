@@ -248,6 +248,14 @@ class InitiativeQualityGate:
             session_id=candidate.session_id,
             source_ids=source_ids,
             emitted_at=now,
+            dimensions={
+                "relevance": score.relevance,
+                "timing": score.timing,
+                "recency": score.recency,
+                "novelty": score.novelty,
+                "safety": score.safety,
+                "feedback_factor": score.feedback_factor,
+            },
         )
 
     def register_feedback(

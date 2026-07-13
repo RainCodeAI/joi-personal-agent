@@ -60,6 +60,7 @@ class InitiativeEmissionMemory:
         session_id: str | None = None,
         source_ids: Sequence[str] | None = None,
         emitted_at: datetime | None = None,
+        dimensions: dict[str, float] | None = None,
     ) -> dict[str, Any]:
         record = {
             "id": str(uuid.uuid4()),
@@ -69,6 +70,9 @@ class InitiativeEmissionMemory:
             "source_ids": list(source_ids or []),
             "message": message,
             "quality_score": round(float(quality_score), 4),
+            # Per-dimension scores behind the total, so the UI can show *why* an
+            # initiative was worth sending. Empty for records predating this.
+            "dimensions": dict(dimensions or {}),
             "emitted_at": (emitted_at or _utc_now()).isoformat(),
             "user_response": "unknown",
         }

@@ -313,6 +313,7 @@ export type InitiativeEmission = {
   source_ids: string[];
   message: string;
   quality_score: number;
+  dimensions?: Record<string, number>;
   emitted_at: string;
   user_response: InitiativeResponse;
 };

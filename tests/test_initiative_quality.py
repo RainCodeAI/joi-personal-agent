@@ -231,6 +231,22 @@ def test_record_emission_persists_topic(tmp_path):
     assert memory.seen_topic_within("memory_followup:mem-1", now=_now()) is True
 
 
+def test_record_emission_persists_dimension_breakdown(tmp_path):
+    memory = InitiativeEmissionMemory(tmp_path / "emissions.json")
+    gate = InitiativeQualityGate(memory)
+    candidate = _evidence_candidate()
+    score = gate.evaluate(candidate, now=_now())
+    gate.record_emission(candidate, score)
+
+    dims = memory.recent()[0]["dimensions"]
+    assert dims["relevance"] == score.relevance
+    assert dims["timing"] == score.timing
+    assert dims["recency"] == score.recency
+    assert dims["novelty"] == score.novelty
+    assert dims["safety"] == score.safety
+    assert dims["feedback_factor"] == score.feedback_factor
+
+
 # ── feedback consumption (learning loop) ─────────────────────────────────────
 
 
