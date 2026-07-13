@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from app.config import settings
-from app.initiative.policy import InitiativeCandidate
+from app.initiative.policy import CandidateEvidence, InitiativeCandidate
 from app.integrations import telegram_bot as tb
 from app.integrations.joi_client import JoiApiError
 from app.integrations.outbox import TelegramOutbox, initiative_is_deliverable
@@ -20,6 +20,22 @@ def _candidate(initiative_type="daily_greeting", message="Morning."):
         reason="test",
         session_id="default",
         message=message,
+    )
+
+
+def _calendar_candidate(event_id="evt-1", message="Heads up — Standup soon."):
+    return InitiativeCandidate(
+        type="calendar_heads_up",
+        priority="normal",
+        reason="test",
+        session_id="default",
+        message=message,
+        evidence=CandidateEvidence(
+            source_type="calendar",
+            excerpt="Standup",
+            source_id=event_id,
+            topic_key=f"calendar_heads_up:{event_id}",
+        ),
     )
 
 
@@ -190,6 +206,54 @@ def test_deliver_remote_without_outbox_is_noop(tmp_path):
     service = InitiativeService(store=InitiativeStore(tmp_path / "init.json"))
     # Must not raise when no outbox is configured.
     service._deliver_remote(_candidate(), datetime.now(timezone.utc))
+
+
+def test_calendar_heads_up_is_deliverable_by_default(monkeypatch):
+    monkeypatch.setattr(settings, "telegram_proactive_enabled", True)
+    # Uses the shipped default type set, which now includes calendar_heads_up.
+    assert initiative_is_deliverable(_calendar_candidate()) is True
+
+
+def test_ambient_type_uses_day_based_dedup_key(tmp_path, monkeypatch):
+    monkeypatch.setattr(settings, "telegram_proactive_enabled", True)
+    monkeypatch.setattr(settings, "telegram_proactive_types", "daily_greeting")
+    service, outbox = _service_with_outbox(tmp_path)
+
+    now = datetime(2026, 7, 12, 9, 0, tzinfo=timezone.utc)
+    service._deliver_remote(_candidate("daily_greeting", "Morning."), now)
+
+    assert outbox.enqueue.call_args.kwargs["dedup_key"] == "daily_greeting:default:2026-07-12"
+
+
+def test_calendar_dedup_key_is_per_event(tmp_path, monkeypatch):
+    monkeypatch.setattr(settings, "telegram_proactive_enabled", True)
+    monkeypatch.setattr(settings, "telegram_proactive_types", "calendar_heads_up")
+    service, outbox = _service_with_outbox(tmp_path)
+
+    now = datetime(2026, 7, 12, 9, 0, tzinfo=timezone.utc)
+    service._deliver_remote(_calendar_candidate("evt-a"), now)
+    service._deliver_remote(_calendar_candidate("evt-b"), now)
+
+    keys = [call.kwargs["dedup_key"] for call in outbox.enqueue.call_args_list]
+    assert keys == ["initiative:calendar_heads_up:evt-a", "initiative:calendar_heads_up:evt-b"]
+
+
+def test_two_calendar_events_same_day_both_enqueue(tmp_path, monkeypatch):
+    """The bug fix: a real outbox keeps both same-day events (distinct dedup keys)."""
+    monkeypatch.setattr(settings, "telegram_proactive_enabled", True)
+    monkeypatch.setattr(settings, "telegram_proactive_types", "calendar_heads_up")
+
+    from app.initiative.service import InitiativeService
+    from app.initiative.store import InitiativeStore
+
+    outbox = TelegramOutbox(tmp_path / "outbox.json")
+    service = InitiativeService(store=InitiativeStore(tmp_path / "init.json"), outbox=outbox)
+
+    now = datetime(2026, 7, 12, 9, 0, tzinfo=timezone.utc)
+    service._deliver_remote(_calendar_candidate("evt-a", "Standup soon."), now)
+    service._deliver_remote(_calendar_candidate("evt-b", "1:1 with Dana soon."), now)
+
+    assert outbox.pending_count() == 2
 
 
 # ── diagnostics ──────────────────────────────────────────────────────────────

@@ -512,10 +512,17 @@ class InitiativeService:
 
             if not initiative_is_deliverable(candidate):
                 return
+            # Evidence-bound types (calendar heads-ups) key on the specific event
+            # so two events on the same day each deliver; ambient types keep the
+            # once-per-day key so a retry storm can't spam the remote surface.
+            if candidate.evidence and candidate.evidence.topic_key:
+                dedup_key = f"initiative:{candidate.evidence.topic_key}"
+            else:
+                dedup_key = f"{candidate.type}:{candidate.session_id}:{now.date().isoformat()}"
             self._outbox.enqueue(
                 text=candidate.message,
                 kind=f"initiative:{candidate.type}",
-                dedup_key=f"{candidate.type}:{candidate.session_id}:{now.date().isoformat()}",
+                dedup_key=dedup_key,
                 expires_at=candidate.expires_at,
             )
         except Exception as exc:  # noqa: BLE001 - delivery is non-critical

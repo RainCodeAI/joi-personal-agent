@@ -96,7 +96,7 @@ class Settings(BaseSettings):
     # laptop; the backend enqueues, the bridge polls and delivers.
     telegram_proactive_enabled: bool = Field(default=False)
     telegram_proactive_types: str = Field(
-        default="daily_greeting,return_after_absence,late_night_checkin"
+        default="daily_greeting,return_after_absence,late_night_checkin,calendar_heads_up"
     )
     telegram_outbox_poll_seconds: int = Field(default=60)
 

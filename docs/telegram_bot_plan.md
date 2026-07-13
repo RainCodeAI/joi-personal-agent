@@ -262,8 +262,12 @@ bridge. Instead:
   via `/api/v2/telegram/outbox/claim`, delivers to allowlisted user IDs, and
   acks. Delivery is at-least-once: an unacked message is reissued next poll.
 
-Possible follow-ups: per-type quiet windows specific to remote delivery, a
-`calendar_heads_up` initiative type, and surfacing outbox depth in diagnostics.
+`calendar_heads_up` is included in the default `TELEGRAM_PROACTIVE_TYPES` — a
+meeting heads-up is an ideal remote nudge. Its outbox dedup key is event-aware
+(keyed on the evidence `topic_key`) so two events on the same day each deliver;
+ambient types keep the once-per-day key so retries can't spam the phone.
+
+Possible follow-ups: per-type quiet windows specific to remote delivery.
 
 ### Attachments And Voice
 
